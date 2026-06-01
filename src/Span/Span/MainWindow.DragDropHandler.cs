@@ -1388,6 +1388,8 @@ namespace Span
                 // Final layout pass: invalidate ItemsControl → StackPanel → ScrollViewer
                 if (grid != null)
                 {
+                    SaveMillerColumnWidth(grid.Width);
+
                     var control = GetActiveMillerColumnsControl();
                     control.InvalidateMeasure();
                     control.UpdateLayout();
@@ -1432,6 +1434,7 @@ namespace Span
 
             double fittedWidth = MeasureColumnContentWidth(columns[columnIndex]);
             parentGrid.Width = fittedWidth;
+            SaveMillerColumnWidth(fittedWidth);
 
             // Check if Ctrl is held: apply to all columns
             var ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
@@ -1518,7 +1521,8 @@ namespace Span
         /// </summary>
         private void ApplyWidthToAllColumns(double width)
         {
-            width = Math.Clamp(width, 150, 600);
+            width = Math.Clamp(width, MillerColumnMinWidth, MillerColumnMaxWidth);
+            SaveMillerColumnWidth(width);
 
             var control = GetActiveMillerColumnsControl();
             var columns = ViewModel.ActiveExplorer.Columns;
@@ -1530,6 +1534,7 @@ namespace Span
                 var grid = VisualTreeHelpers.FindChild<Grid>(container);
                 if (grid != null)
                 {
+                    grid.ClearValue(FrameworkElement.WidthProperty);
                     grid.Width = width;
                 }
             }
@@ -1556,8 +1561,17 @@ namespace Span
                 var grid = VisualTreeHelpers.FindChild<Grid>(container);
                 if (grid != null)
                 {
+                    grid.ClearValue(FrameworkElement.WidthProperty);
                     grid.Width = fittedWidth;
                 }
+            }
+
+            if (columns.Count > 0)
+            {
+                var lastContainer = control.ContainerFromIndex(columns.Count - 1) as ContentPresenter;
+                var lastGrid = lastContainer != null ? VisualTreeHelpers.FindChild<Grid>(lastContainer) : null;
+                if (lastGrid != null)
+                    SaveMillerColumnWidth(lastGrid.Width);
             }
 
             // Invalidate layout

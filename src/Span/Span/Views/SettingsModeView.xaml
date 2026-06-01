@@ -921,6 +921,23 @@
                                                 <TextBlock x:Name="MonokaiDescText" Text="Monokai" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,6,0,0" Foreground="{ThemeResource SpanTextPrimaryBrush}" />
                                             </StackPanel>
                                         </RadioButton>
+
+                                        <RadioButton x:Name="ThemePaper" GroupName="ThemeAll" Width="156"
+                                                     Style="{StaticResource CardRadioButtonStyle}">
+                                            <StackPanel Spacing="0">
+                                                <Border CornerRadius="4" Height="56" BorderBrush="#495359" BorderThickness="1" HorizontalAlignment="Stretch">
+                                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                                        <Border Grid.Column="0" Background="#363F42" CornerRadius="4,0,0,4" />
+                                                        <StackPanel Grid.Column="1" Spacing="4" Padding="6,8" Background="#424B50" VerticalAlignment="Top">
+                                                            <Border Height="3" CornerRadius="1" Background="#0f92fe" HorizontalAlignment="Stretch" />
+                                                            <Border Height="3" CornerRadius="1" Background="#6A7C85" HorizontalAlignment="Stretch" Margin="0,0,20,0" />
+                                                            <Border Height="3" CornerRadius="1" Background="#78909C" HorizontalAlignment="Stretch" Margin="0,0,10,0" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                                <TextBlock x:Name="PaperDescText" Text="Paper" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,6,0,0" Foreground="{ThemeResource SpanTextPrimaryBrush}" />
+                                            </StackPanel>
+                                        </RadioButton>
                                     </helpers:WrapPanel>
                                 </StackPanel>
                             </Border>

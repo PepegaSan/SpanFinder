@@ -443,4 +443,70 @@ namespace Span.Services
             return ((IconService.Current?.FolderGlyph ?? "\uED53"), "#FFC857");
         }
     }
+
+    public interface IFavoritesLayoutService
+    {
+        FavoritesLayout Load();
+        void Save(FavoritesLayout layout);
+    }
+
+    public class FavoritesLayoutService : IFavoritesLayoutService
+    {
+        private const string SettingsKey = "FavoritesLayoutJson";
+        private readonly string _fallbackPath;
+
+        public FavoritesLayoutService()
+        {
+            _fallbackPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Span",
+                "favorites-layout.json");
+        }
+
+        public FavoritesLayout Load()
+        {
+            try
+            {
+                var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
+                if (settings.Values.TryGetValue(SettingsKey, out var raw) && raw is string json)
+                {
+                    var layout = JsonSerializer.Deserialize<FavoritesLayout>(json);
+                    if (layout != null) return layout;
+                }
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[FavoritesLayout] LocalSettings load failed: {ex.Message}");
+            }
+
+            try
+            {
+                if (File.Exists(_fallbackPath))
+                {
+                    var json = File.ReadAllText(_fallbackPath);
+                    return JsonSerializer.Deserialize<FavoritesLayout>(json) ?? new FavoritesLayout();
+                }
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[FavoritesLayout] File load failed: {ex.Message}");
+            }
+
+            return new FavoritesLayout();
+        }
+
+        public void Save(FavoritesLayout layout)
+        {
+            var json = JsonSerializer.Serialize(layout);
+            try { Windows.Storage.ApplicationData.Current.LocalSettings.Values[SettingsKey] = json; }
+            catch (Exception ex) { Helpers.DebugLogger.Log($"[FavoritesLayout] LocalSettings save failed: {ex.Message}"); }
+            try
+            {
+                var dir = Path.GetDirectoryName(_fallbackPath);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(_fallbackPath, json);
+            }
+            catch (Exception ex) { Helpers.DebugLogger.Log($"[FavoritesLayout] File save failed: {ex.Message}"); }
+        }
+    }
 }

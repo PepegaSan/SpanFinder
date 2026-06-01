@@ -587,6 +587,32 @@ namespace Span.Services
             menu.Items.Add(CreateItem(_loc.Get("Open"), "\uE8E5", () => host.PerformOpenFavorite(fav), "O"));
             menu.Items.Add(new MenuFlyoutSeparator());
 
+            menu.Items.Add(CreateItem(_loc.Get("Favorites_NewGroup"), "\uE710",
+                () => host.CreateFavoriteGroup()));
+            menu.Items.Add(new MenuFlyoutSeparator());
+
+            var groups = host.GetFavoriteGroups();
+            if (groups.Count > 0)
+            {
+                var moveSub = new MenuFlyoutSubItem
+                {
+                    Text = _loc.Get("Favorites_MoveToGroup"),
+                    Icon = new FontIcon { Glyph = "\uE8A5", FontSize = 14 }
+                };
+                moveSub.Items.Add(CreateItem(_loc.Get("Favorites_NoGroup"), "\uE8B7",
+                    () => host.MoveFavoriteToGroup(fav.Path, null)));
+                moveSub.Items.Add(new MenuFlyoutSeparator());
+                foreach (var group in groups)
+                {
+                    var groupId = group.Id;
+                    var groupName = group.Name;
+                    moveSub.Items.Add(CreateItem(groupName, "\uE8F1",
+                        () => host.MoveFavoriteToGroup(fav.Path, groupId)));
+                }
+                menu.Items.Add(moveSub);
+                menu.Items.Add(new MenuFlyoutSeparator());
+            }
+
             menu.Items.Add(CreateItem(_loc.Get("RemoveFromFavorites"), "\uE735", () => host.RemoveFromFavorites(fav.Path), "I"));
             menu.Items.Add(new MenuFlyoutSeparator());
 
@@ -595,6 +621,30 @@ namespace Span.Services
             menu.Items.Add(new MenuFlyoutSeparator());
 
             menu.Items.Add(CreateItem(_loc.Get("Properties"), "\uE946", () => _shellService.ShowProperties(fav.Path), "R"));
+
+            TrackFlyout(menu);
+            return menu;
+        }
+
+        public MenuFlyout BuildFavoriteGroupMenu(FavoriteGroupViewModel group, IContextMenuHost host)
+        {
+            var menu = new MenuFlyout();
+            var groupId = group.Id;
+
+            menu.Items.Add(CreateItem(_loc.Get("Favorites_RenameGroup"), "\uE70F",
+                () => host.RenameFavoriteGroup(groupId)));
+            menu.Items.Add(CreateItem(_loc.Get("Favorites_DeleteGroup"), "\uE74D",
+                () => host.DeleteFavoriteGroup(groupId)));
+
+            TrackFlyout(menu);
+            return menu;
+        }
+
+        public MenuFlyout BuildFavoritesSectionMenu(IContextMenuHost host)
+        {
+            var menu = new MenuFlyout();
+            menu.Items.Add(CreateItem(_loc.Get("Favorites_NewGroup"), "\uE710",
+                () => host.CreateFavoriteGroup()));
 
             TrackFlyout(menu);
             return menu;

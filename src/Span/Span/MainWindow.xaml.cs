@@ -354,6 +354,66 @@ namespace Span
         private bool _isTearOffWindow;
 
         private const double ColumnWidth = 220;
+        private const double MillerColumnMinWidth = 150;
+        private const double MillerColumnMaxWidth = 600;
+
+        /// <summary>
+        /// Persisted user Miller column width, or FontScale default when not customized.
+        /// </summary>
+        private double GetEffectiveMillerColumnWidth()
+        {
+            int saved = _settings.MillerColumnWidth;
+            if (saved >= MillerColumnMinWidth)
+                return saved;
+            return Helpers.FontScaleService.Instance.MillerColumnWidth;
+        }
+
+        private void SaveMillerColumnWidth(double width)
+        {
+            width = Math.Clamp(width, MillerColumnMinWidth, MillerColumnMaxWidth);
+            _settings.MillerColumnWidth = (int)Math.Round(width);
+        }
+
+        /// <summary>
+        /// Apply saved Miller column width to all column containers.
+        /// Skips when no custom width is saved (XAML FontScale binding handles auto width).
+        /// </summary>
+        private void ApplyPersistedMillerColumnWidth(ItemsControl? control)
+        {
+            if (control?.Items == null || _settings.MillerColumnWidth < MillerColumnMinWidth)
+                return;
+
+            double width = _settings.MillerColumnWidth;
+            for (int i = 0; i < control.Items.Count; i++)
+            {
+                var container = control.ContainerFromIndex(i) as ContentPresenter;
+                if (container == null) continue;
+                var grid = VisualTreeHelpers.FindChild<Grid>(container);
+                if (grid == null) continue;
+                grid.ClearValue(FrameworkElement.WidthProperty);
+                grid.Width = width;
+            }
+
+            control.InvalidateMeasure();
+        }
+
+        private void ApplyPersistedMillerColumnWidthsAll()
+        {
+            foreach (var kvp in _tabMillerPanels)
+                ApplyPersistedMillerColumnWidth(kvp.Value.items);
+            ApplyPersistedMillerColumnWidth(MillerColumnsControlRight);
+        }
+
+        private void ApplyPersistedMillerColumnWidthToElement(UIElement element, ItemsControl control)
+        {
+            if (_settings.MillerColumnWidth < MillerColumnMinWidth) return;
+            if (element is not ContentPresenter container) return;
+            var grid = VisualTreeHelpers.FindChild<Grid>(container);
+            if (grid == null) return;
+            grid.ClearValue(FrameworkElement.WidthProperty);
+            grid.Width = _settings.MillerColumnWidth;
+            control.InvalidateMeasure();
+        }
 
         // Column resize state
         private bool _isResizingColumn = false;
@@ -985,6 +1045,9 @@ namespace Span
                     DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
                         () => ApplyIconFontScale(_settings.IconFontScale));
 
+                    DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+                        ApplyPersistedMillerColumnWidthsAll);
+
                     // Apply MillerClickBehavior on startup
                     if (_settings.MillerClickBehavior == "double")
                     {
@@ -1544,7 +1607,7 @@ namespace Span
         // =================================================================
 
         // 커스텀 테마 목록 (Dark 기반 + 리소스 오버라이드)
-        internal static readonly HashSet<string> _customThemes = new() { "dracula", "tokyonight", "catppuccin", "gruvbox", "nord", "onedark", "monokai", "solarized-light" };
+        internal static readonly HashSet<string> _customThemes = new() { "dracula", "tokyonight", "catppuccin", "gruvbox", "nord", "onedark", "monokai", "solarized-light", "paper" };
 
 
 
@@ -1606,6 +1669,9 @@ namespace Span
                 }
             }
 
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+                () => ApplyPersistedMillerColumnWidth(GetActiveMillerColumnsControl()));
+
             // Column slide-in animation: only for Add when not the root column,
             // and only when this is a genuine depth change (not a Replace cycle).
             if (e.Action == NotifyCollectionChangedAction.Add &&
@@ -1658,6 +1724,9 @@ namespace Span
                 Helpers.DebugLogger.Log($"[OnRightColumnsChanged] PrepareAndAnimateNewColumn for right");
                 PrepareAndAnimateNewColumn(MillerColumnsControlRight);
             }
+
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+                () => ApplyPersistedMillerColumnWidth(MillerColumnsControlRight));
         }
 
         // =================================================================
@@ -1814,6 +1883,7 @@ namespace Span
                 Helpers.DebugLogger.Log($"[PrepareAndAnimate] ContainerFromIndex({lastIndex})={container?.GetType().Name ?? "null"}");
                 if (container is UIElement element)
                 {
+                    ApplyPersistedMillerColumnWidthToElement(element, control);
                     HideAndAnimateColumn(element);
                     return;
                 }
@@ -1830,6 +1900,7 @@ namespace Span
                     var retryContainer = control.ContainerFromIndex(lastIndex);
                     if (retryContainer is UIElement retryElement)
                     {
+                        ApplyPersistedMillerColumnWidthToElement(retryElement, control);
                         HideAndAnimateColumn(retryElement);
                     }
                 }
@@ -3731,6 +3802,14 @@ namespace Span
             if (e.OriginalSource is FrameworkElement fe && fe.DataContext is DriveItem)
                 return;
 
+            // Favoriten-Bereich: eigenes Menü (Neue Gruppe), nicht Netzwerk-Menü
+            if (IsWithinSidebarFavorites(e.OriginalSource as DependencyObject))
+            {
+                ShowFavoritesSectionMenu(sender as FrameworkElement, e);
+                e.Handled = true;
+                return;
+            }
+
             var flyout = new MenuFlyout();
 
             var currentFontFamily = new Microsoft.UI.Xaml.Media.FontFamily(
@@ -4000,7 +4079,7 @@ namespace Span
             FavoritesTreeView.Visibility = showTree
                 ? Microsoft.UI.Xaml.Visibility.Visible
                 : Microsoft.UI.Xaml.Visibility.Collapsed;
-            FavoritesFlatList.Visibility = showTree
+            FavoritesFlatPanel.Visibility = showTree
                 ? Microsoft.UI.Xaml.Visibility.Collapsed
                 : Microsoft.UI.Xaml.Visibility.Visible;
         }
@@ -4084,7 +4163,6 @@ namespace Span
         /// </summary>
         private void OnFavoritesFlatListRightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
         {
-            // ListView의 우클릭 → 클릭된 아이템에서 컨텍스트 메뉴 표시
             if (e.OriginalSource is FrameworkElement fe)
             {
                 var fav = FindParentDataContext<FavoriteItem>(fe);
@@ -4096,8 +4174,33 @@ namespace Span
                         Position = e.GetPosition(fe)
                     });
                     e.Handled = true;
+                    return;
                 }
             }
+
+            ShowFavoritesSectionMenu(sender as FrameworkElement, e);
+            e.Handled = true;
+        }
+
+        private void ShowFavoritesSectionMenu(FrameworkElement? target, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
+        {
+            if (target == null) return;
+            var flyout = _contextMenuService.BuildFavoritesSectionMenu(this);
+            flyout.ShowAt(target, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
+            {
+                Position = e.GetPosition(target)
+            });
+        }
+
+        private static bool IsWithinSidebarFavorites(DependencyObject? source)
+        {
+            while (source != null)
+            {
+                if (source is FrameworkElement { Name: "SidebarFavoritesSection" or "FavoritesFlatPanel" or "FavoritesTreeView" or "UngroupedFavoritesList" })
+                    return true;
+                source = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(source);
+            }
+            return false;
         }
 
         private static T? FindParentDataContext<T>(FrameworkElement fe) where T : class
@@ -4111,13 +4214,108 @@ namespace Span
             return null;
         }
 
-        private void OnFavoritesDragCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
+        private void OnUngroupedFavoritesDragCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
         {
-            // 드래그 리오더 완료 후 즐겨찾기 저장
-            var favService = App.Current.Services.GetService(typeof(Services.IFavoritesService)) as Services.IFavoritesService;
-            favService?.SaveFavorites(ViewModel.Favorites.ToList());
-            Helpers.DebugLogger.Log($"[Favorites] Reordered and saved ({ViewModel.Favorites.Count} items)");
+            ViewModel.SaveUngroupedFavoriteOrder();
+            Helpers.DebugLogger.Log($"[Favorites] Ungrouped reordered ({ViewModel.UngroupedFavorites.Count} items)");
         }
+
+        private void OnGroupFavoritesDragCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
+        {
+            if (sender is ListView listView && listView.Tag is string groupId)
+            {
+                ViewModel.SaveGroupFavoriteOrder(groupId);
+                Helpers.DebugLogger.Log($"[Favorites] Group '{groupId}' reordered");
+            }
+        }
+
+        private void OnFavoriteGroupHeaderTapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+        {
+            if (sender is Grid grid && grid.Tag is string groupId)
+                ViewModel.ToggleFavoriteGroupExpanded(groupId);
+        }
+
+        private void OnFavoriteGroupHeaderRightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
+        {
+            if (sender is not Grid grid || grid.Tag is not string groupId) return;
+
+            var group = ViewModel.FavoriteGroups.FirstOrDefault(g => g.Id == groupId);
+            if (group == null) return;
+
+            var flyout = _contextMenuService.BuildFavoriteGroupMenu(group, this);
+            flyout.ShowAt(grid, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
+            {
+                Position = e.GetPosition(grid)
+            });
+            e.Handled = true;
+        }
+
+        private void OnFavoritesSectionRightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
+        {
+            if (e.OriginalSource is FrameworkElement fe && FindParentDataContext<FavoriteItem>(fe) != null)
+                return;
+
+            ShowFavoritesSectionMenu(sender as FrameworkElement, e);
+            e.Handled = true;
+        }
+
+        private async Task<string?> PromptFavoriteGroupNameAsync(string title, string defaultName)
+        {
+            var input = new TextBox
+            {
+                Text = defaultName,
+                SelectionStart = 0,
+                SelectionLength = defaultName.Length
+            };
+
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                Content = input,
+                PrimaryButtonText = _loc.Get("OK"),
+                CloseButtonText = _loc.Get("Cancel"),
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = Content.XamlRoot
+            };
+
+            var result = await ShowContentDialogSafeAsync(dialog);
+            if (result != ContentDialogResult.Primary) return null;
+
+            var name = input.Text.Trim();
+            return string.IsNullOrEmpty(name) ? null : name;
+        }
+
+        internal async void CreateFavoriteGroup()
+        {
+            var name = await PromptFavoriteGroupNameAsync(
+                _loc.Get("Favorites_NewGroup"),
+                _loc.Get("Favorites_NewGroupDefault"));
+            if (name != null)
+                ViewModel.CreateFavoriteGroup(name);
+        }
+
+        internal async void RenameFavoriteGroup(string groupId)
+        {
+            var group = ViewModel.FavoriteGroups.FirstOrDefault(g => g.Id == groupId);
+            if (group == null) return;
+
+            var name = await PromptFavoriteGroupNameAsync(_loc.Get("Favorites_RenameGroup"), group.Name);
+            if (name != null)
+                ViewModel.RenameFavoriteGroup(groupId, name);
+        }
+
+        internal void DeleteFavoriteGroup(string groupId)
+        {
+            ViewModel.DeleteFavoriteGroup(groupId);
+        }
+
+        internal void MoveFavoriteToGroup(string path, string? groupId)
+        {
+            ViewModel.MoveFavoriteToGroup(path, groupId);
+        }
+
+        internal IReadOnlyList<ViewModels.FavoriteGroupViewModel> GetFavoriteGroups()
+            => ViewModel.FavoriteGroups.ToList();
 
         /// <summary>
         /// Populate the favorites TreeView from ViewModel.Favorites.
@@ -4144,6 +4342,8 @@ namespace Span
         {
             if (_isClosed) return;
             PopulateFavoritesTree();
+            if (!ViewModel.IsUpdatingFavoritesCollection)
+                ViewModel.RefreshFavoriteGroups();
         }
 
         /// <summary>
@@ -4487,7 +4687,8 @@ namespace Span
                             if (grid.MinHeight != _densityMinHeight)
                                 grid.MinHeight = _densityMinHeight;
 
-                            // 폰트/아이콘 스케일은 FontScaleService + XAML {Binding} 으로 자동 반영 (Phase B-5).
+                            if (_currentDisplayFont != null)
+                                ApplyFontToVisualTree(grid, _currentDisplayFont);
                         }
                     }
                 }
@@ -6391,6 +6592,18 @@ namespace Span
         {
             ViewModel.RemoveFromFavorites(path);
         }
+
+        void Services.IContextMenuHost.CreateFavoriteGroup() => CreateFavoriteGroup();
+
+        void Services.IContextMenuHost.RenameFavoriteGroup(string groupId) => RenameFavoriteGroup(groupId);
+
+        void Services.IContextMenuHost.DeleteFavoriteGroup(string groupId) => DeleteFavoriteGroup(groupId);
+
+        void Services.IContextMenuHost.MoveFavoriteToGroup(string path, string? groupId)
+            => MoveFavoriteToGroup(path, groupId);
+
+        IReadOnlyList<ViewModels.FavoriteGroupViewModel> Services.IContextMenuHost.GetFavoriteGroups()
+            => GetFavoriteGroups();
 
         async void Services.IContextMenuHost.RemoveRemoteConnection(string connectionId)
         {

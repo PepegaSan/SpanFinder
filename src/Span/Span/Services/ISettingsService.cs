@@ -86,6 +86,7 @@ namespace Span.Services
         bool ListShowSize { get; set; }
         bool ListShowDate { get; set; }
         int ListColumnWidth { get; set; }
+        int MillerColumnWidth { get; set; }
 
         // Per-tab startup settings
         int Tab1StartupBehavior { get; set; }

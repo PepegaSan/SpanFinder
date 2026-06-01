@@ -56,9 +56,8 @@ public sealed partial class SettingsModeView : UserControl
     {
         this.InitializeComponent();
 
-        // Set version from Package manifest + auto-generated build date
-        var v = Windows.ApplicationModel.Package.Current.Id.Version;
-        VersionLabel.Text = $"v{v.Major}.{v.Minor}.{v.Build} (Build {BuildInfo.BuildDate})";
+        // Set version from Package manifest (MSIX) or assembly (unpackaged dev)
+        VersionLabel.Text = PackageHelper.FormatVersionLabel();
 
         _settings = App.Current.Services.GetRequiredService<Services.SettingsService>();
         _sections = new ScrollViewer[]
@@ -181,6 +180,7 @@ public sealed partial class SettingsModeView : UserControl
             ThemeNord.IsChecked = theme == "nord";
             ThemeOneDark.IsChecked = theme == "onedark";
             ThemeMonokai.IsChecked = theme == "monokai";
+            ThemePaper.IsChecked = theme == "paper";
 
             // Custom accent override
             UseCustomAccentToggle.IsOn = _settings.UseCustomAccent;
@@ -382,6 +382,7 @@ public sealed partial class SettingsModeView : UserControl
         ThemeNord.Checked += (s, e) => { if (!_isLoading) _settings.Theme = "nord"; };
         ThemeOneDark.Checked += (s, e) => { if (!_isLoading) _settings.Theme = "onedark"; };
         ThemeMonokai.Checked += (s, e) => { if (!_isLoading) _settings.Theme = "monokai"; };
+        ThemePaper.Checked += (s, e) => { if (!_isLoading) _settings.Theme = "paper"; };
 
         Density0.Checked += (s, e) => { if (!_isLoading) _settings.Density = "0"; };
         Density1.Checked += (s, e) => { if (!_isLoading) _settings.Density = "1"; };
@@ -481,7 +482,7 @@ public sealed partial class SettingsModeView : UserControl
         foreach (var rb in new[] {
             ThemeSystem, ThemeLight, ThemeDark, ThemeDracula,
             ThemeTokyoNight, ThemeCatppuccin, ThemeGruvbox,
-            ThemeSolarizedLight, ThemeNord, ThemeOneDark, ThemeMonokai,
+            ThemeSolarizedLight, ThemeNord, ThemeOneDark, ThemeMonokai, ThemePaper,
             Tab1StartupHome, Tab1StartupRestore, Tab1StartupCustom,
             Tab2StartupHome, Tab2StartupRestore, Tab2StartupCustom,
             Density0, Density1, Density2, Density3, Density4, Density5,

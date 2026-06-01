@@ -715,6 +715,12 @@ namespace Span.Services
             ("Favorites_Downloads", "Downloads", "다운로드", "ダウンロード", "下载", "下載", "Downloads", "Descargas", "Téléchargements", "Downloads"),
             ("Favorites_Documents", "Documents", "문서", "ドキュメント", "文档", "文件", "Dokumente", "Documentos", "Documents", "Documentos"),
             ("Favorites_Pictures", "Pictures", "사진", "ピクチャ", "图片", "圖片", "Bilder", "Imágenes", "Images", "Imagens"),
+            ("Favorites_NewGroup", "New group", "새 그룹", "新しいグループ", "新建分组", "新增群組", "Neue Gruppe", "Nuevo grupo", "Nouveau groupe", "Novo grupo"),
+            ("Favorites_NewGroupDefault", "New Group", "새 그룹", "新しいグループ", "新建分组", "新增群組", "Neue Gruppe", "Nuevo grupo", "Nouveau groupe", "Novo grupo"),
+            ("Favorites_RenameGroup", "Rename group", "그룹 이름 변경", "グループ名を変更", "重命名分组", "重新命名群組", "Gruppe umbenennen", "Renombrar grupo", "Renommer le groupe", "Renomear grupo"),
+            ("Favorites_DeleteGroup", "Delete group", "그룹 삭제", "グループを削除", "删除分组", "刪除群組", "Gruppe löschen", "Eliminar grupo", "Supprimer le groupe", "Excluir grupo"),
+            ("Favorites_MoveToGroup", "Move to group", "그룹으로 이동", "グループに移動", "移动到分组", "移至群組", "In Gruppe verschieben", "Mover a grupo", "Déplacer vers le groupe", "Mover para grupo"),
+            ("Favorites_NoGroup", "No group", "그룹 없음", "グループなし", "无分组", "無群組", "Keine Gruppe", "Sin grupo", "Aucun groupe", "Sem grupo"),
 
             // ── File operations ─────────────────────────────────────────────
             ("Toast_OperationCancelled", "Operation cancelled", "작업이 취소되었습니다", "操作がキャンセルされました", "操作已取消", "操作已取消", "Vorgang abgebrochen", "Operación cancelada", "Opération annulée", "Operação cancelada"),

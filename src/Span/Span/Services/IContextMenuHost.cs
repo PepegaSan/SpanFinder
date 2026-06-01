@@ -1,5 +1,6 @@
 using Span.Models;
 using Span.ViewModels;
+using System.Collections.Generic;
 
 namespace Span.Services
 {
@@ -45,5 +46,11 @@ namespace Span.Services
         void PerformRefresh();
         void PerformUndo();
         void PerformShowProperties(string path);
+
+        void CreateFavoriteGroup();
+        void RenameFavoriteGroup(string groupId);
+        void DeleteFavoriteGroup(string groupId);
+        void MoveFavoriteToGroup(string path, string? groupId);
+        IReadOnlyList<FavoriteGroupViewModel> GetFavoriteGroups();
     }
 }

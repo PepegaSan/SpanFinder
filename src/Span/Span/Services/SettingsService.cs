@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
 using Windows.Storage;
 
 namespace Span.Services;
@@ -11,7 +13,10 @@ namespace Span.Services;
 /// </summary>
 public class SettingsService : ISettingsService
 {
-    private readonly ApplicationDataContainer _localSettings;
+    private readonly ApplicationDataContainer? _localSettings;
+    private readonly Dictionary<string, object?> _fallbackSettings = new();
+    private readonly string _fallbackSettingsPath;
+    private readonly bool _useFallback;
 
     public event Action<string, object?>? SettingChanged;
 
@@ -30,19 +35,25 @@ public class SettingsService : ISettingsService
 
     public SettingsService()
     {
+        _fallbackSettingsPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Span",
+            "settings.json");
+
+        ApplicationDataContainer? localSettings = null;
         try
         {
-            _localSettings = ApplicationData.Current.LocalSettings;
+            localSettings = ApplicationData.Current.LocalSettings;
 
             // Probe read to detect corrupted container early
-            _ = _localSettings.Values.Count;
+            _ = localSettings.Values.Count;
         }
         catch (Exception ex)
         {
             Helpers.DebugLogger.Log($"[SettingsService] LocalSettings corrupted, attempting selective recovery: {ex.Message}");
             try
             {
-                _localSettings = ApplicationData.Current.LocalSettings;
+                localSettings = ApplicationData.Current.LocalSettings;
 
                 // v1.5.2 (Discussion #30): 핵심 키 백업 → Clear → 복원.
                 // 이전 동작은 Wipe 후 모든 사용자 설정(온보딩 완료 플래그 포함)을 잃어
@@ -52,27 +63,87 @@ public class SettingsService : ISettingsService
                 {
                     try
                     {
-                        if (_localSettings.Values.TryGetValue(key, out var v) && v != null)
+                        if (localSettings.Values.TryGetValue(key, out var v) && v != null)
                             preserved[key] = v;
                     }
                     catch { /* 키 read 실패 — 해당 키만 건너뜀 */ }
                 }
 
-                _localSettings.Values.Clear();
+                localSettings.Values.Clear();
 
                 foreach (var kvp in preserved)
                 {
-                    try { _localSettings.Values[kvp.Key] = kvp.Value; } catch { }
+                    try { localSettings.Values[kvp.Key] = kvp.Value; } catch { }
                 }
                 Helpers.DebugLogger.Log($"[SettingsService] Restored {preserved.Count}/{_criticalKeysToPreserve.Length} critical keys after wipe");
             }
             catch (Exception innerEx)
             {
-                // Last resort — settings will be empty but app won't crash
+                // Unpackaged dev builds have no package identity — fall back to JSON file storage.
                 Helpers.DebugLogger.Log($"[SettingsService] Selective recovery failed: {innerEx.Message}");
+                localSettings = null;
             }
         }
+
+        if (localSettings != null)
+        {
+            _localSettings = localSettings;
+            _useFallback = false;
+        }
+        else
+        {
+            _useFallback = true;
+            LoadFallbackSettings();
+            Helpers.DebugLogger.Log($"[SettingsService] Using unpackaged settings file: {_fallbackSettingsPath}");
+        }
     }
+
+    private void LoadFallbackSettings()
+    {
+        try
+        {
+            if (!File.Exists(_fallbackSettingsPath)) return;
+            var json = File.ReadAllText(_fallbackSettingsPath);
+            var loaded = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json);
+            if (loaded == null) return;
+
+            foreach (var (key, element) in loaded)
+                _fallbackSettings[key] = ConvertJsonElement(element);
+        }
+        catch (Exception ex)
+        {
+            Helpers.DebugLogger.Log($"[SettingsService] Failed to load fallback settings: {ex.Message}");
+        }
+    }
+
+    private void SaveFallbackSettings()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(_fallbackSettingsPath);
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+
+            var json = JsonSerializer.Serialize(_fallbackSettings);
+            File.WriteAllText(_fallbackSettingsPath, json);
+        }
+        catch (Exception ex)
+        {
+            Helpers.DebugLogger.Log($"[SettingsService] Failed to save fallback settings: {ex.Message}");
+        }
+    }
+
+    private static object? ConvertJsonElement(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.String => element.GetString(),
+        JsonValueKind.Number when element.TryGetInt32(out var i) => i,
+        JsonValueKind.Number when element.TryGetInt64(out var l) => l,
+        JsonValueKind.Number => element.GetDouble(),
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        JsonValueKind.Null => null,
+        _ => element.GetRawText()
+    };
 
     // ── Generic Get/Set ──
 
@@ -80,14 +151,27 @@ public class SettingsService : ISettingsService
     {
         try
         {
-            if (_localSettings.Values.TryGetValue(key, out var value) && value is T typed)
-                return typed;
+            if (_useFallback)
+            {
+                if (_fallbackSettings.TryGetValue(key, out var value) && value is T typed)
+                    return typed;
+                return defaultValue;
+            }
+
+            if (_localSettings!.Values.TryGetValue(key, out var packagedValue) && packagedValue is T packagedTyped)
+                return packagedTyped;
         }
         catch (Exception ex)
         {
             Helpers.DebugLogger.Log($"[SettingsService] Error reading '{key}': {ex.Message}");
-            // Remove corrupted key
-            try { _localSettings.Values.Remove(key); } catch { }
+            if (!_useFallback)
+            {
+                try { _localSettings!.Values.Remove(key); } catch { }
+            }
+            else
+            {
+                _fallbackSettings.Remove(key);
+            }
         }
         return defaultValue;
     }
@@ -96,10 +180,21 @@ public class SettingsService : ISettingsService
     {
         try
         {
-            var old = _localSettings.Values.ContainsKey(key) ? _localSettings.Values[key] : null;
+            if (_useFallback)
+            {
+                var old = _fallbackSettings.TryGetValue(key, out var existing) ? existing : null;
+                _fallbackSettings[key] = value;
+                SaveFallbackSettings();
+
+                if (!Equals(old, value))
+                    SettingChanged?.Invoke(key, value);
+                return;
+            }
+
+            var oldPackaged = _localSettings!.Values.ContainsKey(key) ? _localSettings.Values[key] : null;
             _localSettings.Values[key] = value;
 
-            if (!Equals(old, value))
+            if (!Equals(oldPackaged, value))
                 SettingChanged?.Invoke(key, value);
         }
         catch (Exception ex)
@@ -455,6 +550,15 @@ public class SettingsService : ISettingsService
     {
         get => Get("ListColumnWidth", 250);
         set => Set("ListColumnWidth", value);
+    }
+
+    /// <summary>
+    /// User-resized Miller column width in pixels. 0 = auto (FontScale default).
+    /// </summary>
+    public int MillerColumnWidth
+    {
+        get => Get("MillerColumnWidth", 0);
+        set => Set("MillerColumnWidth", value);
     }
 
     // ── Store Rating ──

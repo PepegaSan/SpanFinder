@@ -256,6 +256,7 @@ namespace Span
             {
                 var part = parts[j].Trim().Trim('"');
                 if (!string.IsNullOrEmpty(part)
+                    && !part.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
                     && (System.IO.Directory.Exists(part) || System.IO.File.Exists(part)
                         || IsRecycleBinArgument(part) || IsVirtualFolderArgument(part))
                     && !IsSystemPackagePath(part))
@@ -264,9 +265,12 @@ namespace Span
 
             // 단일 인수 (따옴표 없는 경로)
             var trimmed = rawArgs.Trim().Trim('"');
-            if ((System.IO.Directory.Exists(trimmed) || System.IO.File.Exists(trimmed)) && !IsSystemPackagePath(trimmed)) return trimmed;
+            if (!trimmed.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                && (System.IO.Directory.Exists(trimmed) || System.IO.File.Exists(trimmed))
+                && !IsSystemPackagePath(trimmed))
+                return trimmed;
 
-            return rawArgs; // fallback: 원본 반환
+            return null;
         }
 
         private static Windows.UI.Color ColorFromHex(string hex)
@@ -511,6 +515,7 @@ namespace Span
             services.AddSingleton<Services.FileSystemService>();
             services.AddSingleton<Services.IconService>();
             services.AddSingleton<Services.FavoritesService>();
+            services.AddSingleton<Services.IFavoritesLayoutService, Services.FavoritesLayoutService>();
             services.AddSingleton<Services.PreviewService>();
             services.AddSingleton<Services.ShellService>();
             services.AddSingleton<Services.LocalizationService>();

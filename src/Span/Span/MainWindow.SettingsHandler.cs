@@ -755,6 +755,14 @@ namespace Span
                 Clr("#4D268bd2"), Clr("#33586e75"),
                 Clr("#99268bd2"), Clr("#B3268bd2"), Clr("#80268bd2")
             ),
+            // One Commander Paper theme (niivu palette) — https://github.com/PepegaSan/One-Commander-Paper-Theme
+            "paper" => (
+                Clr("#2A3135"), Clr("#424B50"), Clr("#495359"), Clr("#4C595F"),
+                Clr("#0f92fe"), Clr("#78909C"),
+                Clr("#D2E2FF"), Clr("#cacaca"), Clr("#6A7C85"),
+                Clr("#4D0f92fe"), Clr("#33D2E2FF"),
+                Clr("#990f92fe"), Clr("#B30f92fe"), Clr("#800f92fe")
+            ),
             _ => default
         };
 
@@ -794,6 +802,10 @@ namespace Span
             "solarized-light" => (
                 Clr("#586e75"), Clr("#268bd2"), Clr("#26268bd2"),
                 Clr("#2aa198"), Clr("#40268bd2"), Clr("#93a1a1")
+            ),
+            "paper" => (
+                Clr("#D2E2FF"), Clr("#0f92fe"), Clr("#260f92fe"),
+                Clr("#ffffff"), Clr("#400f92fe"), Clr("#6A7C85")
             ),
             _ => (
                 Clr("#FFFFFF"), Clr("#FFFFFF"), Clr("#0FFFFFFF"),
@@ -927,6 +939,8 @@ namespace Span
         /// 사용자가 어떤 폰트를 선택하든 CJK fallback이 자동 추가됨.
         /// 번들 폰트 경로와 시스템 폰트명은 혼합 불가 — 번들 폰트는 단독 사용.
         /// </summary>
+        private FontFamily? _currentDisplayFont;
+
         private void ApplyFontFamily(string fontFamily)
         {
             if (_isClosed) return;
@@ -935,6 +949,7 @@ namespace Span
             {
                 var fontSpec = ResolveFontSpec(fontFamily);
                 var font = new FontFamily(fontSpec);
+                _currentDisplayFont = font;
 
                 // (1) 테마 리소스 업데이트 — 이후 생성/재활용되는 컨트롤에 적용
                 root.Resources["ContentControlThemeFontFamily"] = font;
@@ -976,17 +991,21 @@ namespace Span
         }
 
         /// <summary>
-        /// 모노폰트, 아이콘 폰트 등 사용자 폰트로 대체하면 안 되는 폰트인지 확인.
+        /// 아이콘 폰트 및 XAML MonoFont 리소스 등 사용자 폰트로 대체하면 안 되는 폰트인지 확인.
+        /// 사용자가 Consolas/Cascadia Code 등을 선택한 경우에는 대체 대상이므로 제외하지 않는다.
         /// </summary>
         private static bool IsExcludedFont(FontFamily? ff)
         {
             var src = ff?.Source;
             if (string.IsNullOrEmpty(src)) return false;
-            return src.Contains("Consolas", StringComparison.OrdinalIgnoreCase)
-                || src.Contains("Cascadia", StringComparison.OrdinalIgnoreCase)
-                || src.Contains("remixicon", StringComparison.OrdinalIgnoreCase)
+
+            if (src.Contains("remixicon", StringComparison.OrdinalIgnoreCase)
                 || src.Contains("Segoe Fluent", StringComparison.OrdinalIgnoreCase)
-                || src.Contains("Segoe MDL2", StringComparison.OrdinalIgnoreCase);
+                || src.Contains("Segoe MDL2", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // App.xaml MonoFont — hash/git 등 기술 컬럼 전용 (Cascadia Code, Consolas, …)
+            return src.StartsWith("Cascadia Code, Consolas,", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
