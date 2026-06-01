@@ -1759,6 +1759,23 @@
                                     <ToggleSwitch x:Name="ContextMenuToggle" Grid.Column="2" VerticalAlignment="Center" IsOn="True" OnContent="" OffContent="" />
                                 </Grid>
                             </Border>
+                            <Border Style="{StaticResource SettingsCardBorder}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0" Style="{StaticResource CardIconContainer}">
+                                        <FontIcon Glyph="&#xE8A7;" Style="{StaticResource CardIconStyle}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock x:Name="NativeShellCtxMenuLabel" Text="Windows shell context menu" Style="{StaticResource SettingsCardLabel}" />
+                                        <TextBlock x:Name="NativeShellCtxMenuDesc" Text="Explorer-style menu with copy path and favorites at the bottom" Style="{StaticResource SettingsCardDesc}" />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="NativeShellContextMenuToggle" Grid.Column="2" VerticalAlignment="Center" IsOn="True" OnContent="" OffContent="" />
+                                </Grid>
+                            </Border>
                         </StackPanel>
                     </ScrollViewer>
 

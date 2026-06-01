@@ -45,6 +45,8 @@ namespace Span.Services
         bool ShowWindowsShellExtras { get; set; }
         bool ShowShellExtensions { get; set; }
         bool ShowCopilotMenu { get; set; }
+        /// <summary>NativeShell (default) or WinUIFlyout</summary>
+        string ContextMenuStyle { get; set; }
 
         // Sidebar section visibility
         bool SidebarShowHome { get; set; }

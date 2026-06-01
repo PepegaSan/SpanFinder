@@ -738,19 +738,10 @@ namespace Span.Views
                     bool shiftHeld = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
                         Windows.System.VirtualKey.Shift).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
-                    Microsoft.UI.Xaml.Controls.MenuFlyout? flyout = null;
-
-                    if (grid.DataContext is FolderViewModel folder)
-                        flyout = await ContextMenuService.BuildFolderMenuAsync(folder, ContextMenuHost, forceShellExtensions: shiftHeld);
-                    else if (grid.DataContext is FileViewModel file)
-                        flyout = await ContextMenuService.BuildFileMenuAsync(file, ContextMenuHost, forceShellExtensions: shiftHeld);
-
-                    if (flyout != null)
+                    if (grid.DataContext is FileSystemViewModel target)
                     {
-                        flyout.ShowAt(grid, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
-                        {
-                            Position = e.GetPosition(grid)
-                        });
+                        await ContextMenuService.ShowFileSystemContextMenuAsync(
+                            target, ContextMenuHost, grid, e.GetPosition(grid), forceWinUiFlyout: shiftHeld);
                     }
                 }
             }

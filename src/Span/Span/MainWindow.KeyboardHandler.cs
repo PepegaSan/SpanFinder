@@ -2255,7 +2255,10 @@ namespace Span
             if (string.IsNullOrEmpty(path))
                 return;
 
-            Services.ShellContextMenu.ShowForItem(_hwnd, path);
+            if (selected is ViewModels.FileSystemViewModel fs)
+                _contextMenuService.TryShowNativeContextMenu(fs, this);
+            else
+                _contextMenuService.TryShowNativeContextMenu(path, this);
         }
 
         #endregion

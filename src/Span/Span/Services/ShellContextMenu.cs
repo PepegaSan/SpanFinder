@@ -10,6 +10,9 @@ using Span.Models;
 
 namespace Span.Services
 {
+    /// <summary>Span-specific item appended below the native shell context menu.</summary>
+    public sealed record SpanFooterItem(string Text, Action Action);
+
     /// <summary>
     /// Shows native Windows Shell context menus with full shell extension support.
     /// Also provides session-based enumeration for rendering shell extension items
@@ -177,6 +180,9 @@ namespace Span.Services
         private static extern bool GetMenuItemInfoW(IntPtr hmenu, uint uItem,
             bool fByPosition, ref MENUITEMINFOW lpmii);
 
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern bool AppendMenu(IntPtr hMenu, uint uFlags, UIntPtr uIDNewItem, string? lpNewItem);
+
         #endregion
 
         #region Structs & Constants
@@ -227,6 +233,9 @@ namespace Span.Services
         private const int SW_SHOWNORMAL = 1;
         private const uint FIRST_CMD = 1;
         private const uint LAST_CMD = 0x7FFF;
+        private const uint SPAN_CMD_BASE = 0x8000;
+        private const uint MF_SEPARATOR = 0x00000800;
+        private const uint MF_STRING = 0x00000000;
 
         private const uint WM_INITMENUPOPUP = 0x0117;
         private const uint WM_DRAWITEM = 0x002B;
@@ -286,9 +295,25 @@ namespace Span.Services
         }
 
         /// <summary>
+        /// Show native shell menu at cursor with Span footer items (copy path, favorites, etc.).
+        /// </summary>
+        public static bool ShowForItemWithFooter(IntPtr hwnd, string path, IReadOnlyList<SpanFooterItem>? footer)
+        {
+            GetCursorPos(out POINT pt);
+            return ShowForItemAtWithFooter(hwnd, path, pt.X, pt.Y, footer);
+        }
+
+        /// <summary>
         /// Show native shell context menu for a file or folder at specified screen coordinates.
         /// </summary>
         public static bool ShowForItemAt(IntPtr hwnd, string path, int screenX, int screenY)
+            => ShowForItemAtWithFooter(hwnd, path, screenX, screenY, null);
+
+        /// <summary>
+        /// Native shell context menu with optional Span items appended at the bottom.
+        /// </summary>
+        public static bool ShowForItemAtWithFooter(IntPtr hwnd, string path, int screenX, int screenY,
+            IReadOnlyList<SpanFooterItem>? footer)
         {
             IntPtr pidl = IntPtr.Zero;
             IntPtr hMenu = IntPtr.Zero;
@@ -296,6 +321,7 @@ namespace Span.Services
             IntPtr contextMenuPtr = IntPtr.Zero;
             object? shellFolderObj = null;
             object? contextMenuObj = null;
+            var footerItems = footer ?? Array.Empty<SpanFooterItem>();
 
             try
             {
@@ -329,6 +355,8 @@ namespace Span.Services
                     CMF_NORMAL | CMF_EXPLORE | CMF_CANRENAME);
                 if (hr < 0) return false;
 
+                AppendSpanFooterItems(hMenu, footerItems);
+
                 s_subclassDelegate = new SubclassProc(MenuSubclassProc);
                 SetWindowSubclass(hwnd, s_subclassDelegate, SUBCLASS_ID, IntPtr.Zero);
 
@@ -338,7 +366,16 @@ namespace Span.Services
                         TPM_RETURNCMD | TPM_RIGHTBUTTON,
                         screenX, screenY, hwnd, IntPtr.Zero);
 
-                    if (cmd >= (int)FIRST_CMD)
+                    if (cmd == 0)
+                        return true;
+
+                    if (cmd >= (int)SPAN_CMD_BASE)
+                    {
+                        int footerIndex = cmd - (int)SPAN_CMD_BASE;
+                        if (footerIndex >= 0 && footerIndex < footerItems.Count)
+                            footerItems[footerIndex].Action();
+                    }
+                    else if (cmd >= (int)FIRST_CMD && cmd < (int)SPAN_CMD_BASE)
                     {
                         var invokeInfo = new CMINVOKECOMMANDINFO
                         {
@@ -359,7 +396,7 @@ namespace Span.Services
             catch (Exception ex)
             {
                 Helpers.DebugLogger.Log($"[ShellContextMenu] Error: {ex.Message}");
-                try { App.Current.Services.GetService<CrashReportingService>()?.CaptureException(ex, "ShellContextMenu.ShowForItemAt"); } catch { }
+                try { App.Current.Services.GetService<CrashReportingService>()?.CaptureException(ex, "ShellContextMenu.ShowForItemAtWithFooter"); } catch { }
                 return false;
             }
             finally
@@ -369,7 +406,21 @@ namespace Span.Services
                 if (pidl != IntPtr.Zero) CoTaskMemFree(pidl);
                 if (contextMenuObj != null) try { Marshal.ReleaseComObject(contextMenuObj); } catch { }
                 if (shellFolderObj != null) try { Marshal.ReleaseComObject(shellFolderObj); } catch { }
-                // ReleaseComObject already calls IUnknown::Release via RCW — do NOT double-release raw ptrs
+            }
+        }
+
+        private static void AppendSpanFooterItems(IntPtr hMenu, IReadOnlyList<SpanFooterItem> footerItems)
+        {
+            if (footerItems.Count == 0)
+                return;
+
+            if (GetMenuItemCount(hMenu) > 0)
+                AppendMenu(hMenu, MF_SEPARATOR, UIntPtr.Zero, null);
+
+            for (int i = 0; i < footerItems.Count; i++)
+            {
+                var id = new UIntPtr(SPAN_CMD_BASE + (uint)i);
+                AppendMenu(hMenu, MF_STRING, id, footerItems[i].Text);
             }
         }
 

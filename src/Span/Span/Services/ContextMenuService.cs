@@ -19,6 +19,9 @@ namespace Span.Services
     /// </summary>
     public class ContextMenuService
     {
+        public const string ContextMenuStyleNativeShell = "NativeShell";
+        public const string ContextMenuStyleWinUIFlyout = "WinUIFlyout";
+
         private readonly ShellService _shellService;
         private readonly LocalizationService _loc;
         private readonly SettingsService _settings;
@@ -96,6 +99,78 @@ namespace Span.Services
             flyout.ShowAt(_lastMenuElement, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
             {
                 Position = _lastMenuPosition
+            });
+        }
+
+        public bool UseNativeShellContextMenu =>
+            !string.Equals(_settings.ContextMenuStyle, ContextMenuStyleWinUIFlyout, StringComparison.OrdinalIgnoreCase);
+
+        public static bool CanUseNativeShellMenu(string path) =>
+            !string.IsNullOrEmpty(path)
+            && !FileSystemRouter.IsRemotePath(path)
+            && !Helpers.ArchivePathHelper.IsArchivePath(path);
+
+        public IReadOnlyList<SpanFooterItem> BuildSpanFooterItems(FileSystemViewModel target, IContextMenuHost host)
+            => BuildSpanFooterItems(target.Path, host);
+
+        public IReadOnlyList<SpanFooterItem> BuildSpanFooterItems(string path, IContextMenuHost host)
+        {
+            var items = new List<SpanFooterItem>
+            {
+                new(_loc.Get("CopyPath"), () => _shellService.CopyPathToClipboard(path))
+            };
+
+            if (CanUseNativeShellMenu(path))
+            {
+                if (host.IsFavorite(path))
+                    items.Add(new(_loc.Get("RemoveFromFavorites"), () => host.RemoveFromFavorites(path)));
+                else
+                    items.Add(new(_loc.Get("AddToFavorites"), () => host.AddToFavorites(path)));
+            }
+
+            return items;
+        }
+
+        public bool TryShowNativeContextMenu(FileSystemViewModel target, IContextMenuHost host)
+        {
+            if (!UseNativeShellContextMenu || !CanUseNativeShellMenu(target.Path) || OwnerHwnd == IntPtr.Zero)
+                return false;
+
+            var footer = BuildSpanFooterItems(target, host);
+            return ShellContextMenu.ShowForItemWithFooter(OwnerHwnd, target.Path, footer);
+        }
+
+        public bool TryShowNativeContextMenu(string path, IContextMenuHost host)
+        {
+            if (!UseNativeShellContextMenu || !CanUseNativeShellMenu(path) || OwnerHwnd == IntPtr.Zero)
+                return false;
+
+            var footer = BuildSpanFooterItems(path, host);
+            return ShellContextMenu.ShowForItemWithFooter(OwnerHwnd, path, footer);
+        }
+
+        public async Task ShowFileSystemContextMenuAsync(
+            FileSystemViewModel target,
+            IContextMenuHost host,
+            Microsoft.UI.Xaml.FrameworkElement element,
+            Windows.Foundation.Point position,
+            bool forceWinUiFlyout = false)
+        {
+            if (!forceWinUiFlyout && TryShowNativeContextMenu(target, host))
+                return;
+
+            SetLastMenuContext(target, host, element, position);
+
+            MenuFlyout flyout = target switch
+            {
+                FolderViewModel folder => await BuildFolderMenuAsync(folder, host, forceWinUiFlyout),
+                FileViewModel file => await BuildFileMenuAsync(file, host, forceWinUiFlyout),
+                _ => throw new ArgumentException($"Unsupported target type: {target.GetType().Name}")
+            };
+
+            flyout.ShowAt(element, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
+            {
+                Position = position
             });
         }
 

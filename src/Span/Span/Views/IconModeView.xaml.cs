@@ -278,19 +278,10 @@ namespace Span.Views
                 if (isItem)
                     e.Handled = true; // Prevent bubbling during await
 
-                Microsoft.UI.Xaml.Controls.MenuFlyout? flyout = null;
-
-                if (fe.DataContext is FolderViewModel folder)
-                    flyout = await ContextMenuService.BuildFolderMenuAsync(folder, ContextMenuHost, forceShellExtensions: shiftHeld);
-                else if (fe.DataContext is FileViewModel file)
-                    flyout = await ContextMenuService.BuildFileMenuAsync(file, ContextMenuHost, forceShellExtensions: shiftHeld);
-
-                if (flyout != null)
+                if (fe.DataContext is FileSystemViewModel target)
                 {
-                    flyout.ShowAt(showAtTarget, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
-                    {
-                        Position = position
-                    });
+                    await ContextMenuService.ShowFileSystemContextMenuAsync(
+                        target, ContextMenuHost, showAtTarget, position, forceWinUiFlyout: shiftHeld);
                 }
                 else
                 {
@@ -298,7 +289,7 @@ namespace Span.Views
                     var folderPath = ViewModel?.CurrentFolder?.Path;
                     if (!string.IsNullOrEmpty(folderPath))
                     {
-                        flyout = await ContextMenuService.BuildEmptyAreaMenuAsync(folderPath, ContextMenuHost, forceShellExtensions: shiftHeld);
+                        var flyout = await ContextMenuService.BuildEmptyAreaMenuAsync(folderPath, ContextMenuHost, forceShellExtensions: shiftHeld);
                         flyout.ShowAt(showAtTarget, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
                         {
                             Position = position

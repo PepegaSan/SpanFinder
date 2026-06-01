@@ -610,19 +610,10 @@ namespace Span.Views
 
                     e.Handled = true; // Prevent bubbling to empty area handler during await
 
-                    MenuFlyout? flyout = null;
-
-                    if (grid.DataContext is FolderViewModel realFolder)
-                        flyout = await ContextMenuService.BuildFolderMenuAsync(realFolder, ContextMenuHost, forceShellExtensions: shiftHeld);
-                    else if (grid.DataContext is FileViewModel file)
-                        flyout = await ContextMenuService.BuildFileMenuAsync(file, ContextMenuHost, forceShellExtensions: shiftHeld);
-
-                    if (flyout != null)
+                    if (grid.DataContext is FileSystemViewModel target)
                     {
-                        flyout.ShowAt(grid, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
-                        {
-                            Position = e.GetPosition(grid)
-                        });
+                        await ContextMenuService.ShowFileSystemContextMenuAsync(
+                            target, ContextMenuHost, grid, e.GetPosition(grid), forceWinUiFlyout: shiftHeld);
                     }
                 }
             }

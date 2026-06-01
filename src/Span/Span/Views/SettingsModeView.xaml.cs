@@ -274,6 +274,7 @@ public sealed partial class SettingsModeView : UserControl
             FileHashToggle.IsOn = _settings.ShowFileHash;
             CopilotMenuToggle.IsOn = _settings.ShowCopilotMenu;
             ContextMenuToggle.IsOn = _settings.ShowContextMenu;
+            NativeShellContextMenuToggle.IsOn = _settings.ContextMenuStyle != ContextMenuService.ContextMenuStyleWinUIFlyout;
             CrashReportToggle.IsOn = _settings.EnableCrashReporting;
             IsolatedThumbsToggle.IsOn = _settings.UseIsolatedThumbnails;
 
@@ -474,6 +475,15 @@ public sealed partial class SettingsModeView : UserControl
         FileHashToggle.Toggled += (s, e) => { if (!_isLoading) _settings.ShowFileHash = FileHashToggle.IsOn; };
         CopilotMenuToggle.Toggled += (s, e) => { if (!_isLoading) _settings.ShowCopilotMenu = CopilotMenuToggle.IsOn; };
         ContextMenuToggle.Toggled += (s, e) => { if (!_isLoading) _settings.ShowContextMenu = ContextMenuToggle.IsOn; };
+        NativeShellContextMenuToggle.Toggled += (s, e) =>
+        {
+            if (!_isLoading)
+            {
+                _settings.ContextMenuStyle = NativeShellContextMenuToggle.IsOn
+                    ? ContextMenuService.ContextMenuStyleNativeShell
+                    : ContextMenuService.ContextMenuStyleWinUIFlyout;
+            }
+        };
         CrashReportToggle.Toggled += (s, e) => { if (!_isLoading) _settings.EnableCrashReporting = CrashReportToggle.IsOn; };
         IsolatedThumbsToggle.Toggled += (s, e) => { if (!_isLoading) _settings.UseIsolatedThumbnails = IsolatedThumbsToggle.IsOn; };
         DefaultFileManagerToggle.Toggled += OnDefaultFileManagerToggled;
@@ -777,6 +787,8 @@ public sealed partial class SettingsModeView : UserControl
             CopilotDesc.Text = _loc.Get("Settings_CopilotMenuDesc");
             CtxMenuLabel.Text = _loc.Get("Settings_ContextMenu");
             CtxMenuDesc.Text = _loc.Get("Settings_ContextMenuDesc");
+            NativeShellCtxMenuLabel.Text = _loc.Get("Settings_NativeShellContextMenu");
+            NativeShellCtxMenuDesc.Text = _loc.Get("Settings_NativeShellContextMenuDesc");
 
             // Shortcuts
             ShortcutsTitle.Text = _loc.Get("Settings_Shortcuts") ?? "단축키";

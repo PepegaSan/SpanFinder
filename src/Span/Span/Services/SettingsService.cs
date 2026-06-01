@@ -436,6 +436,12 @@ public class SettingsService : ISettingsService
         set => Set("ShowCopilotMenu", value);
     }
 
+    public string ContextMenuStyle
+    {
+        get => Get("ContextMenuStyle", ContextMenuService.ContextMenuStyleNativeShell);
+        set => Set("ContextMenuStyle", value);
+    }
+
     // ── General ──
 
     public int StartupBehavior
