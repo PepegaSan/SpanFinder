@@ -43,6 +43,13 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 - **tools/fix-install-local-bat.bat** — repairs batch files if an editor saved them in the wrong encoding.
 - Dev builds run **without the Microsoft Store package**; settings are stored in a local JSON file under `%LOCALAPPDATA%\Span\`.
 
+### Settings persistence (June 2026)
+
+- **Unpackaged** builds (dev + **SpanFinder Personal** from `install-local.bat`) now **always** read and write `%LOCALAPPDATA%\Span\settings.json` instead of per-installation package storage.
+- Packaged runs **mirror** every setting change to that same JSON file and **merge** missing keys on startup (survives LocalSettings corruption wipes).
+- **Favorite groups** layout prefers `%LOCALAPPDATA%\Span\favorites-layout.json` on load.
+- After updating, set your options once; they should survive reboots. Always launch **SpanFinder Personal** (not the Microsoft Store **Span**) for fork features.
+
 ---
 
 ## Notes

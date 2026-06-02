@@ -465,31 +465,38 @@ namespace Span.Services
 
         public FavoritesLayout Load()
         {
+            // Prefer on-disk file so dev, personal install, and reboots share the same layout.
+            try
+            {
+                if (File.Exists(_fallbackPath))
+                {
+                    var json = File.ReadAllText(_fallbackPath);
+                    var fromFile = JsonSerializer.Deserialize<FavoritesLayout>(json);
+                    if (fromFile != null)
+                        return fromFile;
+                }
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[FavoritesLayout] File load failed: {ex.Message}");
+            }
+
             try
             {
                 var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
                 if (settings.Values.TryGetValue(SettingsKey, out var raw) && raw is string json)
                 {
                     var layout = JsonSerializer.Deserialize<FavoritesLayout>(json);
-                    if (layout != null) return layout;
+                    if (layout != null)
+                    {
+                        Save(layout);
+                        return layout;
+                    }
                 }
             }
             catch (Exception ex)
             {
                 Helpers.DebugLogger.Log($"[FavoritesLayout] LocalSettings load failed: {ex.Message}");
-            }
-
-            try
-            {
-                if (File.Exists(_fallbackPath))
-                {
-                    var json = File.ReadAllText(_fallbackPath);
-                    return JsonSerializer.Deserialize<FavoritesLayout>(json) ?? new FavoritesLayout();
-                }
-            }
-            catch (Exception ex)
-            {
-                Helpers.DebugLogger.Log($"[FavoritesLayout] File load failed: {ex.Message}");
             }
 
             return new FavoritesLayout();

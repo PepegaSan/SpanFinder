@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
+using Span.Helpers;
 using Windows.Storage;
 
 namespace Span.Services;
@@ -40,6 +42,16 @@ public class SettingsService : ISettingsService
             "Span",
             "settings.json");
 
+        // Dev + install-local: one stable file under %LocalAppData%\Span\ (not per-exe package storage).
+        if (!PackageHelper.IsPackaged)
+        {
+            _useFallback = true;
+            LoadFallbackSettings();
+            TryMigrateFromLocalSettings();
+            Helpers.DebugLogger.Log($"[SettingsService] Unpackaged: using {_fallbackSettingsPath}");
+            return;
+        }
+
         ApplicationDataContainer? localSettings = null;
         try
         {
@@ -50,24 +62,12 @@ public class SettingsService : ISettingsService
         }
         catch (Exception ex)
         {
-            Helpers.DebugLogger.Log($"[SettingsService] LocalSettings corrupted, attempting selective recovery: {ex.Message}");
+            Helpers.DebugLogger.Log($"[SettingsService] LocalSettings corrupted, attempting recovery: {ex.Message}");
             try
             {
                 localSettings = ApplicationData.Current.LocalSettings;
-
-                // v1.5.2 (Discussion #30): 핵심 키 백업 → Clear → 복원.
-                // 이전 동작은 Wipe 후 모든 사용자 설정(온보딩 완료 플래그 포함)을 잃어
-                // 다음 실행에서 OnboardingCompleted=false → 온보딩 무한 재표시 유발.
-                var preserved = new Dictionary<string, object?>();
-                foreach (var key in _criticalKeysToPreserve)
-                {
-                    try
-                    {
-                        if (localSettings.Values.TryGetValue(key, out var v) && v != null)
-                            preserved[key] = v;
-                    }
-                    catch { /* 키 read 실패 — 해당 키만 건너뜀 */ }
-                }
+                var preserved = BackupAllLocalSettingsKeys(localSettings);
+                WriteSettingsMirrorFile(preserved);
 
                 localSettings.Values.Clear();
 
@@ -75,12 +75,11 @@ public class SettingsService : ISettingsService
                 {
                     try { localSettings.Values[kvp.Key] = kvp.Value; } catch { }
                 }
-                Helpers.DebugLogger.Log($"[SettingsService] Restored {preserved.Count}/{_criticalKeysToPreserve.Length} critical keys after wipe");
+                Helpers.DebugLogger.Log($"[SettingsService] Restored {preserved.Count} keys after LocalSettings wipe");
             }
             catch (Exception innerEx)
             {
-                // Unpackaged dev builds have no package identity — fall back to JSON file storage.
-                Helpers.DebugLogger.Log($"[SettingsService] Selective recovery failed: {innerEx.Message}");
+                Helpers.DebugLogger.Log($"[SettingsService] LocalSettings recovery failed: {innerEx.Message}");
                 localSettings = null;
             }
         }
@@ -89,12 +88,181 @@ public class SettingsService : ISettingsService
         {
             _localSettings = localSettings;
             _useFallback = false;
+            MergeJsonMirrorIntoLocalSettings();
+            ExportLocalSettingsToJsonMirrorIfMissing();
         }
         else
         {
             _useFallback = true;
             LoadFallbackSettings();
-            Helpers.DebugLogger.Log($"[SettingsService] Using unpackaged settings file: {_fallbackSettingsPath}");
+            Helpers.DebugLogger.Log($"[SettingsService] Using settings file: {_fallbackSettingsPath}");
+        }
+    }
+
+    private static Dictionary<string, object?> BackupAllLocalSettingsKeys(ApplicationDataContainer localSettings)
+    {
+        var preserved = new Dictionary<string, object?>();
+        List<string> keys;
+        try
+        {
+            keys = localSettings.Values.Keys
+                .Select(k => k as string ?? k?.ToString())
+                .Where(k => !string.IsNullOrEmpty(k))
+                .Cast<string>()
+                .ToList();
+        }
+        catch
+        {
+            keys = _criticalKeysToPreserve.ToList();
+        }
+
+        foreach (var key in keys)
+        {
+            try
+            {
+                if (localSettings.Values.TryGetValue(key, out var v) && v != null)
+                    preserved[key] = v;
+            }
+            catch { /* skip unreadable key */ }
+        }
+
+        return preserved;
+    }
+
+    private void TryMigrateFromLocalSettings()
+    {
+        try
+        {
+            var local = ApplicationData.Current.LocalSettings;
+            var anyNew = false;
+            foreach (var keyObj in local.Values.Keys)
+            {
+                var key = keyObj as string ?? keyObj?.ToString();
+                if (string.IsNullOrEmpty(key) || _fallbackSettings.ContainsKey(key))
+                    continue;
+
+                try
+                {
+                    if (local.Values.TryGetValue(key, out var v) && v != null)
+                    {
+                        _fallbackSettings[key] = v;
+                        anyNew = true;
+                    }
+                }
+                catch { /* skip */ }
+            }
+
+            if (anyNew)
+            {
+                SaveFallbackSettings();
+                Helpers.DebugLogger.Log("[SettingsService] Migrated settings from LocalSettings to JSON file");
+            }
+        }
+        catch (Exception ex)
+        {
+            Helpers.DebugLogger.Log($"[SettingsService] LocalSettings migration skipped: {ex.Message}");
+        }
+    }
+
+    private void MergeJsonMirrorIntoLocalSettings()
+    {
+        if (_useFallback || _localSettings == null)
+            return;
+
+        try
+        {
+            if (!File.Exists(_fallbackSettingsPath))
+                return;
+
+            var loaded = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(_fallbackSettingsPath));
+            if (loaded == null)
+                return;
+
+            var merged = 0;
+            foreach (var (key, element) in loaded)
+            {
+                if (_localSettings.Values.ContainsKey(key))
+                    continue;
+
+                var val = ConvertJsonElement(element);
+                if (val == null)
+                    continue;
+
+                _localSettings.Values[key] = val;
+                merged++;
+            }
+
+            if (merged > 0)
+                Helpers.DebugLogger.Log($"[SettingsService] Merged {merged} keys from JSON mirror into LocalSettings");
+        }
+        catch (Exception ex)
+        {
+            Helpers.DebugLogger.Log($"[SettingsService] JSON mirror merge failed: {ex.Message}");
+        }
+    }
+
+    private void UpdateJsonMirrorOnSet<T>(string key, T value)
+    {
+        try
+        {
+            Dictionary<string, object?> dict;
+            if (File.Exists(_fallbackSettingsPath))
+            {
+                var loaded = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(_fallbackSettingsPath));
+                dict = new Dictionary<string, object?>();
+                if (loaded != null)
+                {
+                    foreach (var (k, element) in loaded)
+                        dict[k] = ConvertJsonElement(element);
+                }
+            }
+            else
+            {
+                dict = new Dictionary<string, object?>();
+            }
+
+            dict[key] = value;
+            WriteSettingsMirrorFile(dict);
+        }
+        catch (Exception ex)
+        {
+            Helpers.DebugLogger.Log($"[SettingsService] JSON mirror write failed for '{key}': {ex.Message}");
+        }
+    }
+
+    private void WriteSettingsMirrorFile(Dictionary<string, object?> dict)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(_fallbackSettingsPath);
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+
+            File.WriteAllText(_fallbackSettingsPath, JsonSerializer.Serialize(dict));
+        }
+        catch (Exception ex)
+        {
+            Helpers.DebugLogger.Log($"[SettingsService] Failed to write settings mirror: {ex.Message}");
+        }
+    }
+
+    private void ExportLocalSettingsToJsonMirrorIfMissing()
+    {
+        if (_useFallback || _localSettings == null || File.Exists(_fallbackSettingsPath))
+            return;
+
+        try
+        {
+            var snapshot = BackupAllLocalSettingsKeys(_localSettings);
+            if (snapshot.Count > 0)
+            {
+                WriteSettingsMirrorFile(snapshot);
+                Helpers.DebugLogger.Log($"[SettingsService] Created JSON mirror with {snapshot.Count} keys");
+            }
+        }
+        catch (Exception ex)
+        {
+            Helpers.DebugLogger.Log($"[SettingsService] JSON mirror export failed: {ex.Message}");
         }
     }
 
@@ -193,6 +361,7 @@ public class SettingsService : ISettingsService
 
             var oldPackaged = _localSettings!.Values.ContainsKey(key) ? _localSettings.Values[key] : null;
             _localSettings.Values[key] = value;
+            UpdateJsonMirrorOnSet(key, value);
 
             if (!Equals(oldPackaged, value))
                 SettingChanged?.Invoke(key, value);
