@@ -9,6 +9,7 @@ class Program
     static int Main(string[] args)
     {
         WinRT.ComWrappersSupport.InitializeComWrappers();
+        Helpers.AppBranding.ApplyShellIdentity();
 
         var isRedirect = DecideRedirection();
         if (!isRedirect)

@@ -25,7 +25,7 @@ xcopy /E /I /Y "%PUB%\*" "%DEST%\"
 if not exist "%DEST%\Span.exe" (echo FEHLER: Span.exe fehlt. & goto fail)
 echo.
 echo [4/4] Startmenue-Verknuepfung...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$d='%DEST%';$e=Join-Path $d 'Span.exe';$l=Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\SpanFinder Personal.lnk';$p=Split-Path $l; if(-not(Test-Path $p)){New-Item -ItemType Directory -Path $p -Force|Out-Null};$s=(New-Object -ComObject WScript.Shell).CreateShortcut($l);$s.TargetPath=$e;$s.WorkingDirectory=$d;$s.IconLocation=($e+',0');$s.Save();Write-Host ('OK: '+$l)"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$d='%DEST%';$e=Join-Path $d 'Span.exe';$l=Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\SpanFinder Personal.lnk';$p=Split-Path $l; if(-not(Test-Path $p)){New-Item -ItemType Directory -Path $p -Force|Out-Null};$s=(New-Object -ComObject WScript.Shell).CreateShortcut($l);$s.TargetPath=$e;$s.WorkingDirectory=$d;$ic=Join-Path $d 'Assets\app.ico';$s.IconLocation=($ic+',0');$s.Save();Write-Host ('OK: '+$l)"
 if errorlevel 1 goto fail
 echo.
 echo --- Installation abgeschlossen ---

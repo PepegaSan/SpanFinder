@@ -43,6 +43,14 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 - **tools/fix-install-local-bat.bat** — repairs batch files if an editor saved them in the wrong encoding.
 - Dev builds run **without the Microsoft Store package**; settings are stored in a local JSON file under `%LOCALAPPDATA%\Span\`.
 
+### SpanFinder app icon (June 2026)
+
+- Fork icon: **teal dual-pane** (split view) plus amber **finder lens** — deliberately **not** the official three-column Miller logo (see `LICENSE.md` trademark section).
+- Taskbar, title bar, Start Menu shortcut, and `Span.exe` use `Assets\app.ico`.
+- Unpackaged / personal install: icon loads from the app folder (fixed blank taskbar).
+- Regenerate assets: `python tools/generate-spanfinder-icons.py` (requires Pillow).
+- **Fix:** Start menu / pinned taskbar showed a white tile (bad shortcut icon path + transparent ICO corners); icons are now opaque and `install-local` sets `app.ico,0` correctly.
+
 ### Settings persistence (June 2026)
 
 - **Unpackaged** builds (dev + **SpanFinder Personal** from `install-local.bat`) now **always** read and write `%LOCALAPPDATA%\Span\settings.json` instead of per-installation package storage.

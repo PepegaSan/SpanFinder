@@ -611,18 +611,13 @@ namespace Span
             // Window title (shown in taskbar thumbnail & Alt+Tab)
             this.Title = "SPAN Finder";
 
-            // Window icon (shown in taskbar & title bar)
-            try
+            // Window icon (taskbar & title bar) — works for packaged and install-local/dev.
+            var iconPath = Helpers.AppBranding.GetAppIcoPath();
+            if (!string.IsNullOrEmpty(iconPath))
             {
-#pragma warning disable CA1416 // Platform compatibility (guarded by try-catch)
-                var iconPath = System.IO.Path.Combine(
-                    Windows.ApplicationModel.Package.Current.InstalledPath,
-                    "Assets", "app.ico");
-#pragma warning restore CA1416
-                if (System.IO.File.Exists(iconPath))
-                    this.AppWindow.SetIcon(iconPath);
+                try { this.AppWindow.SetIcon(iconPath); }
+                catch (Exception ex) { Helpers.DebugLogger.Log($"[MainWindow] SetIcon failed: {ex.Message}"); }
             }
-            catch { /* unpackaged mode — icon set by manifest */ }
 
             // Pass context menu service and HWND to child views
             _contextMenuService.OwnerHwnd = _hwnd;
