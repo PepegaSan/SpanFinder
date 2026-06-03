@@ -632,6 +632,11 @@ namespace Span
             _contextMenuService.ShellCommandExecutedCallback = () =>
             {
                 var currentPath = ViewModel?.ActiveExplorer?.CurrentPath;
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    SyncClipboardFromSystemIfNeeded();
+                    UpdateToolbarButtonStates();
+                });
                 DispatcherQueue.TryEnqueue(async () =>
                 {
                     try
@@ -646,6 +651,18 @@ namespace Span
                         Helpers.DebugLogger.Log($"[MainWindow] Post-shell refresh error: {ex.Message}");
                     }
                 });
+            };
+            _contextMenuService.NativeShellMenuClosedCallback = () =>
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    SyncClipboardFromSystemIfNeeded();
+                    UpdateToolbarButtonStates();
+                });
+            };
+            Windows.ApplicationModel.DataTransfer.Clipboard.ContentChanged += (_, _) =>
+            {
+                DispatcherQueue.TryEnqueue(UpdateToolbarButtonStates);
             };
             DetailsView.ContextMenuService = _contextMenuService;
             DetailsView.ContextMenuHost = this;
@@ -5511,7 +5528,7 @@ namespace Span
         private void UpdateToolbarButtonStates()
         {
             bool hasSelection = HasAnySelection();
-            bool hasClipboard = _clipboardPaths.Count > 0;
+            bool hasClipboard = _clipboardPaths.Count > 0 || Helpers.ShellClipboardHelper.HasPasteableFiles();
 
             ToolbarCutButton.IsEnabled = hasSelection;
             ToolbarCopyButton.IsEnabled = hasSelection;
@@ -5952,7 +5969,8 @@ namespace Span
         //  IContextMenuHost Implementation
         // =================================================================
 
-        bool Services.IContextMenuHost.HasClipboardContent => _clipboardPaths.Count > 0;
+        bool Services.IContextMenuHost.HasClipboardContent =>
+            _clipboardPaths.Count > 0 || Helpers.ShellClipboardHelper.HasPasteableFiles();
 
         void Services.IContextMenuHost.PerformCut(string path)
         {
@@ -6034,23 +6052,26 @@ namespace Span
             }
             else
             {
-                // External clipboard (Windows Explorer → Span)
-                try
+                if (!Helpers.ShellClipboardHelper.TryReadFileClipboard(out sourcePaths, out isCut))
                 {
-                    var content = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
-                    if (!content.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems)) return;
+                    try
+                    {
+                        var content = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
+                        if (!content.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+                            return;
 
-                    var items = await content.GetStorageItemsAsync();
-                    sourcePaths = items
-                        .Select(i => i.Path)
-                        .Where(p => !string.IsNullOrEmpty(p))
-                        .ToList();
-                    if (sourcePaths.Count == 0) return;
+                        var items = await content.GetStorageItemsAsync();
+                        sourcePaths = items
+                            .Select(i => i.Path)
+                            .Where(p => !string.IsNullOrEmpty(p))
+                            .ToList();
+                        if (sourcePaths.Count == 0) return;
 
-                    isCut = content.RequestedOperation.HasFlag(
-                        Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move);
+                        isCut = content.RequestedOperation.HasFlag(
+                            Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move);
+                    }
+                    catch { return; }
                 }
-                catch { return; }
             }
 
             // Find target column index for targeted refresh
@@ -6073,7 +6094,11 @@ namespace Span
 
             await ViewModel.ExecuteFileOperationAsync(op, targetColumnIndex);
 
-            if (isCut && _clipboardPaths.Count > 0) _clipboardPaths.Clear();
+            if (isCut)
+            {
+                ClearCutState();
+                _clipboardPaths.Clear();
+            }
             UpdateToolbarButtonStates();
             }
             catch (Exception ex) { Helpers.DebugLogger.Log($"[ContextMenu] PerformPaste failed: {ex.Message}"); }

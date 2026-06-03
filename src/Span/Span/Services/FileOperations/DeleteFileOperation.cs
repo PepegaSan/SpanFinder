@@ -49,6 +49,14 @@ public class DeleteFileOperation : IFileOperation
     private const ushort FOF_NOERRORUI = 0x0400;
 
     private const int ERROR_ACCESS_DENIED = 5;
+    private const int ERROR_SHARING_VIOLATION = 32;
+    private const int ERROR_LOCK_VIOLATION = 33;
+    private const int ERROR_MORE_DATA = 234;
+    private const int ERROR_CANCELLED = 1223;
+
+    // SHFileOperation DE_* error codes (shell32)
+    private const int DE_OPCANCELLED = 0x75;
+    private const int DE_ACCESSDENIEDSRC = 0x78;
 
     /// <summary>
     /// Windows reserved device names that cannot be deleted via normal APIs.
@@ -332,19 +340,22 @@ public class DeleteFileOperation : IFileOperation
     /// </summary>
     private static string? TryRecycle(string sourcePath)
     {
-        // Step 1: SHFileOperation with FOF_ALLOWUNDO (standard recycle bin)
         int shResult = RunSHFileDelete(sourcePath, allowUndo: true);
         if (shResult == 0) return null;
+        if (shResult == -1) return L("Error_DeleteCancelled");
 
-        // Step 2: For reserved device names, SHFileOperation always fails (0x7C).
-        // These can't go to the recycle bin — permanently delete with \\?\ prefix.
         if (IsReservedDeviceName(sourcePath))
-        {
             return TryDeleteDirect(sourcePath);
-        }
 
-        // Step 3: ACCESS_DENIED (0x78) on protected paths → elevated SHFileOperation (recycle bin preserved)
-        return TryRecycleElevated(sourcePath);
+        // Show lock / read-only / access issues before any UAC elevation prompt.
+        var blocker = DiagnoseLocalDeleteBlocker(sourcePath);
+        if (blocker != null)
+            return blocker;
+
+        if (shResult == DE_ACCESSDENIEDSRC)
+            return TryRecycleElevated(sourcePath);
+
+        return FormatShellDeleteError(shResult);
     }
 
     /// <summary>
@@ -431,11 +442,19 @@ exit $r
             if (!FileExistsWin32(sourcePath) && !Directory.Exists(sourcePath))
                 return null;
 
+            var blocker = DiagnoseLocalDeleteBlocker(sourcePath);
+            if (blocker != null)
+                return blocker;
+
             return string.Format(L("Error_AdminDeleteFailed"), $"exit=0x{proc.ExitCode:X}");
         }
-        catch (System.ComponentModel.Win32Exception)
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == ERROR_CANCELLED)
         {
             return L("Error_AdminRequired");
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            return string.Format(L("Error_DeleteFailed"), ex.NativeErrorCode);
         }
         catch (Exception ex)
         {
@@ -481,7 +500,12 @@ exit $r
         if (deleted) return null;
 
         int err = Marshal.GetLastWin32Error();
-        if (err != ERROR_ACCESS_DENIED) return string.Format(L("Error_DeleteFailed"), err);
+        var blocker = DiagnoseLocalDeleteBlocker(sourcePath, err);
+        if (blocker != null)
+            return blocker;
+
+        if (err != ERROR_ACCESS_DENIED)
+            return string.Format(L("Error_DeleteFailed"), err);
 
         return TryDeleteElevated(sourcePath, isDir);
     }
@@ -525,11 +549,19 @@ exit $r
             if (!FileExistsWin32(sourcePath) && !Directory.Exists(sourcePath))
                 return null;
 
+            var blocker = DiagnoseLocalDeleteBlocker(sourcePath);
+            if (blocker != null)
+                return blocker;
+
             return string.Format(L("Error_AdminDeleteFailed"), $"exit={proc.ExitCode}");
         }
-        catch (System.ComponentModel.Win32Exception)
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == ERROR_CANCELLED)
         {
             return L("Error_AdminRequired");
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            return string.Format(L("Error_DeleteFailed"), ex.NativeErrorCode);
         }
         catch (Exception ex)
         {
@@ -586,6 +618,168 @@ exit $r
         if (h == new IntPtr(-1)) return false;
         FindClose(h);
         return true;
+    }
+
+    private static string FormatShellDeleteError(int code) => code switch
+    {
+        DE_OPCANCELLED => L("Error_DeleteCancelled"),
+        DE_ACCESSDENIEDSRC => L("Error_AccessDenied"),
+        _ => string.Format(L("Error_DeleteFailed"), code),
+    };
+
+    /// <summary>
+    /// Detects common non-admin delete blockers (file lock, read-only) so we do not
+    /// mislabel them as missing administrator rights.
+    /// </summary>
+    private static string? DiagnoseLocalDeleteBlocker(string sourcePath, int? win32Error = null)
+    {
+        if (win32Error is ERROR_SHARING_VIOLATION or ERROR_LOCK_VIOLATION)
+            return DescribeFileLock(sourcePath);
+
+        try
+        {
+            if (File.Exists(sourcePath))
+            {
+                if ((File.GetAttributes(sourcePath) & FileAttributes.ReadOnly) != 0)
+                    return L("Error_ReadOnlyFile");
+
+                return DescribeFileLock(sourcePath);
+            }
+
+            if (Directory.Exists(sourcePath)
+                && (File.GetAttributes(sourcePath) & FileAttributes.ReadOnly) != 0)
+            {
+                return L("Error_ReadOnlyFolder");
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return L("Error_AccessDenied");
+        }
+        catch (Exception) { /* fall through */ }
+
+        return null;
+    }
+
+    private static string? DescribeFileLock(string path)
+    {
+        if (!File.Exists(path))
+            return null;
+
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            return null;
+        }
+        catch (IOException ex) when (IsSharingOrLockViolation(ex))
+        {
+            var processes = TryGetLockingProcessNames(path);
+            return processes != null
+                ? string.Format(L("Error_FileInUseByProcess"), processes)
+                : L("Error_FileInUse");
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+    }
+
+    private static bool IsSharingOrLockViolation(Exception ex)
+    {
+        int code = ex.HResult & 0xFFFF;
+        if (code is ERROR_SHARING_VIOLATION or ERROR_LOCK_VIOLATION)
+            return true;
+        return ex.InnerException != null && IsSharingOrLockViolation(ex.InnerException);
+    }
+
+    private static string? TryGetLockingProcessNames(string path)
+    {
+        uint session = 0;
+        try
+        {
+            if (RmStartSession(out session, 0, Guid.NewGuid().ToString("N")) != 0)
+                return null;
+
+            string[] files = { path };
+            if (RmRegisterResources(session, 1, files, 0, IntPtr.Zero, 0, null!) != 0)
+                return null;
+
+            uint needed = 0;
+            uint count = 0;
+            _ = RmGetList(session, out needed, ref count, null!, out _);
+            if (needed == 0)
+                return null;
+
+            var infos = new RM_PROCESS_INFO[needed];
+            count = needed;
+            if (RmGetList(session, out needed, ref count, infos, out _) != 0)
+                return null;
+
+            var names = infos
+                .Take((int)count)
+                .Select(i => i.strAppName)
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+
+            var joined = string.Join(", ", names);
+            return string.IsNullOrEmpty(joined) ? null : joined;
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            if (session != 0)
+                RmEndSession(session);
+        }
+    }
+
+    // Restart Manager — which process holds a file open
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+    private static extern int RmStartSession(out uint pSessionHandle, int dwSessionFlags, string strSessionKey);
+
+    [DllImport("rstrtmgr.dll")]
+    private static extern int RmEndSession(uint pSessionHandle);
+
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+    private static extern int RmRegisterResources(
+        uint pSessionHandle,
+        uint nFiles,
+        string[] rgsFilenames,
+        uint nApplications,
+        IntPtr rgApplications,
+        uint nServices,
+        string[]? rgsServiceNames);
+
+    [DllImport("rstrtmgr.dll")]
+    private static extern int RmGetList(
+        uint dwSessionHandle,
+        out uint pnProcInfoNeeded,
+        ref uint pnProcInfo,
+        [Out] RM_PROCESS_INFO[]? rgAffectedApps,
+        out uint lpdwRebootReasons);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RM_UNIQUE_PROCESS
+    {
+        public int dwProcessId;
+        public long ProcessStartTime;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct RM_PROCESS_INFO
+    {
+        public RM_UNIQUE_PROCESS Process;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+        public string strAppName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+        public string strServiceShortName;
+        public uint ApplicationType;
+        public uint AppStatus;
+        public uint TSSessionId;
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool bRestartable;
     }
 
 }

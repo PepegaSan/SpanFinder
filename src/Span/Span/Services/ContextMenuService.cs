@@ -48,6 +48,9 @@ namespace Span.Services
         /// <summary>Callback invoked after a shell extension command completes to refresh the file list.</summary>
         public Action? ShellCommandExecutedCallback { get; set; }
 
+        /// <summary>Fired after the native shell context menu closes (cut/copy may have updated the OS clipboard).</summary>
+        public Action? NativeShellMenuClosedCallback { get; set; }
+
         /// <summary>마지막 메뉴 빌드 컨텍스트 (셸 확장 재표시용)</summary>
         private FileSystemViewModel? _lastMenuTarget;
         private IContextMenuHost? _lastMenuHost;
@@ -137,7 +140,9 @@ namespace Span.Services
                 return false;
 
             var footer = BuildSpanFooterItems(target, host);
-            return ShellContextMenu.ShowForItemWithFooter(OwnerHwnd, target.Path, footer);
+            var shown = ShellContextMenu.ShowForItemWithFooter(OwnerHwnd, target.Path, footer);
+            NativeShellMenuClosedCallback?.Invoke();
+            return shown;
         }
 
         public bool TryShowNativeContextMenu(string path, IContextMenuHost host)
@@ -146,7 +151,9 @@ namespace Span.Services
                 return false;
 
             var footer = BuildSpanFooterItems(path, host);
-            return ShellContextMenu.ShowForItemWithFooter(OwnerHwnd, path, footer);
+            var shown = ShellContextMenu.ShowForItemWithFooter(OwnerHwnd, path, footer);
+            NativeShellMenuClosedCallback?.Invoke();
+            return shown;
         }
 
         public async Task ShowFileSystemContextMenuAsync(

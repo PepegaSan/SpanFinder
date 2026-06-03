@@ -20,6 +20,7 @@ namespace Span.Models
 
         // ── Edit ────────────────────────────────────────────────
         public const string Copy = "span.edit.copy";
+        public const string CopyPath = "span.edit.copyPath";
         public const string Cut = "span.edit.cut";
         public const string Paste = "span.edit.paste";
         public const string PasteAsShortcut = "span.edit.pasteAsShortcut";
@@ -161,6 +162,7 @@ namespace Span.Models
             { FilterBar, "Navigation" },
             // Edit
             { Copy, "Edit" },
+            { CopyPath, "Edit" },
             { Cut, "Edit" },
             { Paste, "Edit" },
             { PasteAsShortcut, "Edit" },
@@ -292,6 +294,7 @@ namespace Span.Models
             { FilterBar, "Shortcut_FilterBar" },
             // Edit
             { Copy, "Shortcut_Copy" },
+            { CopyPath, "Shortcut_CopyPath" },
             { Cut, "Shortcut_Cut" },
             { Paste, "Shortcut_Paste" },
             { PasteAsShortcut, "Shortcut_PasteAsShortcut" },

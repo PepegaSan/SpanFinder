@@ -231,6 +231,7 @@ public class KeyBindingService
 
             // Edit
             ["span.edit.copy"]            = ["Ctrl+C"],
+            ["span.edit.copyPath"]        = ["Ctrl+Shift+C"],
             ["span.edit.cut"]             = ["Ctrl+X"],
             ["span.edit.paste"]           = ["Ctrl+V"],
             ["span.edit.pasteAsShortcut"] = ["Ctrl+Shift+V"],

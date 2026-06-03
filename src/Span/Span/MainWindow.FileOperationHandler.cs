@@ -417,6 +417,80 @@ namespace Span
         }
 
         /// <summary>
+        /// Copy full path(s) to clipboard (Ctrl+Shift+C). Selected item path(s), or current folder if none selected.
+        /// </summary>
+        private void HandleCopyPath()
+        {
+            if (ViewModel?.ActiveExplorer == null) return;
+
+            var selectedItems = GetCurrentSelectedItems();
+            string text;
+
+            if (selectedItems.Count > 0)
+            {
+                text = string.Join(Environment.NewLine,
+                    selectedItems.Select(i => NormalizePathForClipboard(i.Path)));
+            }
+            else
+            {
+                var path = ViewModel.ActiveExplorer.CurrentPath;
+                if (string.IsNullOrEmpty(path)) return;
+                text = NormalizePathForClipboard(path);
+            }
+
+            var dataPackage = new DataPackage();
+            dataPackage.SetText(text);
+            Clipboard.SetContent(dataPackage);
+            ViewModel.ShowToast(_loc.Get("Toast_PathCopied"), 2000);
+        }
+
+        private static string NormalizePathForClipboard(string path)
+        {
+            if (Helpers.ArchivePathHelper.IsArchivePath(path))
+                return path.Substring(Helpers.ArchivePathHelper.Prefix.Length);
+            return path;
+        }
+
+        /// <summary>
+        /// After native shell cut/copy, mirror OS clipboard into Span's internal state for paste UI.
+        /// </summary>
+        private void SyncClipboardFromSystemIfNeeded()
+        {
+            if (_clipboardPaths.Count > 0)
+                return;
+
+            if (!Helpers.ShellClipboardHelper.TryReadFileClipboard(out var paths, out var isCut))
+                return;
+
+            ClearCutState();
+            _clipboardPaths.Clear();
+            _clipboardPaths.AddRange(paths);
+            _isCutOperation = isCut;
+
+            if (isCut && ViewModel?.ActiveExplorer != null)
+            {
+                var cutItems = new List<FileSystemViewModel>();
+                foreach (var path in paths)
+                {
+                    foreach (var col in ViewModel.ActiveExplorer.Columns)
+                    {
+                        var match = col.Children.FirstOrDefault(c =>
+                            string.Equals(c.Path, path, StringComparison.OrdinalIgnoreCase));
+                        if (match != null)
+                        {
+                            cutItems.Add(match);
+                            break;
+                        }
+                    }
+                }
+                if (cutItems.Count > 0)
+                    ApplyCutState(cutItems);
+            }
+
+            Helpers.DebugLogger.Log($"[Clipboard] Synced from shell clipboard: {paths.Count} item(s), isCut={isCut}");
+        }
+
+        /// <summary>
         /// 잘라내기 작업 처리 (Ctrl+X).
         /// HandleCopy와 동일한 흐름이지만 _isCutOperation=true로 설정하고,
         /// DataPackage.RequestedOperation을 Move로 지정하여 붙여넣기 시 이동 동작을 수행한다.
@@ -544,60 +618,66 @@ namespace Span
             }
             else
             {
-                // External clipboard (Windows Explorer → Span)
-                try
+                // External clipboard (Windows Explorer / native shell context menu → Span)
+                if (Helpers.ShellClipboardHelper.TryReadFileClipboard(out sourcePaths, out isCut))
                 {
-                    var content = Clipboard.GetContent();
-                    if (!content.Contains(StandardDataFormats.StorageItems))
-                    {
-                        // StorageItems 없음 → RDP/Outlook 가상 파일(FileGroupDescriptorW) 폴백
-                        if (Helpers.VirtualFileClipboardHelper.IsVirtualFileDataAvailable())
-                        {
-                            Helpers.DebugLogger.Log("[Clipboard] StorageItems 없음, 가상 파일 붙여넣기 시도 (RDP/Outlook)");
-                            try
-                            {
-                                var pastedPaths = await Helpers.VirtualFileClipboardHelper.PasteVirtualFilesAsync(destDir);
-                                if (pastedPaths.Count > 0)
-                                {
-                                    Helpers.DebugLogger.Log($"[Clipboard] 가상 파일 붙여넣기 완료: {pastedPaths.Count}개");
-                                    ViewModel.ShowToast(string.Format("{0} item(s) pasted", pastedPaths.Count));
-                                    var refreshFolder = GetCurrentViewFolder();
-                                    if (refreshFolder != null) await refreshFolder.RefreshAsync();
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Helpers.DebugLogger.Log($"[Clipboard] 가상 파일 붙여넣기 실패: {ex.Message}");
-                                try { App.Current.Services.GetService<Services.CrashReportingService>()?.CaptureException(ex, "VirtualFilePaste"); } catch { }
-                                ViewModel.ShowToast(_loc.Get("Toast_PasteFailed") ?? "Paste failed", 3000, isError: true);
-                            }
-                        }
-                        return;
-                    }
-
-                    // Bug 1: 클립보드 접근에 타임아웃 적용 (COM 교착 방지)
-                    var clipTask = content.GetStorageItemsAsync().AsTask();
-                    if (await Task.WhenAny(clipTask, Task.Delay(5000)) != clipTask)
-                    {
-                        Helpers.DebugLogger.Log("[Clipboard] GetStorageItemsAsync timed out (5s)");
-                        return;
-                    }
-                    var items = clipTask.Result;
-                    sourcePaths = items
-                        .Select(i => i.Path)
-                        .Where(p => !string.IsNullOrEmpty(p))
-                        .ToList();
-                    if (sourcePaths.Count == 0) return;
-
-                    // Detect Cut vs Copy from Windows clipboard
-                    isCut = content.RequestedOperation.HasFlag(DataPackageOperation.Move);
-
                     Helpers.DebugLogger.Log($"[Clipboard] External paste: {sourcePaths.Count} item(s), isCut={isCut}");
                 }
-                catch (Exception ex)
+                else
                 {
-                    Helpers.DebugLogger.Log($"[Clipboard] External paste error: {ex.Message}");
-                    return;
+                    try
+                    {
+                        var content = Clipboard.GetContent();
+                        if (!content.Contains(StandardDataFormats.StorageItems))
+                        {
+                            // StorageItems 없음 → RDP/Outlook 가상 파일(FileGroupDescriptorW) 폴백
+                            if (Helpers.VirtualFileClipboardHelper.IsVirtualFileDataAvailable())
+                            {
+                                Helpers.DebugLogger.Log("[Clipboard] StorageItems 없음, 가상 파일 붙여넣기 시도 (RDP/Outlook)");
+                                try
+                                {
+                                    var pastedPaths = await Helpers.VirtualFileClipboardHelper.PasteVirtualFilesAsync(destDir);
+                                    if (pastedPaths.Count > 0)
+                                    {
+                                        Helpers.DebugLogger.Log($"[Clipboard] 가상 파일 붙여넣기 완료: {pastedPaths.Count}개");
+                                        ViewModel.ShowToast(string.Format("{0} item(s) pasted", pastedPaths.Count));
+                                        var refreshFolder = GetCurrentViewFolder();
+                                        if (refreshFolder != null) await refreshFolder.RefreshAsync();
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Helpers.DebugLogger.Log($"[Clipboard] 가상 파일 붙여넣기 실패: {ex.Message}");
+                                    try { App.Current.Services.GetService<Services.CrashReportingService>()?.CaptureException(ex, "VirtualFilePaste"); } catch { }
+                                    ViewModel.ShowToast(_loc.Get("Toast_PasteFailed") ?? "Paste failed", 3000, isError: true);
+                                }
+                            }
+                            return;
+                        }
+
+                        // Bug 1: 클립보드 접근에 타임아웃 적용 (COM 교착 방지)
+                        var clipTask = content.GetStorageItemsAsync().AsTask();
+                        if (await Task.WhenAny(clipTask, Task.Delay(5000)) != clipTask)
+                        {
+                            Helpers.DebugLogger.Log("[Clipboard] GetStorageItemsAsync timed out (5s)");
+                            return;
+                        }
+                        var items = clipTask.Result;
+                        sourcePaths = items
+                            .Select(i => i.Path)
+                            .Where(p => !string.IsNullOrEmpty(p))
+                            .ToList();
+                        if (sourcePaths.Count == 0) return;
+
+                        isCut = content.RequestedOperation.HasFlag(DataPackageOperation.Move);
+
+                        Helpers.DebugLogger.Log($"[Clipboard] External paste: {sourcePaths.Count} item(s), isCut={isCut}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Helpers.DebugLogger.Log($"[Clipboard] External paste error: {ex.Message}");
+                        return;
+                    }
                 }
             }
 
@@ -650,7 +730,11 @@ namespace Span
 
             await ViewModel.ExecuteFileOperationAsync(op, activeIndex >= 0 ? activeIndex : null);
 
-            if (isCut && _clipboardPaths.Count > 0) { ClearCutState(); _clipboardPaths.Clear(); }
+            if (isCut)
+            {
+                ClearCutState();
+                _clipboardPaths.Clear();
+            }
             UpdateToolbarButtonStates();
             }
             catch (Exception ex)

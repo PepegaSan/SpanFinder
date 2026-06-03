@@ -58,6 +58,12 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 - **Favorite groups** layout prefers `%LOCALAPPDATA%\Span\favorites-layout.json` on load.
 - After updating, set your options once; they should survive reboots. Always launch **SpanFinder Personal** (not the Microsoft Store **Span**) for fork features.
 
+### Clipboard, shortcuts, delete errors (June 2026)
+
+- **Fix:** Cut/Copy via native Windows shell context menu now enables **Paste** in SpanFinder (syncs OS clipboard / `CF_HDROP`).
+- **Ctrl+Shift+C** — copy path (selected item or current folder); rebind in Settings → Shortcuts.
+- **Fix:** Delete failures show **file in use** / read-only messages instead of misleading “admin required” when another program locks the file.
+
 ---
 
 ## Notes

@@ -791,6 +791,7 @@ namespace Span
 
                 // Edit
                 case ShortcutCommands.Copy: HandleCopy(); return true;
+                case ShortcutCommands.CopyPath: HandleCopyPath(); return true;
                 case ShortcutCommands.Cut: HandleCut(); return true;
                 case ShortcutCommands.Paste: HandlePaste(); return true;
                 case ShortcutCommands.PasteAsShortcut: HandlePasteAsShortcut(); return true;
