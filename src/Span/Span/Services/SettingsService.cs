@@ -707,6 +707,24 @@ public class SettingsService : ISettingsService
         set => Set("ActiveTabIndex", value);
     }
 
+    public string MillerSortBy
+    {
+        get => Get("MillerSortBy", "Name");
+        set => Set("MillerSortBy", value);
+    }
+
+    public bool MillerSortAsc
+    {
+        get => Get("MillerSortAsc", true);
+        set => Set("MillerSortAsc", value);
+    }
+
+    public string ViewGroupBy
+    {
+        get => Get("ViewGroupBy", "None");
+        set => Set("ViewGroupBy", value);
+    }
+
     // ── List View Settings ──
 
     public bool ListShowSize

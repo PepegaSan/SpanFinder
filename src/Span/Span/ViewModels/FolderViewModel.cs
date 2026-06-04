@@ -853,11 +853,9 @@ namespace Span.ViewModels
             s_sortSettingsLoaded = true;
             try
             {
-                var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
-                if (settings.Values.TryGetValue("MillerSortBy", out var sortObj) && sortObj is string sortBy)
-                    s_defaultSortBy = sortBy;
-                if (settings.Values.TryGetValue("MillerSortAsc", out var ascObj) && ascObj is bool asc)
-                    s_defaultSortAscending = asc;
+                var settings = App.Current.Services.GetRequiredService<Services.SettingsService>();
+                s_defaultSortBy = settings.MillerSortBy;
+                s_defaultSortAscending = settings.MillerSortAsc;
                 Helpers.DebugLogger.Log($"[FolderViewModel] Sort settings loaded: {s_defaultSortBy}, ascending={s_defaultSortAscending}");
             }
             catch (Exception ex) { Helpers.DebugLogger.Log($"[FolderViewModel] Sort settings load failed: {ex.Message}"); }
@@ -910,9 +908,9 @@ namespace Span.ViewModels
             {
                 s_defaultSortBy = sortBy;
                 s_defaultSortAscending = ascending;
-                var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
-                settings.Values["MillerSortBy"] = sortBy;
-                settings.Values["MillerSortAsc"] = ascending;
+                var settings = App.Current.Services.GetRequiredService<Services.SettingsService>();
+                settings.MillerSortBy = sortBy;
+                settings.MillerSortAsc = ascending;
             }
             catch (Exception ex) { Helpers.DebugLogger.Log($"[FolderViewModel] Sort settings save failed: {ex.Message}"); }
         }

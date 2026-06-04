@@ -510,32 +510,33 @@ namespace Span.ViewModels
 
                 Tabs.Clear();
 
-                // Create Tab 1
-                var tab1 = CreateStartupTab(tab1Behavior, settings.Tab1StartupPath,
-                    settings.Tab1StartupViewMode, savedDtos, 0);
-                tab1.Explorer ??= CreateDefaultExplorer(tab1.ViewMode);
-
-                // Assign LeftExplorer for Tab 1
-                var oldLeft = _leftExplorer;
-                if (oldLeft != null) oldLeft.PropertyChanged -= OnLeftExplorerPropertyChanged;
-                _leftExplorer = tab1.Explorer;
-                _leftExplorer.PropertyChanged += OnLeftExplorerPropertyChanged;
-
-                Tabs.Add(tab1);
+                // RestoreSession: alle gespeicherten Tabs; sonst ein Tab nach Tab1-Starteinstellung
+                if (tab1Behavior == 1 && savedDtos != null && savedDtos.Count > 0)
+                {
+                    for (int i = 0; i < savedDtos.Count; i++)
+                    {
+                        var tab = CreateStartupTab(1, settings.Tab1StartupPath,
+                            settings.Tab1StartupViewMode, savedDtos, i);
+                        tab.Explorer ??= CreateDefaultExplorer(tab.ViewMode);
+                        Tabs.Add(tab);
+                    }
+                }
+                else
+                {
+                    var tab1 = CreateStartupTab(tab1Behavior, settings.Tab1StartupPath,
+                        settings.Tab1StartupViewMode, savedDtos, 0);
+                    tab1.Explorer ??= CreateDefaultExplorer(tab1.ViewMode);
+                    Tabs.Add(tab1);
+                }
 
                 // Tab 2 설정은 Split View 우측 패인 전용 — 탭 바에 추가하지 않음.
                 // RightViewMode와 RightExplorer만 아래에서 설정.
 
-                _activeTabIndex = 0;
-                tab1.IsActive = true;
-                _currentViewMode = tab1.ViewMode;
-                _leftViewMode = tab1.ViewMode;
-                if (Helpers.ViewModeExtensions.IsIconMode(tab1.ViewMode))
-                    _currentIconSize = tab1.IconSize;
-
-                // Tab 1 AutoNavigation을 뷰모드에 맞게 설정
-                if (tab1.Explorer != null)
-                    tab1.Explorer.EnableAutoNavigation = ShouldAutoNavigate(tab1.ViewMode);
+                var activeIdx = Math.Clamp(settings.ActiveTabIndex, 0, Math.Max(0, Tabs.Count - 1));
+                foreach (var t in Tabs)
+                    t.IsActive = false;
+                _activeTabIndex = -1;
+                SwitchToTab(activeIdx);
 
                 // Tab 2 / Split view 우측 뷰모드: 시작 설정 적용
                 {
@@ -609,23 +610,25 @@ namespace Span.ViewModels
 
             switch (behavior)
             {
-                case 1: // Restore session — 경로는 세션에서, 뷰모드는 시작 설정에서
+                case 1: // Restore session — Pfad, ViewMode und IconSize aus gespeicherter Sitzung
                     if (savedDtos != null && tabIndex < savedDtos.Count)
                     {
                         var dto = savedDtos[tabIndex];
+                        var tabViewMode = System.Enum.IsDefined(typeof(ViewMode), dto.ViewMode)
+                            ? (ViewMode)dto.ViewMode : startupViewMode;
                         var tabIconSize = System.Enum.IsDefined(typeof(ViewMode), dto.IconSize)
                             ? (ViewMode)dto.IconSize : ViewMode.IconMedium;
 
                         var root = new FolderItem { Name = "PC", Path = "PC" };
                         var explorer = new ExplorerViewModel(root, _fileService);
-                        explorer.EnableAutoNavigation = ShouldAutoNavigate(startupViewMode);
+                        explorer.EnableAutoNavigation = ShouldAutoNavigate(tabViewMode);
 
                         return new TabItem
                         {
                             Id = dto.Id,
-                            Header = startupViewMode == ViewMode.Home ? HomeLabel : dto.Header,
+                            Header = tabViewMode == ViewMode.Home ? HomeLabel : dto.Header,
                             Path = dto.Path,
-                            ViewMode = startupViewMode,
+                            ViewMode = tabViewMode,
                             IconSize = tabIconSize,
                             IsActive = false,
                             Explorer = explorer

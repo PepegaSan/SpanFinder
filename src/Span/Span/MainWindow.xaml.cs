@@ -1067,19 +1067,21 @@ namespace Span
                         ViewModel.RightExplorer.EnableAutoNavigation = false;
                     }
 
-                    // Restore saved sort/group settings
+                    // Restore saved sort/group settings (settings.json)
                     try
                     {
-                        var appSettings = Windows.Storage.ApplicationData.Current.LocalSettings;
-                        if (appSettings.Values.TryGetValue("MillerSortBy", out var sby) && sby is string sortField)
-                        {
+                        var sortField = _settings.MillerSortBy;
+                        if (!string.IsNullOrEmpty(sortField))
                             _currentSortField = sortField switch { "DateModified" => "Date", _ => sortField };
-                        }
-                        if (appSettings.Values.TryGetValue("MillerSortAsc", out var sasc) && sasc is bool sortAsc)
-                            _currentSortAscending = sortAsc;
-                        if (appSettings.Values.TryGetValue("ViewGroupBy", out var vgb) && vgb is string grp)
-                            _currentGroupBy = grp;
+                        _currentSortAscending = _settings.MillerSortAsc;
+                        _currentGroupBy = _settings.ViewGroupBy;
                         UpdateSortButtonIcons();
+                        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+                        {
+                            if (!string.IsNullOrEmpty(_currentGroupBy) && _currentGroupBy != "None")
+                                ((Services.IContextMenuHost)this).ApplyGroupBy(_currentGroupBy);
+                            SortCurrentColumn(_currentSortField, _currentSortAscending);
+                        });
                     }
                     catch { }
 
@@ -6731,8 +6733,7 @@ namespace Span
             // 설정 저장
             try
             {
-                var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
-                settings.Values["ViewGroupBy"] = groupBy;
+                _settings.ViewGroupBy = groupBy;
             }
             catch { }
 
