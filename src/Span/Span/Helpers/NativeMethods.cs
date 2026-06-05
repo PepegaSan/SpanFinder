@@ -64,6 +64,7 @@ namespace Span.Helpers
             int X, int Y, int cx, int cy, uint uFlags);
 
         internal const uint SWP_NOSIZE = 0x0001;
+        internal const uint SWP_NOMOVE = 0x0002;
         internal const uint SWP_NOZORDER = 0x0004;
         internal const uint SWP_NOACTIVATE = 0x0010;
         internal const uint SWP_NOOWNERZORDER = 0x0200;
@@ -71,6 +72,7 @@ namespace Span.Helpers
         internal const uint SWP_MOVE_ONLY = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
 
         internal static readonly IntPtr HWND_TOP = IntPtr.Zero;
+        internal static readonly IntPtr HWND_BOTTOM = new(1);
 
         // 키보드 입력 시뮬레이션 (서브메뉴 열기용)
         [DllImport("user32.dll")]

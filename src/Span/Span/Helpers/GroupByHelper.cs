@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Microsoft.UI.Xaml.Media;
 using Span.Services;
 using Span.ViewModels;
 
@@ -118,6 +119,80 @@ namespace Span.Helpers
             if (size < 128 * 1024 * 1024) return "05|" + LocalizationService.L("Group_Medium");
             if (size < 1024L * 1024 * 1024) return "06|" + LocalizationService.L("Group_Large");
             return "07|" + LocalizationService.L("Group_Huge");
+        }
+    }
+
+    /// <summary>
+    /// Compact relative age labels for Miller columns (One Commander style).
+    /// </summary>
+    internal static class RelativeAgeHelper
+    {
+        private static readonly SolidColorBrush FreshBrush =
+            new(Windows.UI.Color.FromArgb(255, 115, 201, 145));
+        private static readonly SolidColorBrush DaysBrush =
+            new(Windows.UI.Color.FromArgb(255, 226, 165, 46));
+        private static readonly SolidColorBrush WeeksBrush =
+            new(Windows.UI.Color.FromArgb(255, 232, 148, 74));
+        private static readonly SolidColorBrush MonthsBrush =
+            new(Windows.UI.Color.FromArgb(255, 160, 160, 170));
+        private static readonly SolidColorBrush OldBrush =
+            new(Windows.UI.Color.FromArgb(255, 120, 120, 130));
+
+        public readonly record struct RelativeAge(string Text, Brush Brush);
+
+        public static RelativeAge Format(DateTime modified)
+        {
+            if (modified == DateTime.MinValue || modified.Year < 1980)
+                return new RelativeAge(string.Empty, MonthsBrush);
+
+            var age = DateTime.Now - modified;
+            if (age < TimeSpan.Zero)
+                age = TimeSpan.Zero;
+
+            if (age.TotalHours < 1)
+            {
+                var mins = Math.Max(1, (int)age.TotalMinutes);
+                return new RelativeAge(
+                    string.Format(LocalizationService.L("Age_Minutes"), mins),
+                    FreshBrush);
+            }
+
+            if (age.TotalDays < 1)
+            {
+                var hours = Math.Max(1, (int)age.TotalHours);
+                return new RelativeAge(
+                    string.Format(LocalizationService.L("Age_Hours"), hours),
+                    FreshBrush);
+            }
+
+            if (age.TotalDays < 7)
+            {
+                var days = Math.Max(1, (int)age.TotalDays);
+                return new RelativeAge(
+                    string.Format(LocalizationService.L("Age_Days"), days),
+                    DaysBrush);
+            }
+
+            if (age.TotalDays < 30)
+            {
+                var weeks = Math.Max(1, (int)(age.TotalDays / 7));
+                return new RelativeAge(
+                    string.Format(LocalizationService.L("Age_Weeks"), weeks),
+                    WeeksBrush);
+            }
+
+            if (age.TotalDays < 365)
+            {
+                var months = Math.Max(1, (int)(age.TotalDays / 30));
+                return new RelativeAge(
+                    string.Format(LocalizationService.L("Age_Months"), months),
+                    MonthsBrush);
+            }
+
+            var years = Math.Max(1, (int)(age.TotalDays / 365));
+            return new RelativeAge(
+                string.Format(LocalizationService.L("Age_Years"), years),
+                OldBrush);
         }
     }
 }

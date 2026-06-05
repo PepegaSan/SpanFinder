@@ -1106,6 +1106,8 @@
                                                                                         <ColumnDefinition Width="Auto"/>
                                                                                         <ColumnDefinition Width="Auto"/>
                                                                                         <ColumnDefinition Width="*"/>
+                                                                                        <ColumnDefinition Width="Auto"/>
+                                                                                        <ColumnDefinition Width="Auto"/>
                                                                                     </Grid.ColumnDefinitions>
                                                                                     <!-- Col0: path indicator placeholder (matches FolderTemplate column structure) -->
                                                                                     <Border Grid.Column="0" Width="1" CornerRadius="0.5" Margin="-8,2,0,2" Visibility="Collapsed"/>
@@ -1142,6 +1144,12 @@
                                                                                              Visibility="{x:Bind IsRenaming, Mode=OneWay}"
                                                                                              VerticalAlignment="Center" Padding="2" MinHeight="0" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
                                                                                              LostFocus="OnRenameTextBoxLostFocus" KeyDown="OnRenameTextBoxKeyDown"/>
+                                                                                    <!-- Relative file age (One Commander style) -->
+                                                                                    <TextBlock Grid.Column="3" Text="{x:Bind RelativeAgeText, Mode=OneWay}" VerticalAlignment="Center"
+                                                                                               FontSize="10" Foreground="{x:Bind RelativeAgeBrush, Mode=OneWay}" Margin="4,0,4,0"
+                                                                                               Visibility="{x:Bind viewmodels:FileSystemViewModel.NotRenaming(IsRenaming), Mode=OneWay}"/>
+                                                                                    <!-- Col4 spacer aligns file rows with folder chevron column -->
+                                                                                    <Border Grid.Column="4" Width="10" Visibility="Collapsed"/>
                                                                                 </Grid>
                                                                             </DataTemplate>
                                                                         </local:FileSystemItemTemplateSelector.FileTemplate>
@@ -1539,6 +1547,8 @@
                                                                                         <ColumnDefinition Width="Auto"/>
                                                                                         <ColumnDefinition Width="Auto"/>
                                                                                         <ColumnDefinition Width="*"/>
+                                                                                        <ColumnDefinition Width="Auto"/>
+                                                                                        <ColumnDefinition Width="Auto"/>
                                                                                     </Grid.ColumnDefinitions>
                                                                                     <!-- Col0: path indicator placeholder (matches FolderTemplate column structure) -->
                                                                                     <Border Grid.Column="0" Width="1" CornerRadius="0.5" Margin="-8,2,0,2" Visibility="Collapsed"/>
@@ -1575,6 +1585,12 @@
                                                                                              Visibility="{x:Bind IsRenaming, Mode=OneWay}"
                                                                                              VerticalAlignment="Center" Padding="2" MinHeight="0" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
                                                                                              LostFocus="OnRenameTextBoxLostFocus" KeyDown="OnRenameTextBoxKeyDown"/>
+                                                                                    <!-- Relative file age (One Commander style) -->
+                                                                                    <TextBlock Grid.Column="3" Text="{x:Bind RelativeAgeText, Mode=OneWay}" VerticalAlignment="Center"
+                                                                                               FontSize="10" Foreground="{x:Bind RelativeAgeBrush, Mode=OneWay}" Margin="4,0,4,0"
+                                                                                               Visibility="{x:Bind viewmodels:FileSystemViewModel.NotRenaming(IsRenaming), Mode=OneWay}"/>
+                                                                                    <!-- Col4 spacer aligns file rows with folder chevron column -->
+                                                                                    <Border Grid.Column="4" Width="10" Visibility="Collapsed"/>
                                                                                 </Grid>
                                                                             </DataTemplate>
                                                                         </local:FileSystemItemTemplateSelector.FileTemplate>

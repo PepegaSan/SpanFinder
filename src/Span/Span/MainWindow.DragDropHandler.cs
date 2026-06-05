@@ -44,6 +44,9 @@ namespace Span
         private int _lastModifierSnapshot;
         private int _nudgeCountdown;
 
+        /// <summary>True while the main window was sent behind other apps during an outbound drag.</summary>
+        private bool _windowLoweredForDrag;
+
         // 커스텀 드래그 오버레이: WinUI 기본 ListView 행 스크린샷 + 시스템 Caption 대신
         // 앱 폰트/테마에 맞는 경량 오버레이로 아이콘+파일명+작업 텍스트를 표시한다.
         private Border? _dragOverlay;
@@ -77,8 +80,7 @@ namespace Span
             var items = e.Items.OfType<FileSystemViewModel>().ToList();
             if (items.Count == 0) { e.Cancel = true; return; }
 
-            IsDragInProgress = true;
-            StartModifierPollTimer();
+            BeginOutboundFileDrag();
 
             // 드래그 오버레이용 항목 정보 캡처 (최대 3개 아이콘 — 스택 표시용)
             _dragItemCount = items.Count;
@@ -111,10 +113,64 @@ namespace Span
         /// </summary>
         private void OnDragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
         {
+            EndOutboundFileDrag();
+        }
+
+        /// <summary>
+        /// Start outbound drag tracking (modifier poll + z-order management for external drops).
+        /// </summary>
+        private void BeginOutboundFileDrag()
+        {
+            _windowLoweredForDrag = false;
+            IsDragInProgress = true;
+            StartModifierPollTimer();
+        }
+
+        /// <summary>
+        /// End outbound drag. Window stays behind other apps if it was lowered during the drag.
+        /// </summary>
+        private void EndOutboundFileDrag()
+        {
             IsDragInProgress = false;
             StopModifierPollTimer();
             HideDragTooltip();
             _dragItemCount = 0;
+            _windowLoweredForDrag = false;
+        }
+
+        /// <summary>
+        /// While dragging out to another app, send Span behind other windows when the cursor
+        /// leaves our client area (Explorer-like). Restore when the cursor re-enters for internal drops.
+        /// </summary>
+        private void UpdateWindowZOrderForOutboundDrag()
+        {
+            if (_hwnd == IntPtr.Zero || !IsDragInProgress)
+                return;
+
+            Helpers.NativeMethods.GetCursorPos(out var pt);
+            Helpers.NativeMethods.GetWindowRect(_hwnd, out var rect);
+
+            bool cursorInWindow = pt.X >= rect.Left && pt.X < rect.Right
+                               && pt.Y >= rect.Top && pt.Y < rect.Bottom;
+
+            if (!cursorInWindow && !_windowLoweredForDrag)
+            {
+                Helpers.NativeMethods.SetWindowPos(
+                    _hwnd,
+                    Helpers.NativeMethods.HWND_BOTTOM,
+                    0, 0, 0, 0,
+                    Helpers.NativeMethods.SWP_NOSIZE | Helpers.NativeMethods.SWP_NOMOVE | Helpers.NativeMethods.SWP_NOACTIVATE);
+                _windowLoweredForDrag = true;
+            }
+            else if (cursorInWindow && _windowLoweredForDrag)
+            {
+                Helpers.NativeMethods.SetWindowPos(
+                    _hwnd,
+                    Helpers.NativeMethods.HWND_TOP,
+                    0, 0, 0, 0,
+                    Helpers.NativeMethods.SWP_NOSIZE | Helpers.NativeMethods.SWP_NOMOVE | Helpers.NativeMethods.SWP_NOACTIVATE);
+                _windowLoweredForDrag = false;
+            }
         }
 
         /// <summary>
@@ -825,6 +881,8 @@ namespace Span
             try
             {
                 if (!IsDragInProgress) return;
+
+                UpdateWindowZOrderForOutboundDrag();
 
                 var snapshot = GetModifierSnapshot();
                 if (snapshot != _lastModifierSnapshot)
@@ -1617,8 +1675,7 @@ namespace Span
             var items = e.Items.OfType<ViewModels.FileSystemViewModel>().ToList();
             if (items.Count == 0) return;
 
-            IsDragInProgress = true;
-            StartModifierPollTimer();
+            BeginOutboundFileDrag();
             _dragItemCount = items.Count;
             _dragItemName = items.FirstOrDefault()?.Name ?? "";
             var iconSvc = Services.IconService.Current;
@@ -1634,10 +1691,7 @@ namespace Span
         /// </summary>
         public void NotifyViewDragCompleted()
         {
-            IsDragInProgress = false;
-            StopModifierPollTimer();
-            HideDragTooltip();
-            _dragItemCount = 0;
+            EndOutboundFileDrag();
         }
 
         /// <summary>

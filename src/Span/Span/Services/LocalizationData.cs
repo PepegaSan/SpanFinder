@@ -978,6 +978,14 @@ namespace Span.Services
             ("Group_Huge", "Huge (> 1 GB)", "매우 큼 (> 1 GB)", "巨大 (> 1 GB)", "超大 (> 1 GB)", "超大 (> 1 GB)", "Riesig (> 1 GB)", "Enorme (> 1 GB)", "Énorme (> 1 Go)", "Enorme (> 1 GB)"),
             ("Group_Folder", "Folder", "폴더", "フォルダー", "文件夹", "資料夾", "Ordner", "Carpeta", "Dossier", "Pasta"),
 
+            // ── Miller relative file age ───────────────────────────────────
+            ("Age_Minutes", "{0} min", "{0}분", "{0}分", "{0} 分钟", "{0} 分鐘", "{0} Min", "{0} min", "{0} min", "{0} min"),
+            ("Age_Hours", "{0} h", "{0}시간", "{0}時間", "{0} 小时", "{0} 小時", "{0} Std", "{0} h", "{0} h", "{0} h"),
+            ("Age_Days", "{0} d", "{0}일", "{0}日", "{0} 天", "{0} 天", "{0} T", "{0} d", "{0} j", "{0} d"),
+            ("Age_Weeks", "{0} w", "{0}주", "{0}週", "{0} 周", "{0} 週", "{0} Wo", "{0} sem", "{0} sem", "{0} sem"),
+            ("Age_Months", "{0} mo", "{0}개월", "{0}月", "{0} 月", "{0} 月", "{0} Mo", "{0} mes", "{0} mois", "{0} mês"),
+            ("Age_Years", "{0} y", "{0}년", "{0}年", "{0} 年", "{0} 年", "{0} J", "{0} a", "{0} an", "{0} a"),
+
             // ── Command Palette: states & categories ────────────────────────
             ("Cmd_StateOn", "ON", "켜짐", "ON", "开", "開", "EIN", "ENC", "ON", "LIG"),
             ("Cmd_StateOff", "OFF", "꺼짐", "OFF", "关", "關", "AUS", "APAG", "OFF", "DESL"),

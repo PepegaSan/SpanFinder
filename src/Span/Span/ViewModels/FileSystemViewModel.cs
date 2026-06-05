@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Span.Models;
+using Span.Helpers;
 using Span.Services;
 
 namespace Span.ViewModels
@@ -414,6 +415,28 @@ namespace Span.ViewModels
                 if (_model is FileItem fileItem)
                     return fileItem.Size;
                 return 0;
+            }
+        }
+
+        /// <summary>Compact relative age for Miller file rows (e.g. "5 Min", "3 T"). Empty for folders.</summary>
+        public virtual string RelativeAgeText
+        {
+            get
+            {
+                if (_model is not FileItem)
+                    return string.Empty;
+                return RelativeAgeHelper.Format(DateModifiedValue).Text;
+            }
+        }
+
+        /// <summary>Accent color for <see cref="RelativeAgeText"/> by age tier.</summary>
+        public virtual Microsoft.UI.Xaml.Media.Brush RelativeAgeBrush
+        {
+            get
+            {
+                if (_model is not FileItem)
+                    return RelativeAgeHelper.Format(DateTime.MinValue).Brush;
+                return RelativeAgeHelper.Format(DateModifiedValue).Brush;
             }
         }
 

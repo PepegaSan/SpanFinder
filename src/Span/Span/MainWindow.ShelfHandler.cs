@@ -629,6 +629,8 @@ namespace Span
             var items = e.Items.OfType<ShelfItem>().ToList();
             if (items.Count == 0) { e.Cancel = true; return; }
 
+            BeginOutboundFileDrag();
+
             var paths = items.Select(i => i.Path).ToList();
             e.Data.SetText(string.Join("\n", paths));
             e.Data.Properties["SourcePaths"] = paths;
@@ -645,6 +647,8 @@ namespace Span
 
         private void OnShelfDragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
         {
+            EndOutboundFileDrag();
+
             if (args.DropResult == DataPackageOperation.Move)
             {
                 var movedItems = args.Items.OfType<ShelfItem>().Where(i => !i.IsPinned).ToList();
