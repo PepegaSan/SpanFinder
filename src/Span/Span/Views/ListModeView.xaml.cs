@@ -817,6 +817,19 @@ namespace Span.Views
             finally { _isSyncingSelection = false; }
         }
 
+        internal void SelectItemForTypeAhead(FileSystemViewModel item)
+        {
+            if (ListGridView == null) return;
+            ListGridView.SelectedItem = item;
+            ListGridView.ScrollIntoView(item);
+        }
+
+        internal List<FileSystemViewModel> GetSelectedFileSystemItems()
+        {
+            if (ListGridView == null) return new List<FileSystemViewModel>();
+            return ListGridView.SelectedItems.OfType<FileSystemViewModel>().ToList();
+        }
+
         internal void InvertSelection()
         {
             if (ListGridView == null || ViewModel?.CurrentFolder == null) return;

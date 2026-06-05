@@ -84,6 +84,7 @@ namespace Span
 
         // Type-ahead search
         private string _typeAheadBuffer = string.Empty;
+        private int _typeAheadCycleIndex;
         private DispatcherTimer? _typeAheadTimer;
 
         // Filter bar debounce (300ms) — prevents 14K filter per keystroke
@@ -632,8 +633,9 @@ namespace Span
             _contextMenuService.ShellCommandExecutedCallback = () =>
             {
                 var currentPath = ViewModel?.ActiveExplorer?.CurrentPath;
-                DispatcherQueue.TryEnqueue(() =>
+                DispatcherQueue.TryEnqueue(async () =>
                 {
+                    await Task.Delay(100);
                     SyncClipboardFromSystemIfNeeded();
                     UpdateToolbarButtonStates();
                 });
@@ -654,8 +656,9 @@ namespace Span
             };
             _contextMenuService.NativeShellMenuClosedCallback = () =>
             {
-                DispatcherQueue.TryEnqueue(() =>
+                DispatcherQueue.TryEnqueue(async () =>
                 {
+                    await Task.Delay(100);
                     SyncClipboardFromSystemIfNeeded();
                     UpdateToolbarButtonStates();
                 });
@@ -735,6 +738,7 @@ namespace Span
             _typeAheadTimer.Tick += (s, e) =>
             {
                 _typeAheadBuffer = string.Empty;
+                _typeAheadCycleIndex = 0;
                 _typeAheadTimer.Stop();
             };
 
@@ -4639,6 +4643,14 @@ namespace Span
 
             _rubberBandHelpers[grid] = helper;
 
+            if (grid.DataContext is ViewModels.FolderViewModel folderVm)
+            {
+                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+                {
+                    SyncMillerListViewSelection(listView, folderVm);
+                });
+            }
+
             // 컬럼 Grid Loaded 시점에 path highlight 리프레시
             // PathHighlightsUpdated 이벤트가 Loaded 전에 발생한 경우를 보완
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
@@ -4993,6 +5005,47 @@ namespace Span
                 }
             }
             catch (System.Runtime.InteropServices.COMException) { }
+        }
+
+        /// <summary>
+        /// Push VM selection into a Miller ListView (replaces removed SelectedItem OneWay binding).
+        /// </summary>
+        private void SyncMillerListViewSelection(ListView listView, ViewModels.FolderViewModel column)
+        {
+            if (column.SelectedItems.Count > 1)
+                ApplyMillerListViewSelection(listView, column.SelectedItems);
+            else if (column.SelectedChild != null)
+                ApplyMillerListViewSelection(listView, new[] { column.SelectedChild });
+        }
+
+        private void ApplyMillerListViewSelection(ListView listView, IReadOnlyList<ViewModels.FileSystemViewModel> items)
+        {
+            if (items.Count == 0) return;
+
+            _isSyncingSelection = true;
+            try
+            {
+                listView.SelectedItems.Clear();
+                foreach (var item in items)
+                {
+                    if (ListViewContainsItem(listView, item))
+                        listView.SelectedItems.Add(item);
+                }
+            }
+            finally
+            {
+                _isSyncingSelection = false;
+            }
+        }
+
+        private static bool ListViewContainsItem(ListView listView, ViewModels.FileSystemViewModel item)
+        {
+            foreach (var obj in listView.Items)
+            {
+                if (ReferenceEquals(obj, item))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -5978,63 +6031,18 @@ namespace Span
         {
             if (Helpers.ArchivePathHelper.IsArchivePath(path)) { ViewModel.ShowToast(_loc.Get("Toast_ArchiveReadOnly")); return; }
 
-            // Multi-selection support: path 기반으로 올바른 컬럼의 선택 항목을 가져옴
             var paths = GetSelectedPathsForContextMenu(path);
             if (paths.Any(p => Helpers.ArchivePathHelper.IsArchivePath(p))) { ViewModel.ShowToast(_loc.Get("Toast_ArchiveReadOnly")); return; }
 
-            // 잘라내기 반투명 효과 적용
             var viewModels = GetViewModelsForPaths(paths);
-            ApplyCutState(viewModels);
-
-            _clipboardPaths.Clear();
-            foreach (var p in paths)
-                _clipboardPaths.Add(p);
-            _isCutOperation = true;
-
-            var dataPackage = new DataPackage();
-            dataPackage.RequestedOperation = DataPackageOperation.Move;
-            dataPackage.SetText(string.Join("\n", _clipboardPaths));
-
-            // Provide StorageItems for Windows Explorer compatibility
-            var capturedPaths = new List<string>(_clipboardPaths);
-            dataPackage.SetDataProvider(StandardDataFormats.StorageItems, request =>
-            {
-                var deferral = request.GetDeferral();
-                _ = Helpers.ViewDragDropHelper.ProvideStorageItemsAsync(request, capturedPaths, deferral);
-            });
-
-            Clipboard.SetContent(dataPackage);
-            Helpers.DebugLogger.Log($"[ContextMenu] Cut: {_clipboardPaths.Count} item(s)");
+            _ = PublishFilesToClipboardAsync(paths, isCut: true, cutHighlightItems: viewModels);
             UpdateToolbarButtonStates();
         }
 
         void Services.IContextMenuHost.PerformCopy(string path)
         {
-            // 이전 잘라내기 항목의 반투명 효과 해제
-            ClearCutState();
-
-            // Multi-selection support: path 기반으로 올바른 컬럼의 선택 항목을 가져옴
             var paths = GetSelectedPathsForContextMenu(path);
-
-            _clipboardPaths.Clear();
-            foreach (var p in paths)
-                _clipboardPaths.Add(p);
-            _isCutOperation = false;
-
-            var dataPackage = new DataPackage();
-            dataPackage.RequestedOperation = DataPackageOperation.Copy;
-            dataPackage.SetText(string.Join("\n", _clipboardPaths));
-
-            // Provide StorageItems for Windows Explorer compatibility
-            var capturedPaths = new List<string>(_clipboardPaths);
-            dataPackage.SetDataProvider(StandardDataFormats.StorageItems, request =>
-            {
-                var deferral = request.GetDeferral();
-                _ = Helpers.ViewDragDropHelper.ProvideStorageItemsAsync(request, capturedPaths, deferral);
-            });
-
-            Clipboard.SetContent(dataPackage);
-            Helpers.DebugLogger.Log($"[ContextMenu] Copy: {_clipboardPaths.Count} item(s)");
+            _ = PublishFilesToClipboardAsync(paths, isCut: false);
             UpdateToolbarButtonStates();
         }
 
@@ -6046,34 +6054,26 @@ namespace Span
             List<string> sourcePaths;
             bool isCut;
 
-            if (_clipboardPaths.Count > 0)
+            if (!TryGetClipboardSourcePaths(out sourcePaths, out isCut))
             {
-                // Internal clipboard (Span → Span)
-                sourcePaths = new List<string>(_clipboardPaths);
-                isCut = _isCutOperation;
-            }
-            else
-            {
-                if (!Helpers.ShellClipboardHelper.TryReadFileClipboard(out sourcePaths, out isCut))
+                try
                 {
-                    try
-                    {
-                        var content = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
-                        if (!content.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
-                            return;
+                    var content = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
+                    if (!content.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+                        return;
 
-                        var items = await content.GetStorageItemsAsync();
-                        sourcePaths = items
-                            .Select(i => i.Path)
-                            .Where(p => !string.IsNullOrEmpty(p))
-                            .ToList();
-                        if (sourcePaths.Count == 0) return;
+                    var items = await content.GetStorageItemsAsync();
+                    sourcePaths = items
+                        .Select(i => i.Path)
+                        .Where(p => !string.IsNullOrEmpty(p))
+                        .ToList();
+                    if (sourcePaths.Count == 0) return;
 
-                        isCut = content.RequestedOperation.HasFlag(
-                            Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move);
-                    }
-                    catch { return; }
+                    isCut = content.RequestedOperation.HasFlag(
+                        Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move);
+                    MirrorInternalClipboard(sourcePaths, isCut);
                 }
+                catch { return; }
             }
 
             // Find target column index for targeted refresh
@@ -6089,19 +6089,7 @@ namespace Span
                 }
             }
 
-            var router = App.Current.Services.GetRequiredService<FileSystemRouter>();
-            Span.Services.FileOperations.IFileOperation op = isCut
-                ? new Span.Services.FileOperations.MoveFileOperation(sourcePaths, targetFolderPath, router)
-                : new Span.Services.FileOperations.CopyFileOperation(sourcePaths, targetFolderPath, router);
-
-            await ViewModel.ExecuteFileOperationAsync(op, targetColumnIndex);
-
-            if (isCut)
-            {
-                ClearCutState();
-                _clipboardPaths.Clear();
-            }
-            UpdateToolbarButtonStates();
+            await ExecutePasteOperationAsync(sourcePaths, isCut, targetFolderPath, targetColumnIndex);
             }
             catch (Exception ex) { Helpers.DebugLogger.Log($"[ContextMenu] PerformPaste failed: {ex.Message}"); }
         }

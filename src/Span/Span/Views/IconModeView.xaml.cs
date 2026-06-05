@@ -421,6 +421,12 @@ namespace Span.Views
             finally { _isSyncingSelection = false; }
         }
 
+        internal List<FileSystemViewModel> GetSelectedFileSystemItems()
+        {
+            if (IconGridView == null) return new List<FileSystemViewModel>();
+            return IconGridView.SelectedItems.OfType<FileSystemViewModel>().ToList();
+        }
+
         private void OnRootTapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
         {
             IconGridView?.Focus(FocusState.Programmatic);

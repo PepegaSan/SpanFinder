@@ -12,6 +12,8 @@ namespace Span.Services
     public interface IContextMenuHost
     {
         bool HasClipboardContent { get; }
+        /// <summary>All paths selected in the same folder as the right-clicked item (multi-select aware).</summary>
+        IReadOnlyList<string> GetSelectedPathsForContextMenu(string clickedPath);
         void PerformCut(string path);
         void PerformCopy(string path);
         void PerformPaste(string targetFolderPath);

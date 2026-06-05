@@ -852,6 +852,12 @@ namespace Span.Views
             finally { _isSyncingSelection = false; }
         }
 
+        internal List<FileSystemViewModel> GetSelectedFileSystemItems()
+        {
+            if (DetailsListView == null) return new List<FileSystemViewModel>();
+            return DetailsListView.SelectedItems.OfType<FileSystemViewModel>().ToList();
+        }
+
         internal void InvertSelection()
         {
             if (DetailsListView == null || ViewModel?.CurrentFolder == null) return;

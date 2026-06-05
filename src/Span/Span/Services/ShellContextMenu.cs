@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -304,10 +305,112 @@ namespace Span.Services
         }
 
         /// <summary>
+        /// Native shell context menu for multiple items in the same folder (multi-select copy/cut/delete).
+        /// </summary>
+        public static bool ShowForPathsWithFooter(IntPtr hwnd, IReadOnlyList<string> paths, IReadOnlyList<SpanFooterItem>? footer)
+        {
+            GetCursorPos(out POINT pt);
+            return ShowForPathsAtWithFooter(hwnd, paths, pt.X, pt.Y, footer);
+        }
+
+        /// <summary>
         /// Show native shell context menu for a file or folder at specified screen coordinates.
         /// </summary>
         public static bool ShowForItemAt(IntPtr hwnd, string path, int screenX, int screenY)
             => ShowForItemAtWithFooter(hwnd, path, screenX, screenY, null);
+
+        /// <summary>
+        /// Native shell context menu with optional Span items appended at the bottom.
+        /// </summary>
+        public static bool ShowForPathsAtWithFooter(IntPtr hwnd, IReadOnlyList<string> paths, int screenX, int screenY,
+            IReadOnlyList<SpanFooterItem>? footer)
+        {
+            if (paths == null || paths.Count == 0) return false;
+            if (paths.Count == 1)
+                return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer);
+
+            var parentDir = Path.GetDirectoryName(paths[0]);
+            if (string.IsNullOrEmpty(parentDir))
+                return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer);
+
+            for (int i = 1; i < paths.Count; i++)
+            {
+                var otherParent = Path.GetDirectoryName(paths[i]);
+                if (!string.Equals(otherParent, parentDir, StringComparison.OrdinalIgnoreCase))
+                    return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer);
+            }
+
+            var itemPidls = new List<IntPtr>();
+            var childPidls = new List<IntPtr>();
+            IntPtr shellFolderPtr = IntPtr.Zero;
+            IntPtr hMenu = IntPtr.Zero;
+            IntPtr contextMenuPtr = IntPtr.Zero;
+            object? shellFolderObj = null;
+            object? contextMenuObj = null;
+            var footerItems = footer ?? Array.Empty<SpanFooterItem>();
+
+            try
+            {
+                var iidFolder = new Guid("000214E6-0000-0000-C000-000000000046");
+
+                for (int i = 0; i < paths.Count; i++)
+                {
+                    int hr = SHParseDisplayName(paths[i], IntPtr.Zero, out IntPtr pidl, 0, out _);
+                    if (hr != 0 || pidl == IntPtr.Zero)
+                        return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer);
+                    itemPidls.Add(pidl);
+
+                    hr = SHBindToParent(pidl, ref iidFolder, out IntPtr sfPtr, out IntPtr childPidl);
+                    if (hr != 0 || sfPtr == IntPtr.Zero)
+                        return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer);
+
+                    if (i == 0)
+                    {
+                        shellFolderPtr = sfPtr;
+                        shellFolderObj = Marshal.GetObjectForIUnknown(shellFolderPtr);
+                    }
+                    else if (sfPtr != shellFolderPtr)
+                    {
+                        Marshal.Release(sfPtr);
+                        return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer);
+                    }
+                    else
+                    {
+                        Marshal.Release(sfPtr);
+                    }
+
+                    childPidls.Add(childPidl);
+                }
+
+                if (shellFolderObj == null) return false;
+
+                var shellFolder = (IShellFolder)shellFolderObj;
+                var iidCM = new Guid("000214e4-0000-0000-c000-000000000046");
+                int cmHr = shellFolder.GetUIObjectOf(hwnd, (uint)childPidls.Count, childPidls.ToArray(),
+                    ref iidCM, IntPtr.Zero, out contextMenuPtr);
+                if (cmHr != 0 || contextMenuPtr == IntPtr.Zero) return false;
+
+                contextMenuObj = Marshal.GetObjectForIUnknown(contextMenuPtr);
+                return ShowContextMenuFromObjects(hwnd, screenX, screenY, footerItems, contextMenuObj, out hMenu);
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[ShellContextMenu] ShowForPathsAtWithFooter error: {ex.Message}");
+                try { App.Current.Services.GetService<CrashReportingService>()?.CaptureException(ex, "ShellContextMenu.ShowForPathsAtWithFooter"); } catch { }
+                return false;
+            }
+            finally
+            {
+                s_cm2 = null; s_cm3 = null; s_subclassDelegate = null;
+                if (hMenu != IntPtr.Zero) DestroyMenu(hMenu);
+                foreach (var pidl in itemPidls)
+                {
+                    if (pidl != IntPtr.Zero) CoTaskMemFree(pidl);
+                }
+                if (contextMenuObj != null) try { Marshal.ReleaseComObject(contextMenuObj); } catch { }
+                if (shellFolderObj != null) try { Marshal.ReleaseComObject(shellFolderObj); } catch { }
+            }
+        }
 
         /// <summary>
         /// Native shell context menu with optional Span items appended at the bottom.
@@ -341,57 +444,7 @@ namespace Span.Services
                 if (hr != 0 || contextMenuPtr == IntPtr.Zero) return false;
 
                 contextMenuObj = Marshal.GetObjectForIUnknown(contextMenuPtr);
-                var contextMenu = (IContextMenu)contextMenuObj;
-
-                s_cm3 = null;
-                s_cm2 = null;
-                try { s_cm3 = (IContextMenu3)contextMenuObj; } catch { }
-                if (s_cm3 == null) { try { s_cm2 = (IContextMenu2)contextMenuObj; } catch { } }
-
-                hMenu = CreatePopupMenu();
-                if (hMenu == IntPtr.Zero) return false;
-
-                hr = contextMenu.QueryContextMenu(hMenu, 0, FIRST_CMD, LAST_CMD,
-                    CMF_NORMAL | CMF_EXPLORE | CMF_CANRENAME);
-                if (hr < 0) return false;
-
-                AppendSpanFooterItems(hMenu, footerItems);
-
-                s_subclassDelegate = new SubclassProc(MenuSubclassProc);
-                SetWindowSubclass(hwnd, s_subclassDelegate, SUBCLASS_ID, IntPtr.Zero);
-
-                try
-                {
-                    int cmd = TrackPopupMenuEx(hMenu,
-                        TPM_RETURNCMD | TPM_RIGHTBUTTON,
-                        screenX, screenY, hwnd, IntPtr.Zero);
-
-                    if (cmd == 0)
-                        return true;
-
-                    if (cmd >= (int)SPAN_CMD_BASE)
-                    {
-                        int footerIndex = cmd - (int)SPAN_CMD_BASE;
-                        if (footerIndex >= 0 && footerIndex < footerItems.Count)
-                            footerItems[footerIndex].Action();
-                    }
-                    else if (cmd >= (int)FIRST_CMD && cmd < (int)SPAN_CMD_BASE)
-                    {
-                        var invokeInfo = new CMINVOKECOMMANDINFO
-                        {
-                            cbSize = Marshal.SizeOf<CMINVOKECOMMANDINFO>(),
-                            fMask = CMIC_MASK_FLAG_NO_UI, hwnd = hwnd,
-                            lpVerb = (IntPtr)(cmd - (int)FIRST_CMD),
-                            nShow = SW_SHOWNORMAL
-                        };
-                        contextMenu.InvokeCommand(ref invokeInfo);
-                    }
-                }
-                finally
-                {
-                    RemoveWindowSubclass(hwnd, s_subclassDelegate, SUBCLASS_ID);
-                }
-                return true;
+                return ShowContextMenuFromObjects(hwnd, screenX, screenY, footerItems, contextMenuObj, out hMenu);
             }
             catch (Exception ex)
             {
@@ -407,6 +460,70 @@ namespace Span.Services
                 if (contextMenuObj != null) try { Marshal.ReleaseComObject(contextMenuObj); } catch { }
                 if (shellFolderObj != null) try { Marshal.ReleaseComObject(shellFolderObj); } catch { }
             }
+        }
+
+        private static bool ShowContextMenuFromObjects(
+            IntPtr hwnd,
+            int screenX,
+            int screenY,
+            IReadOnlyList<SpanFooterItem> footerItems,
+            object contextMenuObj,
+            out IntPtr hMenu)
+        {
+            hMenu = IntPtr.Zero;
+            var contextMenu = (IContextMenu)contextMenuObj;
+
+            s_cm3 = null;
+            s_cm2 = null;
+            try { s_cm3 = (IContextMenu3)contextMenuObj; } catch { }
+            if (s_cm3 == null) { try { s_cm2 = (IContextMenu2)contextMenuObj; } catch { } }
+
+            hMenu = CreatePopupMenu();
+            if (hMenu == IntPtr.Zero) return false;
+
+            int hr = contextMenu.QueryContextMenu(hMenu, 0, FIRST_CMD, LAST_CMD,
+                CMF_NORMAL | CMF_EXPLORE | CMF_CANRENAME);
+            if (hr < 0) return false;
+
+            AppendSpanFooterItems(hMenu, footerItems);
+
+            s_subclassDelegate = new SubclassProc(MenuSubclassProc);
+            SetWindowSubclass(hwnd, s_subclassDelegate, SUBCLASS_ID, IntPtr.Zero);
+
+            try
+            {
+                int cmd = TrackPopupMenuEx(hMenu,
+                    TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                    screenX, screenY, hwnd, IntPtr.Zero);
+
+                if (cmd == 0)
+                    return true;
+
+                if (cmd >= (int)SPAN_CMD_BASE)
+                {
+                    int footerIndex = cmd - (int)SPAN_CMD_BASE;
+                    if (footerIndex >= 0 && footerIndex < footerItems.Count)
+                        footerItems[footerIndex].Action();
+                }
+                else if (cmd >= (int)FIRST_CMD && cmd < (int)SPAN_CMD_BASE)
+                {
+                    var invokeInfo = new CMINVOKECOMMANDINFO
+                    {
+                        cbSize = Marshal.SizeOf<CMINVOKECOMMANDINFO>(),
+                        fMask = CMIC_MASK_FLAG_NO_UI,
+                        hwnd = hwnd,
+                        lpVerb = (IntPtr)(cmd - (int)FIRST_CMD),
+                        nShow = SW_SHOWNORMAL
+                    };
+                    contextMenu.InvokeCommand(ref invokeInfo);
+                }
+            }
+            finally
+            {
+                RemoveWindowSubclass(hwnd, s_subclassDelegate, SUBCLASS_ID);
+            }
+
+            return true;
         }
 
         private static void AppendSpanFooterItems(IntPtr hMenu, IReadOnlyList<SpanFooterItem> footerItems)

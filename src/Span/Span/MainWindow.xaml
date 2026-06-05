@@ -1036,7 +1036,7 @@
                                                         Background="{ThemeResource SpanBgMicaBrush}">
                                                     <Grid Loaded="OnMillerColumnContentGridLoaded" Unloaded="OnMillerColumnContentGridUnloaded"
                                                           PointerPressed="OnMillerColumnPointerPressed">
-                                                            <ListView ItemsSource="{x:Bind Children, Mode=OneWay}" SelectedItem="{x:Bind SelectedChild, Mode=OneWay}"
+                                                            <ListView ItemsSource="{x:Bind Children, Mode=OneWay}"
                                                                       SelectionMode="Extended" IsItemClickEnabled="False"
                                                                       CanDragItems="True" AllowDrop="True"
                                                                       Background="Transparent"
@@ -1469,7 +1469,7 @@
                                                         Background="{ThemeResource SpanBgMicaBrush}">
                                                     <Grid Loaded="OnMillerColumnContentGridLoaded" Unloaded="OnMillerColumnContentGridUnloaded"
                                                           PointerPressed="OnMillerColumnPointerPressed">
-                                                            <ListView ItemsSource="{x:Bind Children, Mode=OneWay}" SelectedItem="{x:Bind SelectedChild, Mode=OneWay}"
+                                                            <ListView ItemsSource="{x:Bind Children, Mode=OneWay}"
                                                                       SelectionMode="Extended" IsItemClickEnabled="False"
                                                                       CanDragItems="True" AllowDrop="True"
                                                                       Background="Transparent"

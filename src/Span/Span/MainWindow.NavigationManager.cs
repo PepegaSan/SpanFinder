@@ -416,27 +416,36 @@ namespace Span
         /// 가장 오른쪽 컬럼을 반환한다. 최종 fallback은 마지막 컬럼.
         /// 툴바 버튼 클릭 등 포커스가 컬럼 밖에 있을 때 사용된다.
         /// </summary>
-        private int GetCurrentColumnIndex()
+        /// <summary>
+        /// Miller column the user last interacted with (keyboard focus, then IsActive border).
+        /// Avoids picking the wrong column when an older right-hand column still has a selection.
+        /// </summary>
+        private int GetInteractionColumnIndex()
         {
             var explorer = ViewModel.ActiveExplorer;
             if (explorer == null) return -1;
             var columns = explorer.Columns;
             if (columns.Count == 0) return -1;
 
-            // First try to get the focused column
             int focusedIndex = GetActiveColumnIndex();
             if (focusedIndex >= 0) return focusedIndex;
 
-            // If no focus (e.g., toolbar button clicked), find rightmost column with selection
+            for (int i = 0; i < columns.Count; i++)
+            {
+                if (columns[i].IsActive)
+                    return i;
+            }
+
             for (int i = columns.Count - 1; i >= 0; i--)
             {
                 if (columns[i].SelectedChild != null)
                     return i;
             }
 
-            // Fallback: use the last column
             return columns.Count - 1;
         }
+
+        private int GetCurrentColumnIndex() => GetInteractionColumnIndex();
 
         /// <summary>
         /// Miller Column에서 지정된 인덱스의 컬럼에 포커스를 이동한다.

@@ -183,74 +183,293 @@ namespace Span
         /// 현재 활성 뷰에서 선택된 항목 목록을 반환한다.
         /// 다중 선택이 있으면 다중 선택 항목을, 없으면 단일 선택 항목을 반환한다.
         /// </summary>
+        private static bool SelectionContainsPath(IReadOnlyList<FileSystemViewModel>? items, string path)
+        {
+            return items is { Count: > 0 }
+                && items.Any(i => string.Equals(i.Path, path, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// User-driven selection only (ListView / SelectedItems). Excludes navigation-only SelectedChild.
+        /// </summary>
+        private static int GetExplicitMillerSelection(
+            FolderViewModel col,
+            ListView? listView,
+            out List<FileSystemViewModel> items)
+        {
+            var fromUi = listView?.SelectedItems.OfType<FileSystemViewModel>().ToList()
+                         ?? new List<FileSystemViewModel>();
+            if (fromUi.Count > 0)
+            {
+                items = fromUi;
+                return fromUi.Count;
+            }
+
+            if (col.SelectedItems.Count > 0)
+            {
+                items = col.SelectedItems.ToList();
+                return col.SelectedItems.Count;
+            }
+
+            items = new List<FileSystemViewModel>();
+            return 0;
+        }
+
+        private static bool IsBetterMillerSelectionColumn(int candidateIndex, int candidateCount, int bestIndex, int bestCount, int focusIndex)
+        {
+            if (candidateCount > bestCount) return true;
+            if (candidateCount < bestCount) return false;
+
+            // Tie: prefer focused column, then rightmost (user's current column)
+            if (focusIndex >= 0)
+            {
+                if (candidateIndex == focusIndex && bestIndex != focusIndex) return true;
+                if (bestIndex == focusIndex && candidateIndex != focusIndex) return false;
+            }
+
+            return candidateIndex > bestIndex;
+        }
+
+        /// <summary>
+        /// Pick the Miller column with the largest explicit selection (ignores navigation-only SelectedChild).
+        /// </summary>
+        private List<FileSystemViewModel> GetMillerColumnSelection(bool syncToViewModel = true)
+        {
+            var columns = ViewModel.ActiveExplorer.Columns;
+            int focusIndex = GetInteractionColumnIndex();
+
+            List<FileSystemViewModel>? best = null;
+            int bestCount = 0;
+            int bestColumnIndex = -1;
+            FolderViewModel? bestColumn = null;
+            ListView? bestListView = null;
+            IList<object>? bestListViewItems = null;
+
+            for (int i = 0; i < columns.Count; i++)
+            {
+                var col = columns[i];
+                var listView = GetListViewForColumn(i);
+                int count = GetExplicitMillerSelection(col, listView, out var explicitItems);
+                if (count == 0) continue;
+                if (!IsBetterMillerSelectionColumn(i, count, bestColumnIndex, bestCount, focusIndex))
+                    continue;
+
+                bestCount = count;
+                bestColumnIndex = i;
+                bestColumn = col;
+                bestListView = listView;
+                best = explicitItems;
+                bestListViewItems = listView?.SelectedItems.Count > 0 ? listView.SelectedItems : null;
+            }
+
+            if (best == null || bestCount == 0)
+            {
+                // Focused column only — never steal from another column's navigation SelectedChild
+                if (focusIndex >= 0 && focusIndex < columns.Count)
+                {
+                    var col = columns[focusIndex];
+                    var listView = GetListViewForColumn(focusIndex);
+                    if (GetExplicitMillerSelection(col, listView, out var focused) > 0)
+                        return focused;
+                }
+
+                return new List<FileSystemViewModel>();
+            }
+
+            if (syncToViewModel && bestColumn != null)
+            {
+                if (bestListViewItems is { Count: > 0 })
+                    bestColumn.SyncSelectedItems(bestListViewItems);
+                else if (bestListView != null && best.Count > bestListView.SelectedItems.Count)
+                    ApplyMillerListViewSelection(bestListView, best);
+            }
+
+            return best;
+        }
+
+        /// <summary>
+        /// Prefer the larger selected set that contains <paramref name="clickedPath"/>.
+        /// </summary>
+        private static List<FileSystemViewModel> PickSelectionForClickedPath(
+            string clickedPath,
+            FolderViewModel col,
+            IReadOnlyList<FileSystemViewModel> fromUi)
+        {
+            var explicitVm = col.SelectedItems.Count > 0
+                ? col.SelectedItems.ToList()
+                : new List<FileSystemViewModel>();
+
+            if (fromUi.Count > 0 && SelectionContainsPath(fromUi, clickedPath))
+                return fromUi.ToList();
+            if (explicitVm.Count > 0 && SelectionContainsPath(explicitVm, clickedPath))
+                return explicitVm;
+
+            return new List<FileSystemViewModel>();
+        }
+
+        /// <summary>Miller column that owns the given selection (for delete refresh / column cleanup).</summary>
+        private int GetMillerColumnIndexForSelection(IReadOnlyList<FileSystemViewModel> selectedItems)
+        {
+            if (selectedItems.Count == 0)
+                return GetInteractionColumnIndex();
+
+            var columns = ViewModel.ActiveExplorer.Columns;
+            for (int i = columns.Count - 1; i >= 0; i--)
+            {
+                var col = columns[i];
+                if (selectedItems.All(item =>
+                        col.Children.Any(c => ReferenceEquals(c, item)
+                            || string.Equals(c.Path, item.Path, StringComparison.OrdinalIgnoreCase))))
+                    return i;
+            }
+
+            return GetInteractionColumnIndex();
+        }
+
+        /// <summary>
+        /// All selected items in the folder/column that contains <paramref name="clickedPath"/>.
+        /// </summary>
+        private List<FileSystemViewModel> GetSelectedItemsForPath(string clickedPath)
+        {
+            var explorer = ViewModel.ActiveExplorer;
+            if (explorer == null) return new List<FileSystemViewModel>();
+
+            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
+                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+
+            if (viewMode == ViewMode.List)
+            {
+                var fromList = GetActiveListView()?.GetSelectedFileSystemItems();
+                if (SelectionContainsPath(fromList, clickedPath))
+                    return fromList!;
+            }
+            else if (viewMode == ViewMode.Details)
+            {
+                var fromDetails = GetActiveDetailsView()?.GetSelectedFileSystemItems();
+                if (SelectionContainsPath(fromDetails, clickedPath))
+                    return fromDetails!;
+            }
+            else if (Helpers.ViewModeExtensions.IsIconMode(viewMode))
+            {
+                var fromIcon = GetActiveIconView()?.GetSelectedFileSystemItems();
+                if (SelectionContainsPath(fromIcon, clickedPath))
+                    return fromIcon!;
+            }
+
+            if (viewMode != ViewMode.MillerColumns)
+            {
+                var folder = explorer.CurrentFolder;
+                if (folder != null)
+                {
+                    var fromVm = folder.GetSelectedItemsList();
+                    if (SelectionContainsPath(fromVm, clickedPath))
+                        return fromVm;
+                }
+
+                var single = folder?.Children.FirstOrDefault(c =>
+                    string.Equals(c.Path, clickedPath, StringComparison.OrdinalIgnoreCase));
+                return single != null
+                    ? new List<FileSystemViewModel> { single }
+                    : new List<FileSystemViewModel>();
+            }
+
+            var columns = explorer.Columns;
+            for (int i = 0; i < columns.Count; i++)
+            {
+                var col = columns[i];
+                if (!col.Children.Any(c => string.Equals(c.Path, clickedPath, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                var listView = GetListViewForColumn(i);
+                var fromUi = listView?.SelectedItems.OfType<FileSystemViewModel>().ToList()
+                             ?? new List<FileSystemViewModel>();
+                var picked = PickSelectionForClickedPath(clickedPath, col, fromUi);
+                if (picked.Count > 0)
+                {
+                    if (listView != null && picked.Count == fromUi.Count && fromUi.Count > 0)
+                        col.SyncSelectedItems(listView.SelectedItems);
+                    else if (listView != null && picked.Count > fromUi.Count)
+                        ApplyMillerListViewSelection(listView, picked);
+                    return picked;
+                }
+
+                var clicked = col.Children.FirstOrDefault(c =>
+                    string.Equals(c.Path, clickedPath, StringComparison.OrdinalIgnoreCase));
+                return clicked != null
+                    ? new List<FileSystemViewModel> { clicked }
+                    : new List<FileSystemViewModel>();
+            }
+
+            return new List<FileSystemViewModel>();
+        }
+
+        private static List<FileSystemViewModel> PreferLargerSelection(
+            IReadOnlyList<FileSystemViewModel>? fromUi,
+            IReadOnlyList<FileSystemViewModel>? fromVm)
+        {
+            var uiCount = fromUi?.Count ?? 0;
+            var vmCount = fromVm?.Count ?? 0;
+            if (uiCount >= vmCount && uiCount > 0)
+                return fromUi!.ToList();
+            if (vmCount > 0)
+                return fromVm!.ToList();
+            return new List<FileSystemViewModel>();
+        }
+
         private List<FileSystemViewModel> GetCurrentSelectedItems()
         {
             var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
                 ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var currentFolder = ViewModel.ActiveExplorer?.CurrentFolder;
+
+            if (viewMode == ViewMode.List)
+            {
+                var merged = PreferLargerSelection(
+                    GetActiveListView()?.GetSelectedFileSystemItems(),
+                    currentFolder?.GetSelectedItemsList());
+                if (merged.Count > 0)
+                    return merged;
+            }
+            else if (viewMode == ViewMode.Details)
+            {
+                var merged = PreferLargerSelection(
+                    GetActiveDetailsView()?.GetSelectedFileSystemItems(),
+                    currentFolder?.GetSelectedItemsList());
+                if (merged.Count > 0)
+                    return merged;
+            }
+            else if (Helpers.ViewModeExtensions.IsIconMode(viewMode))
+            {
+                var merged = PreferLargerSelection(
+                    GetActiveIconView()?.GetSelectedFileSystemItems(),
+                    currentFolder?.GetSelectedItemsList());
+                if (merged.Count > 0)
+                    return merged;
+            }
 
             if (viewMode != ViewMode.MillerColumns)
             {
-                // Details/List/Icon: CurrentFolder에서 선택된 항목을 가져옴
-                var currentFolder = ViewModel.ActiveExplorer.CurrentFolder;
                 if (currentFolder != null)
                     return currentFolder.GetSelectedItemsList();
                 return new List<FileSystemViewModel>();
             }
 
-            // Miller Columns: 활성 컬럼에서 선택된 항목을 가져옴
-            var columns = ViewModel.ActiveExplorer.Columns;
-            int activeIndex = GetCurrentColumnIndex();
-            if (activeIndex < 0 || activeIndex >= columns.Count) return new List<FileSystemViewModel>();
-
-            var col = columns[activeIndex];
-            return col.GetSelectedItemsList();
+            return GetMillerColumnSelection();
         }
+
+        IReadOnlyList<string> Services.IContextMenuHost.GetSelectedPathsForContextMenu(string clickedPath)
+            => GetSelectedPathsForContextMenu(clickedPath);
 
         /// <summary>
         /// 컨텍스트 메뉴에서 호출 시, 우클릭된 아이템의 path를 기반으로
         /// 해당 아이템이 속한 컬럼의 멀티 선택 목록을 반환한다.
-        /// GetCurrentSelectedItems()는 포커스 기반이라 Flyout 열린 상태에서
-        /// 잘못된 컬럼을 찾을 수 있으므로, path 매칭으로 정확한 컬럼을 찾는다.
         /// </summary>
         private List<string> GetSelectedPathsForContextMenu(string clickedPath)
         {
-            var explorer = ViewModel.ActiveExplorer;
-            if (explorer == null) return new List<string> { clickedPath };
-
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
-
-            if (viewMode != ViewMode.MillerColumns)
-            {
-                // Details/List/Icon: CurrentFolder에서 직접 조회
-                var currentFolder = explorer.CurrentFolder;
-                if (currentFolder != null)
-                {
-                    var selected = currentFolder.GetSelectedItemsList();
-                    if (selected.Count > 1 && selected.Any(i => string.Equals(i.Path, clickedPath, StringComparison.OrdinalIgnoreCase)))
-                        return selected.Select(i => i.Path).ToList();
-                }
+            var items = GetSelectedItemsForPath(clickedPath);
+            if (items.Count == 0)
                 return new List<string> { clickedPath };
-            }
-
-            // Miller Columns: 모든 컬럼을 검색하여 clickedPath를 포함하는 컬럼을 찾음
-            var columns = explorer.Columns;
-            for (int i = 0; i < columns.Count; i++)
-            {
-                var col = columns[i];
-                // 이 컬럼의 Children에 클릭된 항목이 있는지 확인
-                bool containsClicked = col.Children.Any(c => string.Equals(c.Path, clickedPath, StringComparison.OrdinalIgnoreCase));
-                if (containsClicked)
-                {
-                    var selected = col.GetSelectedItemsList();
-                    if (selected.Count > 1 && selected.Any(s => string.Equals(s.Path, clickedPath, StringComparison.OrdinalIgnoreCase)))
-                        return selected.Select(s => s.Path).ToList();
-                    // 클릭된 항목이 멀티선택에 포함되지 않으면 단일 반환
-                    return new List<string> { clickedPath };
-                }
-            }
-
-            return new List<string> { clickedPath };
+            return items.Select(i => i.Path).ToList();
         }
 
         /// <summary>
@@ -286,7 +505,7 @@ namespace Span
                 return ViewModel.ActiveExplorer.CurrentFolder;
 
             var columns = ViewModel.ActiveExplorer.Columns;
-            int activeIndex = GetCurrentColumnIndex();
+            int activeIndex = GetInteractionColumnIndex();
             if (activeIndex < 0 || activeIndex >= columns.Count) return null;
             return columns[activeIndex];
         }
@@ -360,48 +579,79 @@ namespace Span
         #region Clipboard Operations (Copy, Cut, Paste)
 
         /// <summary>
-        /// 복사 작업 처리 (Ctrl+C).
-        /// 선택된 항목의 경로를 내부 _clipboardPaths에 저장하고 _isCutOperation=false로 설정한다.
-        /// 시스템 클립보드에 StorageItems도 제공하여 Windows 탐색기와의 호환성을 보장한다.
+        /// Write file paths to OS + internal clipboard. Eager StorageItems (no deferral) so rapid re-copy stays correct.
         /// </summary>
-        private void HandleCopy()
+        private async Task PublishFilesToClipboardAsync(
+            IReadOnlyList<string> paths,
+            bool isCut,
+            IReadOnlyList<FileSystemViewModel>? cutHighlightItems = null)
         {
-            var selectedItems = GetCurrentSelectedItems();
-            if (selectedItems.Count == 0)
+            if (paths.Count == 0) return;
+
+            ClearCutState();
+            _clipboardPaths.Clear();
+            foreach (var p in paths)
+                _clipboardPaths.Add(p);
+            _isCutOperation = isCut;
+
+            if (isCut)
             {
-                // Fallback: auto-select first item if nothing is selected
-                var folder = GetCurrentViewFolder();
-                if (folder != null && folder.Children.Count > 0)
+                if (cutHighlightItems is { Count: > 0 })
+                    ApplyCutState(cutHighlightItems.ToList());
+                else
                 {
-                    folder.SelectedChild = folder.Children[0];
-                    selectedItems = new List<FileSystemViewModel> { folder.Children[0] };
+                    var vms = GetViewModelsForPaths(paths.ToList());
+                    if (vms.Count > 0)
+                        ApplyCutState(vms);
                 }
             }
-            if (selectedItems.Count == 0) return;
 
-            // 이전 잘라내기 항목의 반투명 효과 해제
-            ClearCutState();
+            var storageItems = new List<Windows.Storage.IStorageItem>();
+            foreach (var p in paths)
+            {
+                try
+                {
+                    if (Directory.Exists(p))
+                        storageItems.Add(await Windows.Storage.StorageFolder.GetFolderFromPathAsync(p));
+                    else if (File.Exists(p))
+                        storageItems.Add(await Windows.Storage.StorageFile.GetFileFromPathAsync(p));
+                }
+                catch (Exception ex)
+                {
+                    Helpers.DebugLogger.Log($"[Clipboard] StorageItem resolve failed ({p}): {ex.Message}");
+                }
+            }
 
-            _clipboardPaths.Clear();
-            foreach (var item in selectedItems)
-                _clipboardPaths.Add(item.Path);
-            _isCutOperation = false;
+            if (Helpers.ShellClipboardHelper.TryWriteFileClipboard(_hwnd, paths, isCut))
+            {
+                Helpers.DebugLogger.Log($"[Clipboard] Published {paths.Count} item(s) via CF_HDROP, isCut={isCut}: {string.Join("; ", paths.Select(System.IO.Path.GetFileName))}");
+                return;
+            }
 
             var dataPackage = new DataPackage();
-            dataPackage.RequestedOperation = DataPackageOperation.Copy;
-            dataPackage.SetText(string.Join("\n", _clipboardPaths));
-
-            // Provide StorageItems for Windows Explorer compatibility
-            var capturedPaths = new List<string>(_clipboardPaths);
-            dataPackage.SetDataProvider(StandardDataFormats.StorageItems, request =>
-            {
-                var deferral = request.GetDeferral();
-                _ = Helpers.ViewDragDropHelper.ProvideStorageItemsAsync(request, capturedPaths, deferral);
-            });
+            dataPackage.RequestedOperation = isCut ? DataPackageOperation.Move : DataPackageOperation.Copy;
+            dataPackage.SetText(string.Join("\n", paths));
+            if (storageItems.Count > 0)
+                dataPackage.SetStorageItems(storageItems);
 
             Clipboard.SetContent(dataPackage);
+            Helpers.DebugLogger.Log($"[Clipboard] Published {paths.Count} item(s) via WinRT, isCut={isCut}: {string.Join("; ", paths.Select(System.IO.Path.GetFileName))}");
+        }
 
-            // Toast notification
+        /// <summary>
+        /// 복사 작업 처리 (Ctrl+C).
+        /// </summary>
+        private async void HandleCopy()
+        {
+            var selectedItems = GetCurrentSelectedItems();
+            if (selectedItems.Count == 0) return;
+
+            Helpers.DebugLogger.Log($"[Clipboard] HandleCopy: {selectedItems.Count} item(s): {string.Join("; ", selectedItems.Select(i => System.IO.Path.GetFileName(i.Path)))}");
+
+            await PublishFilesToClipboardAsync(
+                selectedItems.Select(i => i.Path).ToList(),
+                isCut: false);
+
             if (selectedItems.Count == 1)
             {
                 var name = System.IO.Path.GetFileName(selectedItems[0].Path);
@@ -412,7 +662,6 @@ namespace Span
                 ViewModel.ShowToast(string.Format(_loc.Get("Toast_CopiedMultiple"), selectedItems.Count));
             }
 
-            Helpers.DebugLogger.Log($"[Clipboard] Copied {_clipboardPaths.Count} item(s)");
             UpdateToolbarButtonStates();
         }
 
@@ -452,42 +701,130 @@ namespace Span
         }
 
         /// <summary>
-        /// After native shell cut/copy, mirror OS clipboard into Span's internal state for paste UI.
+        /// Mirror OS file clipboard into Span's internal state (paste toolbar, cut highlight).
         /// </summary>
-        private void SyncClipboardFromSystemIfNeeded()
+        private void MirrorInternalClipboard(List<string> paths, bool isCut)
         {
-            if (_clipboardPaths.Count > 0)
-                return;
-
-            if (!Helpers.ShellClipboardHelper.TryReadFileClipboard(out var paths, out var isCut))
-                return;
-
             ClearCutState();
             _clipboardPaths.Clear();
             _clipboardPaths.AddRange(paths);
             _isCutOperation = isCut;
 
-            if (isCut && ViewModel?.ActiveExplorer != null)
+            if (isCut)
             {
-                var cutItems = new List<FileSystemViewModel>();
-                foreach (var path in paths)
-                {
-                    foreach (var col in ViewModel.ActiveExplorer.Columns)
-                    {
-                        var match = col.Children.FirstOrDefault(c =>
-                            string.Equals(c.Path, path, StringComparison.OrdinalIgnoreCase));
-                        if (match != null)
-                        {
-                            cutItems.Add(match);
-                            break;
-                        }
-                    }
-                }
+                var cutItems = GetViewModelsForPaths(paths);
                 if (cutItems.Count > 0)
                     ApplyCutState(cutItems);
             }
+        }
 
+        /// <summary>
+        /// After native shell cut/copy, mirror OS clipboard into Span's internal state for paste UI.
+        /// </summary>
+        private void SyncClipboardFromSystemIfNeeded()
+        {
+            if (!Helpers.ShellClipboardHelper.TryReadFileClipboard(out var paths, out var isCut))
+                return;
+
+            // WinRT reads can return fewer paths than Span just copied — do not shrink the mirror.
+            if (_clipboardPaths.Count > paths.Count)
+                return;
+
+            MirrorInternalClipboard(paths, isCut);
             Helpers.DebugLogger.Log($"[Clipboard] Synced from shell clipboard: {paths.Count} item(s), isCut={isCut}");
+        }
+
+        /// <summary>
+        /// Resolve paste sources. OS shell clipboard wins over stale internal mirror.
+        /// </summary>
+        private bool TryGetClipboardSourcePaths(out List<string> sourcePaths, out bool isCut)
+        {
+            sourcePaths = new List<string>();
+            isCut = false;
+
+            List<string>? osPaths = null;
+            bool osIsCut = false;
+            if (Helpers.ShellClipboardHelper.TryReadFileClipboard(out var os, out osIsCut))
+                osPaths = os;
+
+            // Internal mirror can hold more paths when WinRT StorageItems truncates to one item
+            if (_clipboardPaths.Count > 0 && (osPaths == null || _clipboardPaths.Count >= osPaths.Count))
+            {
+                sourcePaths = new List<string>(_clipboardPaths);
+                isCut = _isCutOperation;
+                return true;
+            }
+
+            if (osPaths is { Count: > 0 })
+            {
+                sourcePaths = osPaths;
+                isCut = osIsCut;
+                MirrorInternalClipboard(osPaths, osIsCut);
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Shared paste execution: conflict dialog, copy/move, refresh.
+        /// </summary>
+        private async Task ExecutePasteOperationAsync(
+            List<string> sourcePaths,
+            bool isCut,
+            string destDir,
+            int? targetColumnIndex)
+        {
+            if (Helpers.ArchivePathHelper.IsArchivePath(destDir))
+            {
+                ViewModel.ShowToast(_loc.Get("Toast_ArchiveReadOnly"));
+                return;
+            }
+
+            var destNorm = destDir.TrimEnd('\\', '/') + "\\";
+            int removedCount = sourcePaths.RemoveAll(srcPath =>
+            {
+                if (Directory.Exists(srcPath))
+                {
+                    var srcNorm = srcPath.TrimEnd('\\', '/') + "\\";
+                    if (destNorm.StartsWith(srcNorm, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                return false;
+            });
+            if (sourcePaths.Count == 0)
+            {
+                if (removedCount > 0)
+                    ViewModel.ShowToast(_loc.Get("CannotCopyToSelf"), 3000, isError: true);
+                return;
+            }
+
+            var (proceed, resolution) = await CheckFileConflictsAsync(sourcePaths, destDir, "Clipboard");
+            if (!proceed) return;
+
+            var router = App.Current.Services.GetRequiredService<FileSystemRouter>();
+            Span.Services.FileOperations.IFileOperation op;
+            if (isCut)
+            {
+                var moveOp = new Span.Services.FileOperations.MoveFileOperation(sourcePaths, destDir, router);
+                moveOp.SetConflictResolution(resolution, applyToAll: true);
+                op = moveOp;
+            }
+            else
+            {
+                var copyOp = new Span.Services.FileOperations.CopyFileOperation(sourcePaths, destDir, router);
+                copyOp.SetConflictResolution(resolution, applyToAll: true);
+                op = copyOp;
+            }
+
+            await ViewModel.ExecuteFileOperationAsync(op, targetColumnIndex);
+
+            if (isCut)
+            {
+                ClearCutState();
+                _clipboardPaths.Clear();
+            }
+            UpdateToolbarButtonStates();
         }
 
         /// <summary>
@@ -495,18 +832,9 @@ namespace Span
         /// HandleCopy와 동일한 흐름이지만 _isCutOperation=true로 설정하고,
         /// DataPackage.RequestedOperation을 Move로 지정하여 붙여넣기 시 이동 동작을 수행한다.
         /// </summary>
-        private void HandleCut()
+        private async void HandleCut()
         {
             var selectedItems = GetCurrentSelectedItems();
-            if (selectedItems.Count == 0)
-            {
-                var folder = GetCurrentViewFolder();
-                if (folder != null && folder.Children.Count > 0)
-                {
-                    folder.SelectedChild = folder.Children[0];
-                    selectedItems = new List<FileSystemViewModel> { folder.Children[0] };
-                }
-            }
             if (selectedItems.Count == 0) return;
 
             if (selectedItems.Any(i => Helpers.ArchivePathHelper.IsArchivePath(i.Path)))
@@ -515,29 +843,11 @@ namespace Span
                 return;
             }
 
-            // 잘라내기 반투명 효과 적용
-            ApplyCutState(selectedItems);
+            await PublishFilesToClipboardAsync(
+                selectedItems.Select(i => i.Path).ToList(),
+                isCut: true,
+                cutHighlightItems: selectedItems);
 
-            _clipboardPaths.Clear();
-            foreach (var item in selectedItems)
-                _clipboardPaths.Add(item.Path);
-            _isCutOperation = true;
-
-            var dataPackage = new DataPackage();
-            dataPackage.RequestedOperation = DataPackageOperation.Move;
-            dataPackage.SetText(string.Join("\n", _clipboardPaths));
-
-            // Provide StorageItems for Windows Explorer compatibility
-            var capturedCutPaths = new List<string>(_clipboardPaths);
-            dataPackage.SetDataProvider(StandardDataFormats.StorageItems, request =>
-            {
-                var deferral = request.GetDeferral();
-                _ = Helpers.ViewDragDropHelper.ProvideStorageItemsAsync(request, capturedCutPaths, deferral);
-            });
-
-            Clipboard.SetContent(dataPackage);
-
-            // Toast notification
             if (selectedItems.Count == 1)
             {
                 var name = System.IO.Path.GetFileName(selectedItems[0].Path);
@@ -548,7 +858,6 @@ namespace Span
                 ViewModel.ShowToast(string.Format(_loc.Get("Toast_CutMultiple"), selectedItems.Count));
             }
 
-            Helpers.DebugLogger.Log($"[Clipboard] Cut {_clipboardPaths.Count} item(s)");
             UpdateToolbarButtonStates();
         }
 
@@ -610,26 +919,17 @@ namespace Span
             bool isCut;
 
             Helpers.DebugLogger.Log($"[HandlePaste] _clipboardPaths.Count={_clipboardPaths.Count}, _isCutOperation={_isCutOperation}");
-            if (_clipboardPaths.Count > 0)
+            if (TryGetClipboardSourcePaths(out sourcePaths, out isCut))
             {
-                // Internal clipboard (Span → Span copy/cut)
-                sourcePaths = new List<string>(_clipboardPaths);
-                isCut = _isCutOperation;
+                Helpers.DebugLogger.Log($"[Clipboard] Paste source: {sourcePaths.Count} item(s), isCut={isCut}: {string.Join("; ", sourcePaths.Select(System.IO.Path.GetFileName))}");
             }
             else
             {
-                // External clipboard (Windows Explorer / native shell context menu → Span)
-                if (Helpers.ShellClipboardHelper.TryReadFileClipboard(out sourcePaths, out isCut))
+                try
                 {
-                    Helpers.DebugLogger.Log($"[Clipboard] External paste: {sourcePaths.Count} item(s), isCut={isCut}");
-                }
-                else
-                {
-                    try
+                    var content = Clipboard.GetContent();
+                    if (!content.Contains(StandardDataFormats.StorageItems))
                     {
-                        var content = Clipboard.GetContent();
-                        if (!content.Contains(StandardDataFormats.StorageItems))
-                        {
                             // StorageItems 없음 → RDP/Outlook 가상 파일(FileGroupDescriptorW) 폴백
                             if (Helpers.VirtualFileClipboardHelper.IsVirtualFileDataAvailable())
                             {
@@ -678,64 +978,13 @@ namespace Span
                         Helpers.DebugLogger.Log($"[Clipboard] External paste error: {ex.Message}");
                         return;
                     }
-                }
             }
 
-            // 자기 폴더 복사 방지: 폴더를 자기 자신 안에 복사/이동하면 무한 재귀 발생
-            var destNorm = destDir.TrimEnd('\\', '/') + "\\";
-            int removedCount = sourcePaths.RemoveAll(srcPath =>
-            {
-                if (Directory.Exists(srcPath))
-                {
-                    var srcNorm = srcPath.TrimEnd('\\', '/') + "\\";
-                    if (destNorm.StartsWith(srcNorm, StringComparison.OrdinalIgnoreCase))
-                    {
-                        Helpers.DebugLogger.Log($"[Paste] 자기 복사 차단: {srcPath} → {destDir}");
-                        return true;
-                    }
-                }
-                return false;
-            });
-            if (sourcePaths.Count == 0)
-            {
-                if (removedCount > 0)
-                {
-                    var loc = App.Current.Services.GetRequiredService<LocalizationService>();
-                    ViewModel.ShowToast(loc.Get("CannotCopyToSelf"), 3000, isError: true);
-                }
-                return;
-            }
-
-            var router = App.Current.Services.GetRequiredService<FileSystemRouter>();
-
-            // Pre-check for conflicts (local destinations only)
-            var (proceed, resolution) = await CheckFileConflictsAsync(sourcePaths, destDir, "Clipboard");
-            if (!proceed) return;
-            bool applyToAll = true;
-
-            Helpers.DebugLogger.Log($"[HandlePaste] isCut={isCut} → {(isCut ? "MoveFileOperation" : "CopyFileOperation")}");
-            Span.Services.FileOperations.IFileOperation op;
-            if (isCut)
-            {
-                var moveOp = new Span.Services.FileOperations.MoveFileOperation(sourcePaths, destDir, router);
-                moveOp.SetConflictResolution(resolution, applyToAll);
-                op = moveOp;
-            }
-            else
-            {
-                var copyOp = new Span.Services.FileOperations.CopyFileOperation(sourcePaths, destDir, router);
-                copyOp.SetConflictResolution(resolution, applyToAll);
-                op = copyOp;
-            }
-
-            await ViewModel.ExecuteFileOperationAsync(op, activeIndex >= 0 ? activeIndex : null);
-
-            if (isCut)
-            {
-                ClearCutState();
-                _clipboardPaths.Clear();
-            }
-            UpdateToolbarButtonStates();
+            await ExecutePasteOperationAsync(
+                sourcePaths,
+                isCut,
+                destDir,
+                activeIndex >= 0 ? activeIndex : null);
             }
             catch (Exception ex)
             {
@@ -775,22 +1024,19 @@ namespace Span
                 return;
             }
 
-            // 소스 경로 수집 (내부 or 외부 클립보드)
+            // 소스 경로 수집 (OS clipboard first)
             List<string> sourcePaths;
-            if (_clipboardPaths.Count > 0)
-            {
-                sourcePaths = new List<string>(_clipboardPaths);
-            }
-            else
+            bool isCut;
+            if (!TryGetClipboardSourcePaths(out sourcePaths, out isCut))
             {
                 try
                 {
                     var content = Clipboard.GetContent();
-                    // 가상 파일(RDP/Outlook)은 실제 경로가 없으므로 바로가기 생성 불가
                     if (!content.Contains(StandardDataFormats.StorageItems)) return;
                     var items = await content.GetStorageItemsAsync();
                     sourcePaths = items.Select(i => i.Path).Where(p => !string.IsNullOrEmpty(p)).ToList();
                     if (sourcePaths.Count == 0) return;
+                    isCut = content.RequestedOperation.HasFlag(DataPackageOperation.Move);
                 }
                 catch (Exception ex) { Helpers.DebugLogger.Log($"[HandlePasteAsShortcut] Clipboard access failed: {ex.Message}"); return; }
             }
@@ -1359,9 +1605,9 @@ namespace Span
             }
             else
             {
-                // ★ Save activeIndex BEFORE showing dialog (modal dialog steals focus)
                 var columns = ViewModel.ActiveExplorer.Columns;
-                activeIndex = GetCurrentColumnIndex();
+                var selectedItemsPreview = GetCurrentSelectedItems();
+                activeIndex = GetMillerColumnIndexForSelection(selectedItemsPreview);
                 if (activeIndex < 0 || activeIndex >= columns.Count) return;
                 currentColumn = columns[activeIndex];
             }
@@ -1467,8 +1713,8 @@ namespace Span
             else
             {
                 var columns = ViewModel.ActiveExplorer.Columns;
-                activeIndex = GetCurrentColumnIndex(); // selection 기반 fallback 포함
-                if (activeIndex < 0) activeIndex = columns.Count - 1;
+                var selectedItemsPreview = GetCurrentSelectedItems();
+                activeIndex = GetMillerColumnIndexForSelection(selectedItemsPreview);
                 if (activeIndex < 0 || activeIndex >= columns.Count) return;
                 currentColumn = columns[activeIndex];
             }

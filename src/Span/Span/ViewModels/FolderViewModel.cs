@@ -1501,7 +1501,7 @@ namespace Span.ViewModels
         /// </summary>
         public List<FileSystemViewModel> GetSelectedItemsList()
         {
-            if (HasMultiSelection)
+            if (SelectedItems.Count > 0)
                 return SelectedItems.ToList();
             return SelectedChild != null ? new List<FileSystemViewModel> { SelectedChild } : new List<FileSystemViewModel>();
         }

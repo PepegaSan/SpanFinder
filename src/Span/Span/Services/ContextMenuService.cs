@@ -140,7 +140,10 @@ namespace Span.Services
                 return false;
 
             var footer = BuildSpanFooterItems(target, host);
-            var shown = ShellContextMenu.ShowForItemWithFooter(OwnerHwnd, target.Path, footer);
+            var paths = host.GetSelectedPathsForContextMenu(target.Path);
+            var shown = paths.Count > 1
+                ? ShellContextMenu.ShowForPathsWithFooter(OwnerHwnd, paths, footer)
+                : ShellContextMenu.ShowForItemWithFooter(OwnerHwnd, target.Path, footer);
             NativeShellMenuClosedCallback?.Invoke();
             return shown;
         }
@@ -151,7 +154,10 @@ namespace Span.Services
                 return false;
 
             var footer = BuildSpanFooterItems(path, host);
-            var shown = ShellContextMenu.ShowForItemWithFooter(OwnerHwnd, path, footer);
+            var paths = host.GetSelectedPathsForContextMenu(path);
+            var shown = paths.Count > 1
+                ? ShellContextMenu.ShowForPathsWithFooter(OwnerHwnd, paths, footer)
+                : ShellContextMenu.ShowForItemWithFooter(OwnerHwnd, path, footer);
             NativeShellMenuClosedCallback?.Invoke();
             return shown;
         }

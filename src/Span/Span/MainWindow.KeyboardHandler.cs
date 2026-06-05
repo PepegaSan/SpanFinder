@@ -1521,27 +1521,72 @@ namespace Span
         }
 
         /// <summary>
+        /// Explorer-style type-ahead: repeat letter cycles matches; another letter extends prefix.
+        /// </summary>
+        private void AdvanceTypeAheadBuffer(char ch)
+        {
+            bool timerActive = _typeAheadTimer?.IsEnabled == true;
+
+            if (timerActive
+                && _typeAheadBuffer.Length == 1
+                && char.ToLowerInvariant(_typeAheadBuffer[0]) == char.ToLowerInvariant(ch))
+            {
+                _typeAheadCycleIndex++;
+            }
+            else if (timerActive)
+            {
+                _typeAheadBuffer += ch;
+                _typeAheadCycleIndex = 0;
+            }
+            else
+            {
+                _typeAheadBuffer = ch.ToString();
+                _typeAheadCycleIndex = 0;
+            }
+
+            _typeAheadTimer?.Stop();
+            _typeAheadTimer?.Start();
+        }
+
+        /// <summary>
+        /// Returns the type-ahead match at the current cycle index (wraps at end of list).
+        /// </summary>
+        private FileSystemViewModel? FindTypeAheadMatch(IList<FileSystemViewModel> children)
+        {
+            if (children == null || children.Count == 0 || string.IsNullOrEmpty(_typeAheadBuffer))
+                return null;
+
+            var matches = new List<FileSystemViewModel>();
+            foreach (var child in children)
+            {
+                if (child.Name.StartsWith(_typeAheadBuffer, StringComparison.OrdinalIgnoreCase))
+                    matches.Add(child);
+            }
+
+            if (matches.Count == 0)
+                return null;
+
+            _typeAheadCycleIndex %= matches.Count;
+            return matches[_typeAheadCycleIndex];
+        }
+
+        /// <summary>
         /// 타입 어헤드 공통 검색 로직: 문자를 버퍼에 추가하고 매칭 항목을 찾아 선택한다.
         /// </summary>
         private void DoTypeAheadSearch(char ch, int activeIndex)
         {
-            _typeAheadBuffer += ch;
-            _typeAheadTimer?.Stop();
-            _typeAheadTimer?.Start();
+            AdvanceTypeAheadBuffer(ch);
 
             var columns = ViewModel.ActiveExplorer?.Columns;
             if (columns == null || activeIndex < 0 || activeIndex >= columns.Count) return;
 
             var column = columns[activeIndex];
-            var match = column.Children.FirstOrDefault(c =>
-                c.Name.StartsWith(_typeAheadBuffer, StringComparison.OrdinalIgnoreCase));
+            var match = FindTypeAheadMatch(column.Children);
+            if (match == null) return;
 
-            if (match != null)
-            {
-                column.SelectedChild = match;
-                var listView = GetListViewForColumn(activeIndex);
-                listView?.ScrollIntoView(match);
-            }
+            column.SelectedChild = match;
+            var listView = GetListViewForColumn(activeIndex);
+            listView?.ScrollIntoView(match);
         }
 
         /// <summary>
@@ -1944,19 +1989,15 @@ namespace Span
         {
             if (explorer?.CurrentFolder == null) return;
 
-            _typeAheadBuffer += ch;
-            _typeAheadTimer?.Stop();
-            _typeAheadTimer?.Start();
+            AdvanceTypeAheadBuffer(ch);
 
             var children = explorer.CurrentFolder.Children;
-            if (children == null || children.Count == 0) return;
+            var match = FindTypeAheadMatch(children);
+            if (match == null) return;
 
-            var match = children.FirstOrDefault(c =>
-                c.Name.StartsWith(_typeAheadBuffer, StringComparison.OrdinalIgnoreCase));
-            if (match != null)
-            {
-                explorer.CurrentFolder.SelectedChild = match;
-            }
+            explorer.CurrentFolder.SelectedChild = match;
+            explorer.CurrentFolder.SyncSelectedItems(new List<object> { match });
+            GetActiveListView()?.SelectItemForTypeAhead(match);
         }
 
         /// <summary>
