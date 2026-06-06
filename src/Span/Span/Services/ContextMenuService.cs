@@ -141,9 +141,14 @@ namespace Span.Services
 
             var footer = BuildSpanFooterItems(target, host);
             var paths = host.GetSelectedPathsForContextMenu(target.Path);
+            var standardVerbs = new ShellStandardVerbHandlers
+            {
+                Copy = () => host.PerformCopy(target.Path),
+                Cut = () => host.PerformCut(target.Path),
+            };
             var shown = paths.Count > 1
-                ? ShellContextMenu.ShowForPathsWithFooter(OwnerHwnd, paths, footer)
-                : ShellContextMenu.ShowForItemWithFooter(OwnerHwnd, target.Path, footer);
+                ? ShellContextMenu.ShowForPathsWithFooter(OwnerHwnd, paths, footer, standardVerbs)
+                : ShellContextMenu.ShowForItemWithFooter(OwnerHwnd, target.Path, footer, standardVerbs);
             NativeShellMenuClosedCallback?.Invoke();
             return shown;
         }
@@ -155,9 +160,14 @@ namespace Span.Services
 
             var footer = BuildSpanFooterItems(path, host);
             var paths = host.GetSelectedPathsForContextMenu(path);
+            var standardVerbs = new ShellStandardVerbHandlers
+            {
+                Copy = () => host.PerformCopy(path),
+                Cut = () => host.PerformCut(path),
+            };
             var shown = paths.Count > 1
-                ? ShellContextMenu.ShowForPathsWithFooter(OwnerHwnd, paths, footer)
-                : ShellContextMenu.ShowForItemWithFooter(OwnerHwnd, path, footer);
+                ? ShellContextMenu.ShowForPathsWithFooter(OwnerHwnd, paths, footer, standardVerbs)
+                : ShellContextMenu.ShowForItemWithFooter(OwnerHwnd, path, footer, standardVerbs);
             NativeShellMenuClosedCallback?.Invoke();
             return shown;
         }

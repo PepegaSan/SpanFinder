@@ -723,15 +723,32 @@ namespace Span
         /// </summary>
         private void SyncClipboardFromSystemIfNeeded()
         {
-            if (!Helpers.ShellClipboardHelper.TryReadFileClipboard(out var paths, out var isCut))
+            if (!Helpers.ShellClipboardHelper.TryReadFileClipboard(_hwnd, out var paths, out var isCut))
                 return;
 
-            // WinRT reads can return fewer paths than Span just copied — do not shrink the mirror.
-            if (_clipboardPaths.Count > paths.Count)
+            if (paths.Count == 0)
+                return;
+
+            // WinRT reads can return fewer paths than Span just copied — keep mirror only when OS is a prefix.
+            if (_clipboardPaths.Count > paths.Count && IsClipboardPathPrefix(paths, _clipboardPaths))
                 return;
 
             MirrorInternalClipboard(paths, isCut);
             Helpers.DebugLogger.Log($"[Clipboard] Synced from shell clipboard: {paths.Count} item(s), isCut={isCut}");
+        }
+
+        private static bool IsClipboardPathPrefix(IReadOnlyList<string> shorter, IReadOnlyList<string> longer)
+        {
+            if (shorter.Count >= longer.Count)
+                return false;
+
+            for (int i = 0; i < shorter.Count; i++)
+            {
+                if (!string.Equals(shorter[i], longer[i], StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -742,24 +759,27 @@ namespace Span
             sourcePaths = new List<string>();
             isCut = false;
 
-            List<string>? osPaths = null;
-            bool osIsCut = false;
-            if (Helpers.ShellClipboardHelper.TryReadFileClipboard(out var os, out osIsCut))
-                osPaths = os;
-
-            // Internal mirror can hold more paths when WinRT StorageItems truncates to one item
-            if (_clipboardPaths.Count > 0 && (osPaths == null || _clipboardPaths.Count >= osPaths.Count))
+            if (Helpers.ShellClipboardHelper.TryReadFileClipboard(_hwnd, out var osPaths, out var osIsCut)
+                && osPaths.Count > 0)
             {
-                sourcePaths = new List<string>(_clipboardPaths);
-                isCut = _isCutOperation;
-                return true;
-            }
+                // Prefer internal mirror only when WinRT truncated a multi-file HDROP read.
+                if (_clipboardPaths.Count > osPaths.Count && IsClipboardPathPrefix(osPaths, _clipboardPaths))
+                {
+                    sourcePaths = new List<string>(_clipboardPaths);
+                    isCut = _isCutOperation;
+                    return true;
+                }
 
-            if (osPaths is { Count: > 0 })
-            {
                 sourcePaths = osPaths;
                 isCut = osIsCut;
                 MirrorInternalClipboard(osPaths, osIsCut);
+                return true;
+            }
+
+            if (_clipboardPaths.Count > 0)
+            {
+                sourcePaths = new List<string>(_clipboardPaths);
+                isCut = _isCutOperation;
                 return true;
             }
 

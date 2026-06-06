@@ -14,6 +14,13 @@ namespace Span.Services
     /// <summary>Span-specific item appended below the native shell context menu.</summary>
     public sealed record SpanFooterItem(string Text, Action Action);
 
+    /// <summary>Routes standard shell copy/cut through Span's clipboard (same as Ctrl+C / Ctrl+X).</summary>
+    public sealed class ShellStandardVerbHandlers
+    {
+        public Action? Copy { get; init; }
+        public Action? Cut { get; init; }
+    }
+
     /// <summary>
     /// Shows native Windows Shell context menus with full shell extension support.
     /// Also provides session-based enumeration for rendering shell extension items
@@ -298,19 +305,21 @@ namespace Span.Services
         /// <summary>
         /// Show native shell menu at cursor with Span footer items (copy path, favorites, etc.).
         /// </summary>
-        public static bool ShowForItemWithFooter(IntPtr hwnd, string path, IReadOnlyList<SpanFooterItem>? footer)
+        public static bool ShowForItemWithFooter(IntPtr hwnd, string path, IReadOnlyList<SpanFooterItem>? footer,
+            ShellStandardVerbHandlers? standardVerbs = null)
         {
             GetCursorPos(out POINT pt);
-            return ShowForItemAtWithFooter(hwnd, path, pt.X, pt.Y, footer);
+            return ShowForItemAtWithFooter(hwnd, path, pt.X, pt.Y, footer, standardVerbs);
         }
 
         /// <summary>
         /// Native shell context menu for multiple items in the same folder (multi-select copy/cut/delete).
         /// </summary>
-        public static bool ShowForPathsWithFooter(IntPtr hwnd, IReadOnlyList<string> paths, IReadOnlyList<SpanFooterItem>? footer)
+        public static bool ShowForPathsWithFooter(IntPtr hwnd, IReadOnlyList<string> paths, IReadOnlyList<SpanFooterItem>? footer,
+            ShellStandardVerbHandlers? standardVerbs = null)
         {
             GetCursorPos(out POINT pt);
-            return ShowForPathsAtWithFooter(hwnd, paths, pt.X, pt.Y, footer);
+            return ShowForPathsAtWithFooter(hwnd, paths, pt.X, pt.Y, footer, standardVerbs);
         }
 
         /// <summary>
@@ -323,21 +332,21 @@ namespace Span.Services
         /// Native shell context menu with optional Span items appended at the bottom.
         /// </summary>
         public static bool ShowForPathsAtWithFooter(IntPtr hwnd, IReadOnlyList<string> paths, int screenX, int screenY,
-            IReadOnlyList<SpanFooterItem>? footer)
+            IReadOnlyList<SpanFooterItem>? footer, ShellStandardVerbHandlers? standardVerbs = null)
         {
             if (paths == null || paths.Count == 0) return false;
             if (paths.Count == 1)
-                return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer);
+                return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer, standardVerbs);
 
             var parentDir = Path.GetDirectoryName(paths[0]);
             if (string.IsNullOrEmpty(parentDir))
-                return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer);
+                return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer, standardVerbs);
 
             for (int i = 1; i < paths.Count; i++)
             {
                 var otherParent = Path.GetDirectoryName(paths[i]);
                 if (!string.Equals(otherParent, parentDir, StringComparison.OrdinalIgnoreCase))
-                    return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer);
+                    return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer, standardVerbs);
             }
 
             var itemPidls = new List<IntPtr>();
@@ -357,12 +366,12 @@ namespace Span.Services
                 {
                     int hr = SHParseDisplayName(paths[i], IntPtr.Zero, out IntPtr pidl, 0, out _);
                     if (hr != 0 || pidl == IntPtr.Zero)
-                        return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer);
+                        return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer, standardVerbs);
                     itemPidls.Add(pidl);
 
                     hr = SHBindToParent(pidl, ref iidFolder, out IntPtr sfPtr, out IntPtr childPidl);
                     if (hr != 0 || sfPtr == IntPtr.Zero)
-                        return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer);
+                        return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer, standardVerbs);
 
                     if (i == 0)
                     {
@@ -372,7 +381,7 @@ namespace Span.Services
                     else if (sfPtr != shellFolderPtr)
                     {
                         Marshal.Release(sfPtr);
-                        return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer);
+                        return ShowForItemAtWithFooter(hwnd, paths[0], screenX, screenY, footer, standardVerbs);
                     }
                     else
                     {
@@ -391,7 +400,7 @@ namespace Span.Services
                 if (cmHr != 0 || contextMenuPtr == IntPtr.Zero) return false;
 
                 contextMenuObj = Marshal.GetObjectForIUnknown(contextMenuPtr);
-                return ShowContextMenuFromObjects(hwnd, screenX, screenY, footerItems, contextMenuObj, out hMenu);
+                return ShowContextMenuFromObjects(hwnd, screenX, screenY, footerItems, contextMenuObj, out hMenu, standardVerbs);
             }
             catch (Exception ex)
             {
@@ -416,7 +425,7 @@ namespace Span.Services
         /// Native shell context menu with optional Span items appended at the bottom.
         /// </summary>
         public static bool ShowForItemAtWithFooter(IntPtr hwnd, string path, int screenX, int screenY,
-            IReadOnlyList<SpanFooterItem>? footer)
+            IReadOnlyList<SpanFooterItem>? footer, ShellStandardVerbHandlers? standardVerbs = null)
         {
             IntPtr pidl = IntPtr.Zero;
             IntPtr hMenu = IntPtr.Zero;
@@ -444,7 +453,7 @@ namespace Span.Services
                 if (hr != 0 || contextMenuPtr == IntPtr.Zero) return false;
 
                 contextMenuObj = Marshal.GetObjectForIUnknown(contextMenuPtr);
-                return ShowContextMenuFromObjects(hwnd, screenX, screenY, footerItems, contextMenuObj, out hMenu);
+                return ShowContextMenuFromObjects(hwnd, screenX, screenY, footerItems, contextMenuObj, out hMenu, standardVerbs);
             }
             catch (Exception ex)
             {
@@ -468,7 +477,8 @@ namespace Span.Services
             int screenY,
             IReadOnlyList<SpanFooterItem> footerItems,
             object contextMenuObj,
-            out IntPtr hMenu)
+            out IntPtr hMenu,
+            ShellStandardVerbHandlers? standardVerbs = null)
         {
             hMenu = IntPtr.Zero;
             var contextMenu = (IContextMenu)contextMenuObj;
@@ -507,6 +517,9 @@ namespace Span.Services
                 }
                 else if (cmd >= (int)FIRST_CMD && cmd < (int)SPAN_CMD_BASE)
                 {
+                    if (TryHandleStandardVerb(contextMenu, cmd, standardVerbs))
+                        return true;
+
                     var invokeInfo = new CMINVOKECOMMANDINFO
                     {
                         cbSize = Marshal.SizeOf<CMINVOKECOMMANDINFO>(),
@@ -524,6 +537,57 @@ namespace Span.Services
             }
 
             return true;
+        }
+
+        private static bool TryHandleStandardVerb(IContextMenu contextMenu, int cmd, ShellStandardVerbHandlers? handlers)
+        {
+            if (handlers == null)
+                return false;
+
+            if (!TryGetCommandVerb(contextMenu, cmd, out var verb))
+                return false;
+
+            if (string.Equals(verb, "copy", StringComparison.OrdinalIgnoreCase) && handlers.Copy != null)
+            {
+                handlers.Copy();
+                return true;
+            }
+
+            if (string.Equals(verb, "cut", StringComparison.OrdinalIgnoreCase) && handlers.Cut != null)
+            {
+                handlers.Cut();
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetCommandVerb(IContextMenu contextMenu, int cmd, out string verb)
+        {
+            verb = string.Empty;
+            int verbIndex = cmd - (int)FIRST_CMD;
+            if (verbIndex < 0 || verbIndex >= 5000)
+                return false;
+
+            IntPtr verbBuf = Marshal.AllocCoTaskMem(512);
+            try
+            {
+                int hr = contextMenu.GetCommandString(
+                    (IntPtr)verbIndex,
+                    GCS_VERBW, IntPtr.Zero, verbBuf, 256);
+                if (hr == 0)
+                    verb = Marshal.PtrToStringUni(verbBuf) ?? string.Empty;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                Marshal.FreeCoTaskMem(verbBuf);
+            }
+
+            return !string.IsNullOrEmpty(verb);
         }
 
         private static void AppendSpanFooterItems(IntPtr hMenu, IReadOnlyList<SpanFooterItem> footerItems)
