@@ -2105,8 +2105,7 @@ namespace Span
 
                     if (!ViewModel.IsSplitViewEnabled)
                     {
-                        SplitterCol.Width = new GridLength(0);
-                        RightPaneCol.Width = new GridLength(0);
+                        ApplySplitLayout();
                         UnsubscribeRightExplorerForAddressBar();
                     }
                     ViewModel.NotifySplitViewChanged();

@@ -319,6 +319,12 @@
                             Visibility="{x:Bind IsNotSpecialMode(ViewModel.CurrentViewMode), Mode=OneWay}">
                         <FontIcon x:Name="SplitViewIcon" FontFamily="{StaticResource RemixIcons}" Glyph="{StaticResource Icon_SplitView}" FontSize="16"/>
                     </Button>
+                    <Button x:Name="SplitOrientationButton" AutomationProperties.AutomationId="Button_SplitOrientation" Style="{StaticResource UnifiedButtonStyle}"
+                            ToolTipService.ToolTip="Split orientation" Click="OnSplitOrientationToggleClick"
+                            IsEnabled="{x:Bind ViewModel.IsSplitViewEnabled, Mode=OneWay}"
+                            Visibility="{x:Bind IsNotSpecialMode(ViewModel.CurrentViewMode), Mode=OneWay}">
+                        <FontIcon x:Name="SplitOrientationIcon" FontFamily="{StaticResource RemixIcons}" Glyph="{StaticResource Icon_SplitOrientationStacked}" FontSize="16"/>
+                    </Button>
                 </StackPanel>
 
                 <!-- ═══ RecycleBin Commands (icon-only, shown in RecycleBin mode) ═══ -->
@@ -825,12 +831,17 @@
 
 
             <!-- Content (Split View Container) -->
-            <Grid Grid.Column="2" Background="Transparent">
+            <Grid x:Name="SplitLayoutGrid" Grid.Column="2" Background="Transparent">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition x:Name="SplitterCol" Width="0"/>
                     <ColumnDefinition x:Name="RightPaneCol" Width="0"/>
                 </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition x:Name="SplitterRow" Height="0"/>
+                    <RowDefinition x:Name="BottomPaneRow" Height="0"/>
+                </Grid.RowDefinitions>
 
                 <!-- ===== LEFT PANE ===== -->
                 <Grid x:Name="LeftPaneContainer" AutomationProperties.AutomationId="LeftPane" Grid.Column="0" GotFocus="OnLeftPaneGotFocus"
@@ -1733,8 +1744,8 @@
                     </Border>
                 </Grid>
 
-                <!-- Split divider (RightPaneContainer의 Margin="1,0,0,0"으로 생긴 1px 갭에 배치) -->
-                <Border Grid.Column="2" Width="1" HorizontalAlignment="Left" IsHitTestVisible="False"
+                <!-- Split divider -->
+                <Border x:Name="SplitPaneDivider" Grid.Column="2" Width="1" HorizontalAlignment="Left" IsHitTestVisible="False"
                         Background="{ThemeResource SpanAccentDimBrush}"
                         Visibility="{x:Bind IsSplitVisible(ViewModel.IsSplitViewEnabled), Mode=OneWay}"/>
             </Grid>

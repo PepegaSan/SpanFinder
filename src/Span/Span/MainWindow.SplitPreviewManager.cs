@@ -256,6 +256,7 @@ namespace Span
             ToolTipService.SetToolTip(ToolbarDeleteButton, _loc.Get("Tooltip_Delete"));
             ToolTipService.SetToolTip(SortButton, _loc.Get("Tooltip_Sort"));
             ToolTipService.SetToolTip(SplitViewButton, _loc.Get("Tooltip_SplitView"));
+            UpdateSplitOrientationTooltip();
             ToolTipService.SetToolTip(PreviewToggleButton, _loc.Get("Tooltip_Preview"));
 
             // RecycleBin mode toolbar tooltips (Issue #28)
@@ -417,12 +418,138 @@ namespace Span
         {
             ToggleSplitView();
             UpdateSplitViewButtonState();
+            UpdateSplitOrientationButtonState();
+        }
+
+        private void OnSplitOrientationToggleClick(object sender, RoutedEventArgs e)
+        {
+            if (!ViewModel.IsSplitViewEnabled)
+                return;
+
+            ViewModel.SplitOrientation = ViewModel.SplitOrientation == SplitOrientation.SideBySide
+                ? SplitOrientation.Stacked
+                : SplitOrientation.SideBySide;
+            ApplySplitLayout();
+            UpdateSplitOrientationButtonState();
+        }
+
+        /// <summary>
+        /// Apply side-by-side or stacked dual-pane layout.
+        /// </summary>
+        internal void ApplySplitLayout()
+        {
+            if (!ViewModel.IsSplitViewEnabled)
+            {
+                SplitterCol.Width = new GridLength(0);
+                RightPaneCol.Width = new GridLength(0);
+                SplitterRow.Height = new GridLength(0);
+                BottomPaneRow.Height = new GridLength(0);
+
+                Microsoft.UI.Xaml.Controls.Grid.SetColumn(LeftPaneContainer, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetRow(LeftPaneContainer, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetColumn(RightPaneContainer, 2);
+                Microsoft.UI.Xaml.Controls.Grid.SetRow(RightPaneContainer, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetColumn(SplitPaneDivider, 2);
+                Microsoft.UI.Xaml.Controls.Grid.SetRow(SplitPaneDivider, 0);
+                SplitPaneDivider.Width = 1;
+                SplitPaneDivider.Height = double.NaN;
+                SplitPaneDivider.HorizontalAlignment = HorizontalAlignment.Left;
+                SplitPaneDivider.VerticalAlignment = VerticalAlignment.Stretch;
+                RightPaneContainer.Margin = new Thickness(1, 0, 0, 0);
+                return;
+            }
+
+            if (ViewModel.SplitOrientation == SplitOrientation.Stacked)
+            {
+                SplitterCol.Width = new GridLength(0);
+                RightPaneCol.Width = new GridLength(0);
+                SplitterRow.Height = new GridLength(0);
+                BottomPaneRow.Height = new GridLength(1, GridUnitType.Star);
+
+                Microsoft.UI.Xaml.Controls.Grid.SetColumn(LeftPaneContainer, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetRow(LeftPaneContainer, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetColumn(RightPaneContainer, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetRow(RightPaneContainer, 2);
+                Microsoft.UI.Xaml.Controls.Grid.SetColumn(SplitPaneDivider, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetRow(SplitPaneDivider, 2);
+                SplitPaneDivider.Width = double.NaN;
+                SplitPaneDivider.Height = 1;
+                SplitPaneDivider.HorizontalAlignment = HorizontalAlignment.Stretch;
+                SplitPaneDivider.VerticalAlignment = VerticalAlignment.Top;
+                LeftPaneContainer.Margin = new Thickness(0);
+                RightPaneContainer.Margin = new Thickness(0, 1, 0, 0);
+            }
+            else
+            {
+                SplitterCol.Width = new GridLength(0);
+                RightPaneCol.Width = new GridLength(1, GridUnitType.Star);
+                SplitterRow.Height = new GridLength(0);
+                BottomPaneRow.Height = new GridLength(0);
+
+                Microsoft.UI.Xaml.Controls.Grid.SetColumn(LeftPaneContainer, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetRow(LeftPaneContainer, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetColumn(RightPaneContainer, 2);
+                Microsoft.UI.Xaml.Controls.Grid.SetRow(RightPaneContainer, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetColumn(SplitPaneDivider, 2);
+                Microsoft.UI.Xaml.Controls.Grid.SetRow(SplitPaneDivider, 0);
+                SplitPaneDivider.Width = 1;
+                SplitPaneDivider.Height = double.NaN;
+                SplitPaneDivider.HorizontalAlignment = HorizontalAlignment.Left;
+                SplitPaneDivider.VerticalAlignment = VerticalAlignment.Stretch;
+                LeftPaneContainer.Margin = new Thickness(0);
+                RightPaneContainer.Margin = new Thickness(1, 0, 0, 0);
+            }
         }
 
         /// <summary>
         /// RightExplorer PropertyChanged 구독 — RightAddressBar 동기화용
         /// </summary>
         private PropertyChangedEventHandler? _rightExplorerAddressBarHandler;
+
+        /// <summary>
+        /// Re-apply split layout and right pane after session restore on startup.
+        /// </summary>
+        internal void RestoreSplitViewOnStartup()
+        {
+            if (!ViewModel.IsSplitViewEnabled)
+                return;
+
+            ApplySplitLayout();
+
+            if (ViewModel.Explorer?.PathSegments != null)
+            {
+                LeftAddressBar.PathSegments = ViewModel.Explorer.PathSegments;
+                LeftAddressBar.CurrentPath = ViewModel.Explorer.CurrentPath;
+            }
+
+            if (ViewModel.RightExplorer.Columns.Count == 0
+                || ViewModel.RightExplorer.CurrentPath == "PC"
+                || string.IsNullOrEmpty(ViewModel.RightExplorer.CurrentPath))
+            {
+                NavigateRightPaneToRealPath();
+            }
+
+            if (ViewModel.RightViewMode == ViewMode.MillerColumns)
+            {
+                MillerScrollViewerRight.DispatcherQueue.TryEnqueue(
+                    Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+                    () =>
+                    {
+                        if (_isClosed || !ViewModel.IsSplitViewEnabled) return;
+                        ScrollToLastColumn(ViewModel.RightExplorer, MillerScrollViewerRight, disableAnimation: true);
+                        ApplyPersistedMillerColumnWidth(MillerColumnsControlRight);
+                    });
+            }
+
+            SyncRightAddressBar();
+            SubscribeRightExplorerForAddressBar();
+            ViewModel.NotifySplitViewChanged();
+            UpdateSplitViewButtonState();
+            UpdateSplitOrientationButtonState();
+            UpdateViewModeVisibility();
+
+            Helpers.DebugLogger.Log("[MainWindow] Split view restored on startup");
+        }
 
         private void ToggleSplitView()
         {
@@ -431,8 +558,7 @@ namespace Span
 
             if (ViewModel.IsSplitViewEnabled)
             {
-                SplitterCol.Width = new GridLength(0);
-                RightPaneCol.Width = new GridLength(1, GridUnitType.Star);
+                ApplySplitLayout();
 
                 // Sync left pane breadcrumb — 비활성 상태에서 탭 전환 시 갱신 안 된 경우 보정
                 if (ViewModel.Explorer?.PathSegments != null)
@@ -494,8 +620,7 @@ namespace Span
             }
             else
             {
-                SplitterCol.Width = new GridLength(0);
-                RightPaneCol.Width = new GridLength(0);
+                ApplySplitLayout();
 
                 // Right preview panel 정리 — 분할뷰 해제 시 우측 미리보기가 남는 버그 방지
                 ViewModel.IsRightPreviewEnabled = false;
@@ -583,11 +708,7 @@ namespace Span
         private void NavigateRightPaneToRealPath()
         {
             var path = ViewModel.GetRightPaneInitialPath();
-            var name = System.IO.Path.GetFileName(path);
-            if (string.IsNullOrEmpty(name))
-                name = path; // Drive root like "C:\"
-
-            _ = ViewModel.RightExplorer.NavigateTo(new FolderItem { Name = name, Path = path });
+            _ = ViewModel.RightExplorer.NavigateToPath(path);
             Helpers.DebugLogger.Log($"[MainWindow] Right pane navigated to: {path}");
         }
 
@@ -1108,6 +1229,40 @@ namespace Span
             {
                 Helpers.DebugLogger.Log($"[MainWindow] UpdateSplitViewButtonState error: {ex.Message}");
             }
+        }
+
+        internal void UpdateSplitOrientationButtonState()
+        {
+            try
+            {
+                var accentBrush = GetThemeBrush("SpanAccentBrush");
+                var defaultBrush = GetThemeBrush("SpanTextSecondaryBrush");
+
+                SplitOrientationIcon.Foreground = ViewModel.IsSplitViewEnabled ? accentBrush : defaultBrush;
+
+                var stackedGlyph = (string)Application.Current.Resources["Icon_SplitOrientationStacked"];
+                var sideBySideGlyph = (string)Application.Current.Resources["Icon_SplitOrientationSideBySide"];
+                SplitOrientationIcon.Glyph = ViewModel.SplitOrientation == SplitOrientation.SideBySide
+                    ? stackedGlyph
+                    : sideBySideGlyph;
+
+                UpdateSplitOrientationTooltip();
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[MainWindow] UpdateSplitOrientationButtonState error: {ex.Message}");
+            }
+        }
+
+        private void UpdateSplitOrientationTooltip()
+        {
+            if (SplitOrientationButton == null)
+                return;
+
+            var key = ViewModel.SplitOrientation == SplitOrientation.SideBySide
+                ? "Tooltip_SplitOrientationStacked"
+                : "Tooltip_SplitOrientationSideBySide";
+            ToolTipService.SetToolTip(SplitOrientationButton, _loc.Get(key));
         }
 
         /// <summary>

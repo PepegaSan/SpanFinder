@@ -583,6 +583,8 @@ namespace Span.ViewModels
                 for (int t = 0; t < Tabs.Count; t++)
                     Helpers.DebugLogger.Log($"[LoadTabsFromSettings] Tab[{t}]: id={Tabs[t].Id}, header='{Tabs[t].Header}', viewMode={Tabs[t].ViewMode}, preferred={Tabs[t].PreferredViewMode}, path='{Tabs[t].Path}'");
                 Helpers.DebugLogger.Log($"[MainViewModel] LoadTabsFromSettings: {Tabs.Count} tabs created (tab1={tab1Behavior}, tab2={tab2Behavior})");
+
+                RestoreSplitViewFromSettings();
             }
             catch (Exception ex)
             {
@@ -767,12 +769,10 @@ namespace Span.ViewModels
         {
             try
             {
-                var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
-                if (settings.Values.TryGetValue("RightPanePath", out var savedPath) && savedPath is string path)
-                {
-                    if (System.IO.Directory.Exists(path))
-                        return path;
-                }
+                var settingsSvc = App.Current.Services.GetRequiredService<SettingsService>();
+                var path = settingsSvc.Get("RightPanePath", "");
+                if (!string.IsNullOrEmpty(path) && System.IO.Directory.Exists(path))
+                    return path;
             }
             catch (Exception ex) { Helpers.DebugLogger.Log($"[MainViewModel] RightPanePath load failed: {ex.Message}"); }
 

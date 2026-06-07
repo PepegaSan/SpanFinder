@@ -8,4 +8,14 @@ namespace Span.Models
         Left,
         Right
     }
+
+    /// <summary>Layout of the dual-pane split view.</summary>
+    public enum SplitOrientation
+    {
+        /// <summary>Left and right panes (default).</summary>
+        SideBySide = 0,
+
+        /// <summary>Top and bottom panes.</summary>
+        Stacked = 1,
+    }
 }

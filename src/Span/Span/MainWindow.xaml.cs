@@ -918,34 +918,7 @@ namespace Span
                     // ── Normal startup: restore session tabs ──
                     RestorePreviewState();
                     ViewModel.LoadTabsFromSettings();
-
-                    if (ViewModel.IsSplitViewEnabled)
-                    {
-                        SplitterCol.Width = new GridLength(0);
-                        RightPaneCol.Width = new GridLength(1, GridUnitType.Star);
-
-                        // Tab 2 설정에 따라 우측 창 동작 결정
-                        var tab2Behavior = _settings.Tab2StartupBehavior;
-                        if (tab2Behavior != 0) // 0=Home이 아니면 경로 탐색
-                        {
-                            if (ViewModel.RightExplorer.Columns.Count == 0 ||
-                                ViewModel.RightExplorer.CurrentPath == "PC")
-                            {
-                                if (tab2Behavior == 2 && !string.IsNullOrEmpty(_settings.Tab2StartupPath)
-                                    && System.IO.Directory.Exists(_settings.Tab2StartupPath))
-                                {
-                                    // 사용자 지정 경로
-                                    _ = ViewModel.RightExplorer.NavigateToPath(_settings.Tab2StartupPath);
-                                }
-                                else
-                                {
-                                    // 마지막 세션 복원 또는 fallback
-                                    NavigateRightPaneToRealPath();
-                                }
-                            }
-                        }
-                        // tab2Behavior == 0: Home → 우측 창 탐색 안 함 (PC 상태 유지)
-                    }
+                    RestoreSplitViewOnStartup();
 
                     // ── Per-Tab Miller Panels: 세션 복원 후 모든 탭에 대해 패널 생성 ──
                     InitializeTabMillerPanels();
@@ -2682,15 +2655,13 @@ namespace Span
             // 분할뷰 UI 동기화 — 탭별 분할 상태에 따라 우측 패인 표시/숨김
             if (ViewModel.IsSplitViewEnabled && !isSpecialMode && !isRecycleBin)
             {
-                SplitterCol.Width = new GridLength(0);
-                RightPaneCol.Width = new GridLength(1, GridUnitType.Star);
+                ApplySplitLayout();
                 SyncRightAddressBar();
                 SubscribeRightExplorerForAddressBar();
             }
             else
             {
-                SplitterCol.Width = new GridLength(0);
-                RightPaneCol.Width = new GridLength(0);
+                ApplySplitLayout();
                 UnsubscribeRightExplorerForAddressBar();
                 if (ViewModel.ActivePane == ActivePane.Right)
                     ViewModel.ActivePane = ActivePane.Left;
@@ -2768,6 +2739,7 @@ namespace Span
             PreviewToggleButton.IsEnabled = !isNonExplorerMode;
             UpdatePreviewButtonState();
             UpdateSplitViewButtonState();
+            UpdateSplitOrientationButtonState();
             UpdateViewModeIcon();
             SplitViewButton.IsEnabled = true; // 홈에서도 분할뷰 토글 가능
             CopyPathButton.IsEnabled = !isNonExplorerMode;
@@ -6854,8 +6826,7 @@ namespace Span
             // Grid Column 너비와 x:Bind는 자동 갱신되지 않으므로 직접 처리
             if (!ViewModel.IsSplitViewEnabled)
             {
-                SplitterCol.Width = new GridLength(0);
-                RightPaneCol.Width = new GridLength(0);
+                ApplySplitLayout();
                 UnsubscribeRightExplorerForAddressBar();
             }
             ViewModel.NotifySplitViewChanged();

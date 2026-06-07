@@ -207,11 +207,14 @@ namespace Span.ViewModels
                     RightViewMode = (ViewMode)rightInt;
                 }
 
-                // Split view: 항상 단일 패널로 시작 (분할 상태는 세션 복원하지 않음)
-                IsSplitViewEnabled = false;
+                var settingsSvc = App.Current.Services.GetRequiredService<SettingsService>();
+                var orientInt = settingsSvc.Get("SplitOrientation", (int)SplitOrientation.SideBySide);
+                if (System.Enum.IsDefined(typeof(SplitOrientation), orientInt))
+                    SplitOrientation = (SplitOrientation)orientInt;
+
+                // IsSplitViewEnabled is restored after tabs load (see RestoreSplitViewFromSettings).
 
                 // Preview: 설정에서 기본값 로드 (DefaultPreviewEnabled)
-                var settingsSvc = App.Current.Services.GetRequiredService<SettingsService>();
                 var previewDefault = settingsSvc.DefaultPreviewEnabled;
                 IsLeftPreviewEnabled = previewDefault;
                 IsRightPreviewEnabled = previewDefault;
@@ -292,20 +295,96 @@ namespace Span.ViewModels
         {
             try
             {
-                var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
-                settings.Values["IsSplitViewEnabled"] = IsSplitViewEnabled;
+                var settingsSvc = App.Current.Services.GetRequiredService<SettingsService>();
+                settingsSvc.Set("IsSplitViewEnabled", IsSplitViewEnabled);
+                settingsSvc.Set("SplitOrientation", (int)SplitOrientation);
 
                 // Save right pane path for restore on next launch
                 if (!string.IsNullOrEmpty(RightExplorer?.CurrentPath) && RightExplorer.CurrentPath != "PC")
-                {
-                    settings.Values["RightPanePath"] = RightExplorer.CurrentPath;
-                }
+                    settingsSvc.Set("RightPanePath", RightExplorer.CurrentPath);
 
                 Helpers.DebugLogger.Log($"[MainViewModel] Split state saved: {IsSplitViewEnabled}");
             }
             catch (Exception ex)
             {
                 Helpers.DebugLogger.Log($"[MainViewModel] Error saving split state: {ex.Message}");
+            }
+        }
+
+        partial void OnSplitOrientationChanged(SplitOrientation value) => SaveSplitViewState();
+
+        partial void OnIsSplitViewEnabledChanged(bool value)
+        {
+            SaveSplitViewState();
+            SaveActiveTabState();
+        }
+
+        /// <summary>
+        /// Restore dual-pane state after tabs are loaded (SwitchToTab resets per-tab split flags).
+        /// </summary>
+        public void RestoreSplitViewFromSettings()
+        {
+            try
+            {
+                var settingsSvc = App.Current.Services.GetRequiredService<SettingsService>();
+                MigrateSplitStateFromLocalSettingsIfNeeded(settingsSvc);
+
+                if (!settingsSvc.Get("IsSplitViewEnabled", false))
+                    return;
+
+                var orientInt = settingsSvc.Get("SplitOrientation", (int)SplitOrientation.SideBySide);
+                if (System.Enum.IsDefined(typeof(SplitOrientation), orientInt))
+                    SplitOrientation = (SplitOrientation)orientInt;
+
+                IsSplitViewEnabled = true;
+
+                if (ActiveTab != null)
+                {
+                    ActiveTab.IsSplitEnabled = true;
+                    ActiveTab.SplitRightViewMode = RightViewMode;
+                }
+
+                Helpers.DebugLogger.Log("[MainViewModel] Split view restored: True");
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[MainViewModel] RestoreSplitViewFromSettings error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Legacy split keys were written to ApplicationData.LocalSettings; unpackaged builds use settings.json.
+        /// </summary>
+        private static void MigrateSplitStateFromLocalSettingsIfNeeded(SettingsService settingsSvc)
+        {
+            if (settingsSvc.Get("IsSplitViewEnabled", false))
+                return;
+
+            try
+            {
+                var local = Windows.Storage.ApplicationData.Current.LocalSettings;
+                if (!local.Values.TryGetValue("IsSplitViewEnabled", out var splitObj))
+                    return;
+
+                var enabled = splitObj switch
+                {
+                    bool b => b,
+                    int i => i != 0,
+                    _ => false
+                };
+                settingsSvc.Set("IsSplitViewEnabled", enabled);
+
+                if (local.Values.TryGetValue("SplitOrientation", out var orient) && orient is int orientInt)
+                    settingsSvc.Set("SplitOrientation", orientInt);
+
+                if (local.Values.TryGetValue("RightPanePath", out var path) && path is string pathStr)
+                    settingsSvc.Set("RightPanePath", pathStr);
+
+                Helpers.DebugLogger.Log("[MainViewModel] Migrated split state from LocalSettings to settings.json");
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[MainViewModel] Split state migration skipped: {ex.Message}");
             }
         }
 

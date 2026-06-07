@@ -65,6 +65,8 @@
     <!-- Structural UI Icons (overridden per icon pack in App.xaml.cs) -->
     <x:String x:Key="Icon_NewFolder">&#xED59;</x:String> <!-- ri-folder-add-fill -->
     <x:String x:Key="Icon_SplitView">&#xEE8C;</x:String> <!-- ri-layout-column-fill -->
+    <x:String x:Key="Icon_SplitOrientationStacked">&#xEE9C;</x:String> <!-- ri-layout-row-fill (top/bottom) -->
+    <x:String x:Key="Icon_SplitOrientationSideBySide">&#xEA62;</x:String> <!-- ri-arrow-left-right-line -->
     <x:String x:Key="Icon_Network">&#xEDCF;</x:String> <!-- ri-global-line (fixed) -->
     <x:String x:Key="Icon_Server">&#xF0DF;</x:String> <!-- ri-server-fill (fixed) -->
 

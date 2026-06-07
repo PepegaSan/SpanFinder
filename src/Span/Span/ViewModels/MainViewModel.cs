@@ -161,6 +161,9 @@ namespace Span.ViewModels
         private bool _isSplitViewEnabled = false;
 
         [ObservableProperty]
+        private SplitOrientation _splitOrientation = SplitOrientation.SideBySide;
+
+        [ObservableProperty]
         private ViewMode _leftViewMode = ViewMode.MillerColumns;
 
         [ObservableProperty]
