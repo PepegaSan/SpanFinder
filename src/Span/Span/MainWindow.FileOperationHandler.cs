@@ -36,8 +36,7 @@ namespace Span
         /// </summary>
         private void HandleSelectAll()
         {
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var viewMode = GetActivePaneViewMode();
 
             if (viewMode == ViewMode.MillerColumns)
             {
@@ -70,8 +69,7 @@ namespace Span
         /// </summary>
         private void HandleSelectNone()
         {
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var viewMode = GetActivePaneViewMode();
 
             if (viewMode == ViewMode.MillerColumns)
             {
@@ -115,8 +113,7 @@ namespace Span
         /// </summary>
         private void HandleInvertSelection()
         {
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var viewMode = GetActivePaneViewMode();
 
             if (viewMode == ViewMode.MillerColumns)
             {
@@ -248,7 +245,7 @@ namespace Span
             for (int i = 0; i < columns.Count; i++)
             {
                 var col = columns[i];
-                var listView = GetListViewForColumn(i);
+                var listView = GetListViewForColumn(i, ViewModel.ActiveExplorer);
                 int count = GetExplicitMillerSelection(col, listView, out var explicitItems);
                 if (count == 0) continue;
                 if (!IsBetterMillerSelectionColumn(i, count, bestColumnIndex, bestCount, focusIndex))
@@ -334,8 +331,7 @@ namespace Span
             var explorer = ViewModel.ActiveExplorer;
             if (explorer == null) return new List<FileSystemViewModel>();
 
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var viewMode = GetActivePaneViewMode();
 
             if (viewMode == ViewMode.List)
             {
@@ -380,7 +376,7 @@ namespace Span
                 if (!col.Children.Any(c => string.Equals(c.Path, clickedPath, StringComparison.OrdinalIgnoreCase)))
                     continue;
 
-                var listView = GetListViewForColumn(i);
+                var listView = GetListViewForColumn(i, explorer);
                 var fromUi = listView?.SelectedItems.OfType<FileSystemViewModel>().ToList()
                              ?? new List<FileSystemViewModel>();
                 var picked = PickSelectionForClickedPath(clickedPath, col, fromUi);
@@ -418,8 +414,7 @@ namespace Span
 
         private List<FileSystemViewModel> GetCurrentSelectedItems()
         {
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var viewMode = GetActivePaneViewMode();
             var currentFolder = ViewModel.ActiveExplorer?.CurrentFolder;
 
             if (viewMode == ViewMode.List)
@@ -498,8 +493,7 @@ namespace Span
         /// </summary>
         private FolderViewModel? GetCurrentViewFolder()
         {
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var viewMode = GetActivePaneViewMode();
 
             if (viewMode != ViewMode.MillerColumns)
                 return ViewModel.ActiveExplorer.CurrentFolder;
@@ -521,8 +515,7 @@ namespace Span
             var explorer = ViewModel.ActiveExplorer;
             if (explorer == null) return result;
 
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var viewMode = GetActivePaneViewMode();
 
             if (viewMode != ViewMode.MillerColumns)
             {
@@ -893,8 +886,7 @@ namespace Span
         {
             try
             {
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var viewMode = GetActivePaneViewMode();
 
             FolderViewModel? targetFolder;
             int activeIndex;
@@ -1020,8 +1012,7 @@ namespace Span
         {
             try
             {
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var viewMode = GetActivePaneViewMode();
 
             string? destDir;
             if (viewMode != ViewMode.MillerColumns)
@@ -1130,8 +1121,7 @@ namespace Span
         {
             try
             {
-                var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                    ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+                var viewMode = GetActivePaneViewMode();
 
                 FolderViewModel? currentFolder;
                 int activeIndex;
@@ -1217,8 +1207,7 @@ namespace Span
         {
             try
             {
-                var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                    ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+                var viewMode = GetActivePaneViewMode();
 
                 FolderViewModel? column;
                 if (viewMode != ViewMode.MillerColumns)
@@ -1269,8 +1258,7 @@ namespace Span
         private void HandleRename()
         {
             // 분할뷰 시 활성 패인의 뷰 모드를 사용해야 올바른 뷰에 위임됨
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var viewMode = GetActivePaneViewMode();
 
             // Details/List/Icon 뷰: 해당 뷰의 자체 rename 핸들러에 위임
             if (viewMode == Models.ViewMode.Details)
@@ -1612,8 +1600,7 @@ namespace Span
         {
             try
             {
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var viewMode = GetActivePaneViewMode();
 
             FolderViewModel? currentColumn;
             int activeIndex;
@@ -1719,8 +1706,7 @@ namespace Span
         {
             try
             {
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var viewMode = GetActivePaneViewMode();
 
             FolderViewModel? currentColumn;
             int activeIndex;
@@ -2024,8 +2010,7 @@ namespace Span
 
         private string? GetActiveColumnPath()
         {
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var viewMode = GetActivePaneViewMode();
 
             if (viewMode != ViewMode.MillerColumns)
                 return ViewModel.ActiveExplorer.CurrentFolder?.Path;
@@ -2121,8 +2106,7 @@ namespace Span
             column.SortChildren(mappedField, isAscending);
 
             // Icon/List 뷰 새로고침 (Miller 외 뷰에서는 별도 리빌드 필요)
-            var sortViewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var sortViewMode = GetActivePaneViewMode();
             if (sortViewMode != ViewMode.MillerColumns)
             {
                 GetActiveListView()?.RebuildListItemsPublic();
@@ -2137,8 +2121,7 @@ namespace Span
         /// </summary>
         private FolderViewModel? GetActiveSortColumn()
         {
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var viewMode = GetActivePaneViewMode();
 
             if (viewMode == ViewMode.MillerColumns)
             {

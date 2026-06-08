@@ -2876,8 +2876,7 @@ namespace Span
                 if (_isClosed || ViewModel == null) return;
 
                 // Determine which pane's view mode to use
-                var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                    ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+                var viewMode = GetActivePaneViewMode();
 
                 switch (viewMode)
                 {
@@ -4130,8 +4129,7 @@ namespace Span
             {
                 if (!string.IsNullOrEmpty(fav.Path) && System.IO.Directory.Exists(fav.Path))
                 {
-                    var activeViewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                        ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+                    var activeViewMode = GetActivePaneViewMode();
                     if (activeViewMode == ViewMode.Home || activeViewMode == ViewMode.RecycleBin)
                     {
                         ViewModel.SwitchViewMode(ViewModel.ResolveViewModeFromHome());
@@ -4447,8 +4445,7 @@ namespace Span
             if (!string.IsNullOrEmpty(path) && System.IO.Directory.Exists(path))
             {
                 // Switch away from Home mode if needed (ActionLog has its own sidebar, no navigation)
-                var activeViewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                    ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+                var activeViewMode = GetActivePaneViewMode();
                 if (activeViewMode == ViewMode.Home)
                 {
                     ViewModel.SwitchViewMode(ViewMode.MillerColumns);
@@ -4772,6 +4769,8 @@ namespace Span
                 if (sender is Grid grid && grid.DataContext is FolderViewModel folder)
                 {
                     e.Handled = true; // Prevent bubbling to empty area handler during await
+                    if (GetActivePaneForElement(grid) is ActivePane pane)
+                        ViewModel.ActivePane = pane;
                     bool shiftHeld = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
                         Windows.System.VirtualKey.Shift).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
@@ -4797,6 +4796,8 @@ namespace Span
                 if (sender is Grid grid && grid.DataContext is FileViewModel file)
                 {
                     e.Handled = true; // Prevent bubbling to empty area handler during await
+                    if (GetActivePaneForElement(grid) is ActivePane pane)
+                        ViewModel.ActivePane = pane;
                     bool shiftHeld = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
                         Windows.System.VirtualKey.Shift).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
@@ -5488,8 +5489,7 @@ namespace Span
         /// </summary>
         private FileSystemViewModel? GetCurrentSelected()
         {
-            var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+            var viewMode = GetActivePaneViewMode();
 
             if (viewMode != ViewMode.MillerColumns)
             {
@@ -5514,11 +5514,14 @@ namespace Span
         /// 지정된 FolderViewModel에 바인딩된 ListView를 찾아 반환한다.
         /// Miller Column의 컬럼 번호 기반으로 탐색한다.
         /// </summary>
-        private ListView? GetListViewForColumn(int columnIndex)
+        private ListView? GetListViewForColumn(int columnIndex, ExplorerViewModel? explorer = null)
         {
-            var control = GetActiveMillerColumnsControl();
+            explorer ??= ViewModel.ActiveExplorer;
+            var control = explorer != null
+                ? GetMillerColumnsControlForExplorer(explorer)
+                : GetActiveMillerColumnsControl();
             if (control == null) return null;
-            var container = control.ContainerFromIndex(columnIndex) as ContentPresenter;
+            var container = control.ContainerFromIndex(columnIndex) as FrameworkElement;
             if (container == null) return null;
             return VisualTreeHelpers.FindChild<ListView>(container);
         }

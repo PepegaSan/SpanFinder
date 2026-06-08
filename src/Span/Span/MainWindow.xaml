@@ -1751,6 +1751,7 @@
                 <!-- ===== TOP-RIGHT PANE (quad) ===== -->
                 <Grid x:Name="TopRightPaneContainer" AutomationProperties.AutomationId="TopRightPane"
                       Grid.Column="2" Grid.Row="0" GotFocus="OnTopRightPaneGotFocus"
+                      PointerPressed="OnTopRightPanePointerPressed"
                       Background="Transparent" Margin="1,0,0,0" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -1809,6 +1810,7 @@
                 <!-- ===== BOTTOM-RIGHT PANE (quad) ===== -->
                 <Grid x:Name="BottomRightPaneContainer" AutomationProperties.AutomationId="BottomRightPane"
                       Grid.Column="2" Grid.Row="2" GotFocus="OnBottomRightPaneGotFocus"
+                      PointerPressed="OnBottomRightPanePointerPressed"
                       Background="Transparent" Margin="1,1,0,0" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>

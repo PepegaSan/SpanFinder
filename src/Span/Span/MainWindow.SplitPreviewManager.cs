@@ -81,6 +81,19 @@ namespace Span
         }
 
         /// <summary>
+        /// View mode for file operations in the active pane (copy, delete, paste, selection).
+        /// Quad split always uses Miller columns in all four panes.
+        /// </summary>
+        private ViewMode GetActivePaneViewMode()
+        {
+            if (ViewModel.IsQuadSplit)
+                return ViewMode.MillerColumns;
+            if (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
+                return ViewModel.RightViewMode;
+            return ViewModel.CurrentViewMode;
+        }
+
+        /// <summary>
         /// Map an explorer instance to its Miller ItemsControl (independent of ActivePane).
         /// </summary>
         private ItemsControl? GetMillerColumnsControlForExplorer(ExplorerViewModel explorer)
@@ -244,6 +257,30 @@ namespace Span
                 ViewModel.ActivePane = ActivePane.Right;
                 var props = e.GetCurrentPoint(sender as UIElement).Properties;
                 if (!props.IsRightButtonPressed && !IsDescendant(RightPathHeader, e.OriginalSource as DependencyObject))
+                    FocusActivePane();
+            }
+        }
+
+        private void OnTopRightPanePointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+        {
+            if (IsDragInProgress) return;
+            if (ViewModel.ActivePane != ActivePane.TopRight)
+            {
+                ViewModel.ActivePane = ActivePane.TopRight;
+                var props = e.GetCurrentPoint(sender as UIElement).Properties;
+                if (!props.IsRightButtonPressed && !IsDescendant(TopRightPathHeader, e.OriginalSource as DependencyObject))
+                    FocusActivePane();
+            }
+        }
+
+        private void OnBottomRightPanePointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+        {
+            if (IsDragInProgress) return;
+            if (ViewModel.ActivePane != ActivePane.BottomRight)
+            {
+                ViewModel.ActivePane = ActivePane.BottomRight;
+                var props = e.GetCurrentPoint(sender as UIElement).Properties;
+                if (!props.IsRightButtonPressed && !IsDescendant(BottomRightPathHeader, e.OriginalSource as DependencyObject))
                     FocusActivePane();
             }
         }
@@ -1323,11 +1360,7 @@ namespace Span
             {
                 if (_isClosed || ViewModel == null) return;
 
-                var viewMode = ViewModel.IsQuadSplit
-                    ? Models.ViewMode.MillerColumns
-                    : (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                        ? ViewModel.RightViewMode
-                        : ViewModel.CurrentViewMode;
+                var viewMode = GetActivePaneViewMode();
 
                 switch (viewMode)
                 {
