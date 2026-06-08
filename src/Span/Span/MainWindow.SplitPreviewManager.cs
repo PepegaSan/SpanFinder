@@ -576,6 +576,7 @@ namespace Span
                 SplitPaneDivider.VerticalAlignment = VerticalAlignment.Stretch;
                 RightPaneContainer.Margin = new Thickness(1, 0, 0, 0);
                 UnsubscribeQuadPaneAddressBars();
+                ViewModel.SyncExplorerAutoNavigationForLayout();
                 UpdateViewModeVisibility();
                 return;
             }
@@ -635,6 +636,7 @@ namespace Span
             }
 
             UnsubscribeQuadPaneAddressBars();
+            ViewModel.SyncExplorerAutoNavigationForLayout();
             UpdateViewModeVisibility();
 
             if (ViewModel.SplitOrientation == SplitOrientation.Stacked)
@@ -969,6 +971,17 @@ namespace Span
             return null;
         }
 
+        private ExplorerViewModel GetExplorerForMillerElement(DependencyObject element)
+        {
+            if (GetActivePaneForElement(element) is ActivePane pane)
+            {
+                ViewModel.ActivePane = pane;
+                return ViewModel.GetExplorerForPane(pane);
+            }
+
+            return ViewModel.LeftExplorer;
+        }
+
         private void SetQuadPanesVisible(bool visible)
         {
             var v = visible ? Visibility.Visible : Visibility.Collapsed;
@@ -980,6 +993,7 @@ namespace Span
         private void SetQuadMillerOnlyVisibility()
         {
             ViewModel.RightViewMode = Models.ViewMode.MillerColumns;
+            ViewModel.SyncExplorerAutoNavigationForLayout();
 
             MillerTabsHost.Visibility = Visibility.Visible;
             DetailsTabsHost.Visibility = Visibility.Collapsed;

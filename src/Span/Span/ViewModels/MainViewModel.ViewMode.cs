@@ -464,6 +464,34 @@ namespace Span.ViewModels
 
         #region Pane Routing
 
+        /// <summary>
+        /// Keep Miller auto-navigation in sync with the active layout.
+        /// Quad mode always shows Miller in all panes even when LeftViewMode differs.
+        /// </summary>
+        public void SyncExplorerAutoNavigationForLayout()
+        {
+            if (IsQuadSplit)
+            {
+                bool autoNav = ShouldAutoNavigate(ViewMode.MillerColumns);
+                LeftExplorer.EnableAutoNavigation = autoNav;
+                RightExplorer.EnableAutoNavigation = autoNav;
+                TopRightExplorer.EnableAutoNavigation = autoNav;
+                BottomRightExplorer.EnableAutoNavigation = autoNav;
+                Helpers.DebugLogger.Log($"[MainViewModel] Quad AutoNav: {autoNav}");
+                return;
+            }
+
+            if (IsSplitViewEnabled)
+            {
+                LeftExplorer.EnableAutoNavigation = ShouldAutoNavigate(LeftViewMode);
+                RightExplorer.EnableAutoNavigation = ShouldAutoNavigate(RightViewMode);
+            }
+            else
+            {
+                LeftExplorer.EnableAutoNavigation = ShouldAutoNavigate(CurrentViewMode);
+            }
+        }
+
         public bool IsQuadSplit => SplitLayoutMode == SplitLayoutMode.Quad;
 
         public ExplorerViewModel GetExplorerForPane(ActivePane pane) => pane switch

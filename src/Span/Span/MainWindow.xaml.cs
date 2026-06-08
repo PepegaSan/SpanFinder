@@ -1640,7 +1640,8 @@ namespace Span
 
             // Miller Columns가 아닌 뷰 모드에서는 ItemsControl이 unloaded 상태이므로
             // ContainerFromIndex/ScrollToLastColumn이 AccessViolationException을 일으킬 수 있음
-            if (ViewModel == null || ViewModel.CurrentViewMode != ViewMode.MillerColumns) return;
+            if (ViewModel == null) return;
+            if (!ViewModel.IsQuadSplit && ViewModel.CurrentViewMode != ViewMode.MillerColumns) return;
 
             // v1.4.19: 마지막 컬럼 RemoveAt+Delay+Insert 사이클 동안에는 ScrollToLastColumn /
             // 슬라이드-인 둘 다 skip. spacer Border가 ExtentWidth를 보존하므로 자동 좌측 클램프
@@ -5071,6 +5072,9 @@ namespace Span
 
             if (listView == null || folderVm == null) return;
 
+            if (GetActivePaneForElement(listView) is ActivePane pane)
+                ViewModel.ActivePane = pane;
+
             // 다른 항목 선택 시 진행 중인 리네임 취소
             CancelAnyActiveRename();
 
@@ -5418,6 +5422,7 @@ namespace Span
         {
             if (sender is ListView listView && listView.DataContext is FolderViewModel folderVm)
             {
+                var explorer = GetExplorerForMillerElement(listView);
                 var selected = folderVm.SelectedChild;
                 if (selected is FileViewModel file)
                 {
@@ -5438,7 +5443,7 @@ namespace Span
                         var target = FileSystemService.ResolveShellLink(file.Path);
                         if (!string.IsNullOrEmpty(target) && System.IO.Directory.Exists(target))
                         {
-                            _ = ViewModel.ActiveExplorer.NavigateToPath(target);
+                            _ = explorer.NavigateToPath(target);
                             Helpers.DebugLogger.Log($"[MainWindow] Miller Column DoubleClick: .lnk → navigate to folder {target}");
                         }
                         else
@@ -5459,7 +5464,6 @@ namespace Span
                 else if (selected is FolderViewModel folder && _settings.MillerClickBehavior == "double")
                 {
                     // In double-click mode, navigate into folder as next column (preserve existing columns)
-                    var explorer = ViewModel.ActiveExplorer;
                     explorer.NavigateIntoFolder(folder, folderVm);
                     Helpers.DebugLogger.Log($"[MainWindow] Miller Column DoubleClick: Navigating to folder {folder.Name}");
                 }
