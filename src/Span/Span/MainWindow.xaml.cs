@@ -403,6 +403,8 @@ namespace Span
             foreach (var kvp in _tabMillerPanels)
                 ApplyPersistedMillerColumnWidth(kvp.Value.items);
             ApplyPersistedMillerColumnWidth(MillerColumnsControlRight);
+            ApplyPersistedMillerColumnWidth(MillerColumnsControlTopRight);
+            ApplyPersistedMillerColumnWidth(MillerColumnsControlBottomRight);
         }
 
         private void ApplyPersistedMillerColumnWidthToElement(UIElement element, ItemsControl control)
@@ -562,6 +564,8 @@ namespace Span
             // 명시 호출로만 제어 → 형제 폴더 토글 시 위치 점프·어중간 정렬 등 자동 동작 원천 차단.
             MillerScrollViewer.BringIntoViewRequested += OnMillerBringIntoViewRequested;
             MillerScrollViewerRight.BringIntoViewRequested += OnMillerBringIntoViewRequested;
+            MillerScrollViewerTopRight.BringIntoViewRequested += OnMillerBringIntoViewRequested;
+            MillerScrollViewerBottomRight.BringIntoViewRequested += OnMillerBringIntoViewRequested;
 
             // ── Per-Tab Miller Panel 초기화 ──
             // XAML에서 ItemsSource가 제거되었으므로 코드에서 설정
@@ -1651,7 +1655,9 @@ namespace Span
                 if (!isReplacingLeft)
                 {
                     Helpers.DebugLogger.Log($"[OnColumnsChanged] ScrollToLastColumn for left explorer");
-                    ScrollToLastColumn(ViewModel.LeftExplorer, GetActiveMillerScrollViewer());
+                    var leftScrollViewer = GetMillerScrollViewerForExplorer(ViewModel.LeftExplorer);
+                    if (leftScrollViewer != null)
+                        ScrollToLastColumn(ViewModel.LeftExplorer, leftScrollViewer);
                 }
                 if (_millerSelectionMode != ListViewSelectionMode.Extended)
                 {
@@ -1670,7 +1676,7 @@ namespace Span
                 !isReplacingLeft)
             {
                 Helpers.DebugLogger.Log($"[OnColumnsChanged] PrepareAndAnimateNewColumn for left");
-                PrepareAndAnimateNewColumn(GetActiveMillerColumnsControl());
+                PrepareAndAnimateNewColumn(GetMillerColumnsControlForExplorer(ViewModel.LeftExplorer));
             }
         }
 
@@ -1686,7 +1692,7 @@ namespace Span
 
             // 우측이 Miller 모드가 아니면 ItemsControl이 unloaded 상태이므로
             // ContainerFromIndex/ScrollToLastColumn이 AccessViolation을 일으킬 수 있음
-            if (ViewModel.RightViewMode != ViewMode.MillerColumns) return;
+            if (!ViewModel.IsQuadSplit && ViewModel.RightViewMode != ViewMode.MillerColumns) return;
 
             // v1.4.19: 좌측과 동일 — Replace 사이클 동안 ScrollTo / 슬라이드-인 둘 다 skip.
             // spacer Border가 ExtentWidth를 보존하므로 좌측 클램프 위험 없음.
@@ -1717,7 +1723,11 @@ namespace Span
             }
 
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
-                () => ApplyPersistedMillerColumnWidth(MillerColumnsControlRight));
+                () =>
+                {
+                    ApplyPersistedMillerColumnWidth(MillerColumnsControlRight);
+                    SyncRightAddressBar();
+                });
         }
 
         // =================================================================
@@ -1733,7 +1743,7 @@ namespace Span
 
         private void OnLeftBeforeReplaceLastColumn()
         {
-            SetMillerSpacerWidth(MillerColumnSpacerLeft, GetActiveMillerColumnsControl());
+            SetMillerSpacerWidth(MillerColumnSpacerLeft, GetLeftMillerColumnsControl());
         }
         private void OnLeftAfterReplaceLastColumn(bool insertedOk)
         {
@@ -1744,7 +1754,7 @@ namespace Span
 
             try { MillerColumnSpacerLeft.Width = 0; } catch { }
             if (_isClosed || ViewModel?.LeftExplorer == null) return;
-            var sv = GetActiveMillerScrollViewer();
+            var sv = GetMillerScrollViewerForExplorer(ViewModel.LeftExplorer);
             if (sv == null) return;
             // Insert 직후 새 컨테이너가 measure 전이라도 GetTotalColumnsActualWidth가 ColumnWidth
             // 폴백으로 정확한 totalWidth 계산. ScrollToLastColumn은 자체 Low queue 큐잉.
@@ -1842,7 +1852,7 @@ namespace Span
             else
                 leftScrollViewer = MillerScrollViewer;
             if (sender == leftScrollViewer)
-                ScrollToLastColumn(ViewModel.LeftExplorer, leftScrollViewer);
+                ScrollToLastColumnSync(ViewModel.LeftExplorer, leftScrollViewer, disableAnimation: true);
         }
 
         /// <summary>
@@ -1853,7 +1863,7 @@ namespace Span
         {
             if (_isClosed || ViewModel?.RightExplorer == null) return;
             if (Math.Abs(e.PreviousSize.Width - e.NewSize.Width) < 1) return;
-            ScrollToLastColumn(ViewModel.RightExplorer, MillerScrollViewerRight);
+            ScrollToLastColumnSync(ViewModel.RightExplorer, MillerScrollViewerRight, disableAnimation: true);
         }
 
         /// <summary>
@@ -2444,11 +2454,13 @@ namespace Span
             LeftAddressBar.PathSegments = explorer.PathSegments;
             LeftAddressBar.CurrentPath = explorer.CurrentPath ?? string.Empty;
 
-            // Right pane 주소창 (split mode) — RightExplorer가 있으면 동기화
-            if (ViewModel.RightExplorer != null)
+            // Right pane breadcrumb is owned by RightExplorer — never mirror the left path here.
+            if (ViewModel.IsSplitViewEnabled)
             {
-                RightAddressBar.PathSegments = ViewModel.RightExplorer.PathSegments;
-                RightAddressBar.CurrentPath = ViewModel.RightExplorer.CurrentPath ?? string.Empty;
+                if (ViewModel.IsQuadSplit)
+                    SyncAllSecondaryAddressBars();
+                else
+                    SyncRightAddressBar();
             }
         }
 
@@ -2656,14 +2668,25 @@ namespace Span
             if (ViewModel.IsSplitViewEnabled && !isSpecialMode && !isRecycleBin)
             {
                 ApplySplitLayout();
-                SyncRightAddressBar();
-                SubscribeRightExplorerForAddressBar();
+                if (ViewModel.IsQuadSplit)
+                {
+                    SyncAllSecondaryAddressBars();
+                    SubscribeQuadPaneAddressBars();
+                }
+                else
+                {
+                    SyncRightAddressBar();
+                    SubscribeRightExplorerForAddressBar();
+                }
             }
             else
             {
                 ApplySplitLayout();
                 UnsubscribeRightExplorerForAddressBar();
-                if (ViewModel.ActivePane == ActivePane.Right)
+                UnsubscribeQuadPaneAddressBars();
+                if (ViewModel.ActivePane == ActivePane.Right
+                    || ViewModel.ActivePane == ActivePane.TopRight
+                    || ViewModel.ActivePane == ActivePane.BottomRight)
                     ViewModel.ActivePane = ActivePane.Left;
             }
 
@@ -4905,11 +4928,11 @@ namespace Span
             {
                 if (sender is FrameworkElement fe && fe.DataContext is FolderViewModel folderVm)
                 {
-                    // Detect which pane and set ActivePane + SetActiveColumn
-                    if (ViewModel.IsSplitViewEnabled && IsDescendant(RightPaneContainer, fe))
+                    var pane = GetActivePaneForElement(fe);
+                    if (pane.HasValue)
                     {
-                        ViewModel.ActivePane = ActivePane.Right;
-                        ViewModel.RightExplorer.SetActiveColumn(folderVm);
+                        ViewModel.ActivePane = pane.Value;
+                        ViewModel.GetExplorerForPane(pane.Value).SetActiveColumn(folderVm);
                     }
                     else
                     {
@@ -4947,10 +4970,11 @@ namespace Span
                     parent = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(parent) as Grid;
                 if (parent?.DataContext is FolderViewModel folderVm)
                 {
-                    if (ViewModel.IsSplitViewEnabled && IsDescendant(RightPaneContainer, grid))
+                    var pane = GetActivePaneForElement(grid);
+                    if (pane.HasValue)
                     {
-                        ViewModel.ActivePane = ActivePane.Right;
-                        ViewModel.RightExplorer.SetActiveColumn(folderVm);
+                        ViewModel.ActivePane = pane.Value;
+                        ViewModel.GetExplorerForPane(pane.Value).SetActiveColumn(folderVm);
                     }
                     else
                     {

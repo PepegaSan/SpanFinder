@@ -765,24 +765,29 @@ namespace Span.ViewModels
         /// Get the path to navigate the right pane to when split view is activated.
         /// Tries: saved right pane path → first available drive → user profile folder.
         /// </summary>
-        public string GetRightPaneInitialPath()
+        public string GetRightPaneInitialPath() => GetPaneInitialPath(ActivePane.Right);
+
+        /// <summary>
+        /// Resolve startup path for a secondary pane slot.
+        /// </summary>
+        public string GetPaneInitialPath(ActivePane pane)
         {
             try
             {
                 var settingsSvc = App.Current.Services.GetRequiredService<SettingsService>();
-                var path = settingsSvc.Get("RightPanePath", "");
-                if (!string.IsNullOrEmpty(path) && System.IO.Directory.Exists(path))
-                    return path;
+                var key = GetPanePathSettingsKey(pane);
+                if (!string.IsNullOrEmpty(key))
+                {
+                    var path = settingsSvc.Get(key, "");
+                    if (!string.IsNullOrEmpty(path) && System.IO.Directory.Exists(path))
+                        return path;
+                }
             }
-            catch (Exception ex) { Helpers.DebugLogger.Log($"[MainViewModel] RightPanePath load failed: {ex.Message}"); }
+            catch (Exception ex) { Helpers.DebugLogger.Log($"[MainViewModel] {pane} path load failed: {ex.Message}"); }
 
-            // Fallback: first available drive
             if (Drives.Count > 0)
-            {
                 return Drives[0].Path;
-            }
 
-            // Last resort: user profile
             return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         }
 

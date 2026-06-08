@@ -293,26 +293,14 @@ namespace Span
         /// Replace 사이클에서 위치 보정 시 사용).</param>
         private void ScrollToLastColumn(ExplorerViewModel explorer, ScrollViewer scrollViewer, bool disableAnimation = false)
         {
-            var columns = explorer.Columns;
-            if (columns.Count == 0) return;
+            if (explorer.Columns.Count == 0) return;
 
             scrollViewer.DispatcherQueue.TryEnqueue(
                 Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
                 () =>
                 {
-                    try
-                    {
-                        if (_isClosed) return;
-                        var control = scrollViewer == MillerScrollViewerRight ? (ItemsControl)MillerColumnsControlRight : GetActiveMillerColumnsControl();
-                        double totalWidth = GetTotalColumnsActualWidth(control, columns.Count);
-                        double viewportWidth = scrollViewer.ViewportWidth;
-                        double targetScroll = Math.Max(0, totalWidth - viewportWidth);
-                        scrollViewer.ChangeView(targetScroll, null, null, disableAnimation);
-                    }
-                    catch (System.Runtime.InteropServices.COMException)
-                    {
-                        // 빠른 탐색 시 이미 제거된 컨테이너에 대한 ChangeView 호출 무시
-                    }
+                    if (_isClosed) return;
+                    ScrollToLastColumnSync(explorer, scrollViewer, disableAnimation);
                 });
         }
 
@@ -324,18 +312,86 @@ namespace Span
             if (scrollViewer == null) return;
             try
             {
-                var columns = explorer.Columns;
-                if (columns.Count == 0) return;
-                var control = scrollViewer == MillerScrollViewerRight ? (ItemsControl)MillerColumnsControlRight : GetActiveMillerColumnsControl();
-                double totalWidth = GetTotalColumnsActualWidth(control, columns.Count);
+                if (explorer.Columns.Count == 0) return;
+
+                ResetMillerSpacerForExplorer(explorer);
+
+                var control = GetMillerColumnsControlForExplorer(explorer);
+                control?.UpdateLayout();
+                scrollViewer.UpdateLayout();
+
                 double viewportWidth = scrollViewer.ViewportWidth;
-                double targetScroll = Math.Max(0, totalWidth - viewportWidth);
+                if (viewportWidth <= 1) return;
+
+                ApplyMillerContentMinWidth(scrollViewer, control, explorer.Columns.Count, explorer.IsReplacingLastColumn);
+
+                control?.UpdateLayout();
+                scrollViewer.UpdateLayout();
+
+                double contentWidth = GetMillerScrollContentWidth(scrollViewer, control, explorer.Columns.Count);
+                double targetScroll = contentWidth <= viewportWidth + 1
+                    ? 0
+                    : Math.Max(0, contentWidth - viewportWidth);
+
+                double maxScroll = Math.Max(0, scrollViewer.ExtentWidth - viewportWidth);
+                targetScroll = Math.Min(targetScroll, maxScroll);
+
                 scrollViewer.ChangeView(targetScroll, null, null, disableAnimation);
             }
             catch (System.Runtime.InteropServices.COMException)
             {
                 // 빠른 탐색 시 레이아웃 충돌 무시
             }
+        }
+
+        /// <summary>
+        /// When columns are narrower than the viewport, WinUI ScrollViewer can center the content.
+        /// Stretching the content root to at least viewport width keeps columns pinned to the left edge.
+        /// </summary>
+        private void ApplyMillerContentMinWidth(
+            ScrollViewer scrollViewer,
+            ItemsControl? control,
+            int columnCount,
+            bool isReplacing)
+        {
+            if (scrollViewer.Content is not FrameworkElement contentRoot) return;
+
+            if (isReplacing || columnCount == 0)
+            {
+                contentRoot.MinWidth = 0;
+                return;
+            }
+
+            double viewportWidth = scrollViewer.ViewportWidth;
+            if (viewportWidth <= 1) return;
+
+            double columnsWidth = 0;
+            if (contentRoot is Panel panel)
+            {
+                foreach (var child in panel.Children)
+                {
+                    if (child is FrameworkElement fe)
+                        columnsWidth += fe.ActualWidth > 0 ? fe.ActualWidth : 0;
+                }
+            }
+
+            if (columnsWidth <= 1 && control != null)
+                columnsWidth = GetTotalColumnsActualWidth(control, columnCount);
+
+            contentRoot.MinWidth = columnsWidth > 0 && columnsWidth < viewportWidth
+                ? viewportWidth
+                : 0;
+        }
+
+        private double GetMillerScrollContentWidth(ScrollViewer scrollViewer, ItemsControl? control, int columnCount)
+        {
+            if (scrollViewer.Content is FrameworkElement contentRoot && contentRoot.ActualWidth > 0)
+                return contentRoot.ActualWidth;
+
+            if (scrollViewer.ExtentWidth > 1)
+                return scrollViewer.ExtentWidth;
+
+            return GetTotalColumnsActualWidth(control, columnCount);
         }
 
         /// <summary>
@@ -353,7 +409,7 @@ namespace Span
         private double GetTotalColumnsActualWidth(ItemsControl? control, int columnCount)
         {
             // 측정 완료된 임의의 컬럼 폭을 폴백 기준으로 추정 (FontScale 적용 폭).
-            double fallbackWidth = ColumnWidth;
+            double fallbackWidth = GetEffectiveMillerColumnWidth();
             for (int i = 0; i < columnCount; i++)
             {
                 var c = control?.ContainerFromIndex(i) as FrameworkElement;
@@ -623,7 +679,7 @@ namespace Span
             try
             {
                 var tag = (sender as FrameworkElement)?.Tag as string;
-                var explorer = (tag == "Right") ? ViewModel.RightExplorer : ViewModel.ActiveExplorer;
+                var explorer = GetExplorerForPaneTag(tag);
                 if (explorer != null && explorer.CanGoBack)
                 {
                     await explorer.GoBack();
@@ -646,7 +702,7 @@ namespace Span
             try
             {
                 var tag = (sender as FrameworkElement)?.Tag as string;
-                var explorer = (tag == "Right") ? ViewModel.RightExplorer : ViewModel.ActiveExplorer;
+                var explorer = GetExplorerForPaneTag(tag);
                 if (explorer != null && explorer.CanGoForward)
                 {
                     await explorer.GoForward();
@@ -693,7 +749,7 @@ namespace Span
         private void OnPaneBackButtonRightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
         {
             var tag = (sender as FrameworkElement)?.Tag as string;
-            var explorer = (tag == "Right") ? ViewModel.RightExplorer : ViewModel.ActiveExplorer;
+            var explorer = GetExplorerForPaneTag(tag);
             ShowHistoryDropdown(sender as FrameworkElement, isBack: true, explorer);
             e.Handled = true;
         }
@@ -704,7 +760,7 @@ namespace Span
         private void OnPaneForwardButtonRightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
         {
             var tag = (sender as FrameworkElement)?.Tag as string;
-            var explorer = (tag == "Right") ? ViewModel.RightExplorer : ViewModel.ActiveExplorer;
+            var explorer = GetExplorerForPaneTag(tag);
             ShowHistoryDropdown(sender as FrameworkElement, isBack: false, explorer);
             e.Handled = true;
         }
@@ -1087,7 +1143,15 @@ namespace Span
         private Controls.AddressBarControl GetActiveAddressBar()
         {
             if (!ViewModel.IsSplitViewEnabled) return MainAddressBar;
-            return ViewModel.ActivePane == ActivePane.Left ? LeftAddressBar : RightAddressBar;
+
+            return ViewModel.ActivePane switch
+            {
+                ActivePane.Left => LeftAddressBar,
+                ActivePane.Right => RightAddressBar,
+                ActivePane.TopRight => TopRightAddressBar,
+                ActivePane.BottomRight => BottomRightAddressBar,
+                _ => LeftAddressBar,
+            };
         }
 
         /// <summary>
@@ -1099,6 +1163,16 @@ namespace Span
             {
                 ViewModel.ActivePane = ActivePane.Right;
                 return ViewModel.RightExplorer;
+            }
+            if (ReferenceEquals(sender, TopRightAddressBar))
+            {
+                ViewModel.ActivePane = ActivePane.TopRight;
+                return ViewModel.TopRightExplorer;
+            }
+            if (ReferenceEquals(sender, BottomRightAddressBar))
+            {
+                ViewModel.ActivePane = ActivePane.BottomRight;
+                return ViewModel.BottomRightExplorer;
             }
             if (ReferenceEquals(sender, LeftAddressBar))
             {

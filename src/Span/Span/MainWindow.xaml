@@ -1023,12 +1023,14 @@
                                               HorizontalScrollBarVisibility="Visible"
                                               VerticalScrollBarVisibility="Disabled"
                                               VerticalScrollMode="Disabled"
+                                              HorizontalScrollMode="Enabled"
+                                              HorizontalContentAlignment="Left"
                                               AllowDrop="True"
                                               DragOver="OnMillerEmptyAreaDragOver"
                                               DragLeave="OnMillerEmptyAreaDragLeave"
                                               >
-                                    <StackPanel Orientation="Horizontal">
-                                    <ItemsControl x:Name="MillerColumnsControl">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                    <ItemsControl x:Name="MillerColumnsControl" HorizontalAlignment="Left">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
                                             <StackPanel Orientation="Horizontal"/>
@@ -1463,13 +1465,15 @@
                             <ScrollViewer x:Name="MillerScrollViewerRight"
                                           HorizontalScrollBarVisibility="Visible"
                                           VerticalScrollBarVisibility="Disabled"
+                                          HorizontalScrollMode="Enabled"
+                                          HorizontalContentAlignment="Left"
                                           Visibility="{x:Bind IsMillerColumnsMode(ViewModel.RightViewMode), Mode=OneWay}"
                                           AllowDrop="True"
                                           DragOver="OnMillerEmptyAreaDragOver"
                                           DragLeave="OnMillerEmptyAreaDragLeave">
                                 <!-- v1.4.19: ItemsControl을 StackPanel로 감싸 spacer Border와 함께 배치 (좌측과 동일 패턴) -->
-                                <StackPanel Orientation="Horizontal">
-                                <ItemsControl x:Name="MillerColumnsControlRight" ItemsSource="{x:Bind ViewModel.RightExplorer.Columns, Mode=OneWay}">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                <ItemsControl x:Name="MillerColumnsControlRight" HorizontalAlignment="Left" ItemsSource="{x:Bind ViewModel.RightExplorer.Columns, Mode=OneWay}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
                                             <StackPanel Orientation="Horizontal"/>
@@ -1743,6 +1747,127 @@
                         </Button>
                     </Border>
                 </Grid>
+
+                <!-- ===== TOP-RIGHT PANE (quad) ===== -->
+                <Grid x:Name="TopRightPaneContainer" AutomationProperties.AutomationId="TopRightPane"
+                      Grid.Column="2" Grid.Row="0" GotFocus="OnTopRightPaneGotFocus"
+                      Background="Transparent" Margin="1,0,0,0" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Grid Grid.Row="0" x:Name="TopRightPathHeader" Height="32"
+                          Background="{ThemeResource SpanBgLayer2Brush}"
+                          BorderBrush="{ThemeResource SpanBorderSubtleBrush}" BorderThickness="0,0,0,1"
+                          Tapped="OnTopRightPaneHeaderTapped">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Rectangle Height="1" VerticalAlignment="Top" Grid.ColumnSpan="3"
+                                   Fill="{ThemeResource SpanAccentBrush}"
+                                   Opacity="{x:Bind PaneAccentOpacity(ViewModel.ActivePane, ViewModel.IsQuadSplit, models:ActivePane.TopRight), Mode=OneWay}"/>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="0" VerticalAlignment="Center" Margin="2,0,0,0">
+                            <Button Style="{StaticResource UnifiedButtonStyle}" Tag="TopRight" Click="OnPaneGoBackClick" Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26">
+                                <FontIcon Glyph="&#xE72B;" FontSize="11"/>
+                            </Button>
+                            <Button Style="{StaticResource UnifiedButtonStyle}" Tag="TopRight" Click="OnPaneGoForwardClick" Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26">
+                                <FontIcon Glyph="&#xE72A;" FontSize="11"/>
+                            </Button>
+                            <Button Style="{StaticResource UnifiedButtonStyle}" Tag="TopRight" Click="OnPaneNavigateUpClick" Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26">
+                                <FontIcon Glyph="&#xE74A;" FontSize="11"/>
+                            </Button>
+                        </StackPanel>
+                        <appcontrols:AddressBarControl x:Name="TopRightAddressBar" Grid.Column="1"
+                            RecentFolders="{x:Bind ViewModel.RecentFolders, Mode=OneWay}"
+                            BreadcrumbSegmentClicked="OnAddressBarBreadcrumbClicked"
+                            BreadcrumbChevronClicked="OnAddressBarChevronClicked"
+                            PathNavigated="OnAddressBarPathNavigated"/>
+                        <Button Grid.Column="2" Style="{StaticResource UnifiedButtonStyle}" Tag="TopRight" Click="OnPaneCopyPathClick"
+                                Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26" Margin="0,0,2,0">
+                            <FontIcon Glyph="&#xE8C8;" FontSize="11"/>
+                        </Button>
+                    </Grid>
+                    <ScrollViewer x:Name="MillerScrollViewerTopRight" Grid.Row="1"
+                                  HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled"
+                                  HorizontalScrollMode="Enabled"
+                                  HorizontalContentAlignment="Left"
+                                  AllowDrop="True" DragOver="OnMillerEmptyAreaDragOver" DragLeave="OnMillerEmptyAreaDragLeave">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                            <ItemsControl x:Name="MillerColumnsControlTopRight" HorizontalAlignment="Left" ItemsSource="{x:Bind ViewModel.TopRightExplorer.Columns, Mode=OneWay}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+
+                <!-- ===== BOTTOM-RIGHT PANE (quad) ===== -->
+                <Grid x:Name="BottomRightPaneContainer" AutomationProperties.AutomationId="BottomRightPane"
+                      Grid.Column="2" Grid.Row="2" GotFocus="OnBottomRightPaneGotFocus"
+                      Background="Transparent" Margin="1,1,0,0" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Grid Grid.Row="0" x:Name="BottomRightPathHeader" Height="32"
+                          Background="{ThemeResource SpanBgLayer2Brush}"
+                          BorderBrush="{ThemeResource SpanBorderSubtleBrush}" BorderThickness="0,0,0,1"
+                          Tapped="OnBottomRightPaneHeaderTapped">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Rectangle Height="1" VerticalAlignment="Top" Grid.ColumnSpan="3"
+                                   Fill="{ThemeResource SpanAccentBrush}"
+                                   Opacity="{x:Bind PaneAccentOpacity(ViewModel.ActivePane, ViewModel.IsQuadSplit, models:ActivePane.BottomRight), Mode=OneWay}"/>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="0" VerticalAlignment="Center" Margin="2,0,0,0">
+                            <Button Style="{StaticResource UnifiedButtonStyle}" Tag="BottomRight" Click="OnPaneGoBackClick" Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26">
+                                <FontIcon Glyph="&#xE72B;" FontSize="11"/>
+                            </Button>
+                            <Button Style="{StaticResource UnifiedButtonStyle}" Tag="BottomRight" Click="OnPaneGoForwardClick" Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26">
+                                <FontIcon Glyph="&#xE72A;" FontSize="11"/>
+                            </Button>
+                            <Button Style="{StaticResource UnifiedButtonStyle}" Tag="BottomRight" Click="OnPaneNavigateUpClick" Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26">
+                                <FontIcon Glyph="&#xE74A;" FontSize="11"/>
+                            </Button>
+                        </StackPanel>
+                        <appcontrols:AddressBarControl x:Name="BottomRightAddressBar" Grid.Column="1"
+                            RecentFolders="{x:Bind ViewModel.RecentFolders, Mode=OneWay}"
+                            BreadcrumbSegmentClicked="OnAddressBarBreadcrumbClicked"
+                            BreadcrumbChevronClicked="OnAddressBarChevronClicked"
+                            PathNavigated="OnAddressBarPathNavigated"/>
+                        <Button Grid.Column="2" Style="{StaticResource UnifiedButtonStyle}" Tag="BottomRight" Click="OnPaneCopyPathClick"
+                                Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26" Margin="0,0,2,0">
+                            <FontIcon Glyph="&#xE8C8;" FontSize="11"/>
+                        </Button>
+                    </Grid>
+                    <ScrollViewer x:Name="MillerScrollViewerBottomRight" Grid.Row="1"
+                                  HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled"
+                                  HorizontalScrollMode="Enabled"
+                                  HorizontalContentAlignment="Left"
+                                  AllowDrop="True" DragOver="OnMillerEmptyAreaDragOver" DragLeave="OnMillerEmptyAreaDragLeave">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                            <ItemsControl x:Name="MillerColumnsControlBottomRight" HorizontalAlignment="Left" ItemsSource="{x:Bind ViewModel.BottomRightExplorer.Columns, Mode=OneWay}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+
+                <!-- Horizontal split divider (quad) -->
+                <Border x:Name="SplitPaneDividerHorizontal" Grid.Row="1" Grid.ColumnSpan="3" Height="1"
+                        VerticalAlignment="Top" IsHitTestVisible="False"
+                        Background="{ThemeResource SpanAccentDimBrush}" Visibility="Collapsed"/>
 
                 <!-- Split divider -->
                 <Border x:Name="SplitPaneDivider" Grid.Column="2" Width="1" HorizontalAlignment="Left" IsHitTestVisible="False"

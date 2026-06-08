@@ -7,9 +7,12 @@ using Span.Models;
 using Span.ViewModels;
 using Span.Services;
 using System;
+using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using Windows.ApplicationModel.DataTransfer;
 
 namespace Span
@@ -30,9 +33,22 @@ namespace Span
         /// </summary>
         private ItemsControl GetActiveMillerColumnsControl()
         {
-            if (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                return MillerColumnsControlRight;
-            // 활성 탭의 Miller ItemsControl 반환
+            if (ViewModel.IsSplitViewEnabled)
+            {
+                return ViewModel.ActivePane switch
+                {
+                    ActivePane.Right => MillerColumnsControlRight,
+                    ActivePane.TopRight => MillerColumnsControlTopRight,
+                    ActivePane.BottomRight => MillerColumnsControlBottomRight,
+                    _ => GetLeftMillerColumnsControl(),
+                };
+            }
+
+            return GetLeftMillerColumnsControl();
+        }
+
+        private ItemsControl GetLeftMillerColumnsControl()
+        {
             if (_activeMillerTabId != null && _tabMillerPanels.TryGetValue(_activeMillerTabId, out var panel))
                 return panel.items;
             return MillerColumnsControl;
@@ -43,12 +59,47 @@ namespace Span
         /// </summary>
         private ScrollViewer GetActiveMillerScrollViewer()
         {
-            if (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                return MillerScrollViewerRight;
-            // 활성 탭의 ScrollViewer 반환
+            if (ViewModel.IsSplitViewEnabled)
+            {
+                return ViewModel.ActivePane switch
+                {
+                    ActivePane.Right => MillerScrollViewerRight,
+                    ActivePane.TopRight => MillerScrollViewerTopRight,
+                    ActivePane.BottomRight => MillerScrollViewerBottomRight,
+                    _ => GetLeftMillerScrollViewer(),
+                };
+            }
+
+            return GetLeftMillerScrollViewer();
+        }
+
+        private ScrollViewer GetLeftMillerScrollViewer()
+        {
             if (_activeMillerTabId != null && _tabMillerPanels.TryGetValue(_activeMillerTabId, out var panel))
                 return panel.scroller;
             return MillerScrollViewer;
+        }
+
+        /// <summary>
+        /// Map an explorer instance to its Miller ItemsControl (independent of ActivePane).
+        /// </summary>
+        private ItemsControl? GetMillerColumnsControlForExplorer(ExplorerViewModel explorer)
+        {
+            if (ReferenceEquals(explorer, ViewModel.RightExplorer)) return MillerColumnsControlRight;
+            if (ReferenceEquals(explorer, ViewModel.TopRightExplorer)) return MillerColumnsControlTopRight;
+            if (ReferenceEquals(explorer, ViewModel.BottomRightExplorer)) return MillerColumnsControlBottomRight;
+            return GetLeftMillerColumnsControl();
+        }
+
+        /// <summary>
+        /// Map an explorer instance to its Miller ScrollViewer (independent of ActivePane).
+        /// </summary>
+        private ScrollViewer? GetMillerScrollViewerForExplorer(ExplorerViewModel explorer)
+        {
+            if (ReferenceEquals(explorer, ViewModel.RightExplorer)) return MillerScrollViewerRight;
+            if (ReferenceEquals(explorer, ViewModel.TopRightExplorer)) return MillerScrollViewerTopRight;
+            if (ReferenceEquals(explorer, ViewModel.BottomRightExplorer)) return MillerScrollViewerBottomRight;
+            return GetLeftMillerScrollViewer();
         }
 
         #endregion
@@ -113,6 +164,9 @@ namespace Span
         public double RightPaneAccentOpacity(ActivePane activePane)
             => activePane == ActivePane.Right ? 1.0 : 0.0;
 
+        public double PaneAccentOpacity(ActivePane activePane, bool isQuad, ActivePane pane)
+            => isQuad && activePane == pane ? 1.0 : 0.0;
+
         #endregion
 
         #region Focus Tracking
@@ -140,6 +194,24 @@ namespace Span
                 ViewModel.ActivePane = ActivePane.Right;
             }
         }
+
+        private void OnTopRightPaneGotFocus(object sender, RoutedEventArgs e)
+        {
+            if (ViewModel.ActivePane != ActivePane.TopRight)
+                ViewModel.ActivePane = ActivePane.TopRight;
+        }
+
+        private void OnBottomRightPaneGotFocus(object sender, RoutedEventArgs e)
+        {
+            if (ViewModel.ActivePane != ActivePane.BottomRight)
+                ViewModel.ActivePane = ActivePane.BottomRight;
+        }
+
+        private void OnTopRightPaneHeaderTapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+            => ViewModel.ActivePane = ActivePane.TopRight;
+
+        private void OnBottomRightPaneHeaderTapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+            => ViewModel.ActivePane = ActivePane.BottomRight;
 
         /// <summary>
         /// 빈 공간 클릭 시에도 ActivePane을 전환하고 포커스를 이동.
@@ -426,10 +498,18 @@ namespace Span
             if (!ViewModel.IsSplitViewEnabled)
                 return;
 
-            ViewModel.SplitOrientation = ViewModel.SplitOrientation == SplitOrientation.SideBySide
-                ? SplitOrientation.Stacked
-                : SplitOrientation.SideBySide;
+            var next = ViewModel.SplitLayoutMode switch
+            {
+                SplitLayoutMode.DualSideBySide => SplitLayoutMode.DualStacked,
+                SplitLayoutMode.DualStacked => SplitLayoutMode.Quad,
+                SplitLayoutMode.Quad => SplitLayoutMode.DualSideBySide,
+                _ => SplitLayoutMode.DualSideBySide,
+            };
+
+            ViewModel.SetSplitLayoutMode(next);
             ApplySplitLayout();
+            if (next == SplitLayoutMode.Quad)
+                _ = InitializeQuadPanesAsync();
             UpdateSplitOrientationButtonState();
         }
 
@@ -438,6 +518,8 @@ namespace Span
         /// </summary>
         internal void ApplySplitLayout()
         {
+            SetQuadPanesVisible(false);
+
             if (!ViewModel.IsSplitViewEnabled)
             {
                 SplitterCol.Width = new GridLength(0);
@@ -456,8 +538,67 @@ namespace Span
                 SplitPaneDivider.HorizontalAlignment = HorizontalAlignment.Left;
                 SplitPaneDivider.VerticalAlignment = VerticalAlignment.Stretch;
                 RightPaneContainer.Margin = new Thickness(1, 0, 0, 0);
+                UnsubscribeQuadPaneAddressBars();
+                UpdateViewModeVisibility();
                 return;
             }
+
+            if (ViewModel.SplitLayoutMode == SplitLayoutMode.Quad)
+            {
+                // Plan layout: equal * | 1px | * columns and rows
+                SplitLayoutGrid.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
+                SplitterCol.Width = new GridLength(1, GridUnitType.Pixel);
+                RightPaneCol.Width = new GridLength(1, GridUnitType.Star);
+                SplitLayoutGrid.RowDefinitions[0].Height = new GridLength(1, GridUnitType.Star);
+                SplitterRow.Height = new GridLength(1, GridUnitType.Pixel);
+                BottomPaneRow.Height = new GridLength(1, GridUnitType.Star);
+
+                Microsoft.UI.Xaml.Controls.Grid.SetColumn(LeftPaneContainer, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetRow(LeftPaneContainer, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetColumnSpan(LeftPaneContainer, 1);
+                Microsoft.UI.Xaml.Controls.Grid.SetRowSpan(LeftPaneContainer, 1);
+
+                Microsoft.UI.Xaml.Controls.Grid.SetColumn(TopRightPaneContainer, 2);
+                Microsoft.UI.Xaml.Controls.Grid.SetRow(TopRightPaneContainer, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetColumnSpan(TopRightPaneContainer, 1);
+                Microsoft.UI.Xaml.Controls.Grid.SetRowSpan(TopRightPaneContainer, 1);
+
+                Microsoft.UI.Xaml.Controls.Grid.SetColumn(RightPaneContainer, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetRow(RightPaneContainer, 2);
+                Microsoft.UI.Xaml.Controls.Grid.SetColumnSpan(RightPaneContainer, 1);
+                Microsoft.UI.Xaml.Controls.Grid.SetRowSpan(RightPaneContainer, 1);
+
+                Microsoft.UI.Xaml.Controls.Grid.SetColumn(BottomRightPaneContainer, 2);
+                Microsoft.UI.Xaml.Controls.Grid.SetRow(BottomRightPaneContainer, 2);
+                Microsoft.UI.Xaml.Controls.Grid.SetColumnSpan(BottomRightPaneContainer, 1);
+                Microsoft.UI.Xaml.Controls.Grid.SetRowSpan(BottomRightPaneContainer, 1);
+
+                Microsoft.UI.Xaml.Controls.Grid.SetColumn(SplitPaneDivider, 1);
+                Microsoft.UI.Xaml.Controls.Grid.SetRow(SplitPaneDivider, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetRowSpan(SplitPaneDivider, 3);
+                SplitPaneDivider.Width = double.NaN;
+                SplitPaneDivider.Height = double.NaN;
+                SplitPaneDivider.HorizontalAlignment = HorizontalAlignment.Stretch;
+                SplitPaneDivider.VerticalAlignment = VerticalAlignment.Stretch;
+
+                LeftPaneContainer.Margin = new Thickness(0);
+                RightPaneContainer.Margin = new Thickness(0, 1, 0, 0);
+                TopRightPaneContainer.Margin = new Thickness(0);
+                BottomRightPaneContainer.Margin = new Thickness(0, 1, 0, 0);
+
+                SetQuadPanesVisible(true);
+                SetQuadMillerOnlyVisibility();
+                SyncRightAddressBar();
+                SubscribeRightExplorerForAddressBar();
+                SubscribeQuadPaneAddressBars();
+                InitializeQuadMillerTemplates();
+                RelayoutQuadMillerScroll();
+                SplitLayoutGrid.InvalidateMeasure();
+                return;
+            }
+
+            UnsubscribeQuadPaneAddressBars();
+            UpdateViewModeVisibility();
 
             if (ViewModel.SplitOrientation == SplitOrientation.Stacked)
             {
@@ -472,6 +613,7 @@ namespace Span
                 Microsoft.UI.Xaml.Controls.Grid.SetRow(RightPaneContainer, 2);
                 Microsoft.UI.Xaml.Controls.Grid.SetColumn(SplitPaneDivider, 0);
                 Microsoft.UI.Xaml.Controls.Grid.SetRow(SplitPaneDivider, 2);
+                Microsoft.UI.Xaml.Controls.Grid.SetRowSpan(SplitPaneDivider, 1);
                 SplitPaneDivider.Width = double.NaN;
                 SplitPaneDivider.Height = 1;
                 SplitPaneDivider.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -492,6 +634,7 @@ namespace Span
                 Microsoft.UI.Xaml.Controls.Grid.SetRow(RightPaneContainer, 0);
                 Microsoft.UI.Xaml.Controls.Grid.SetColumn(SplitPaneDivider, 2);
                 Microsoft.UI.Xaml.Controls.Grid.SetRow(SplitPaneDivider, 0);
+                Microsoft.UI.Xaml.Controls.Grid.SetRowSpan(SplitPaneDivider, 1);
                 SplitPaneDivider.Width = 1;
                 SplitPaneDivider.Height = double.NaN;
                 SplitPaneDivider.HorizontalAlignment = HorizontalAlignment.Left;
@@ -505,6 +648,7 @@ namespace Span
         /// RightExplorer PropertyChanged 구독 — RightAddressBar 동기화용
         /// </summary>
         private PropertyChangedEventHandler? _rightExplorerAddressBarHandler;
+        private NotifyCollectionChangedEventHandler? _rightExplorerPathSegmentsHandler;
 
         /// <summary>
         /// Re-apply split layout and right pane after session restore on startup.
@@ -522,11 +666,22 @@ namespace Span
                 LeftAddressBar.CurrentPath = ViewModel.Explorer.CurrentPath;
             }
 
+            if (ViewModel.IsQuadSplit)
+            {
+                _ = InitializeQuadPanesAsync();
+                ViewModel.NotifySplitViewChanged();
+                UpdateSplitViewButtonState();
+                UpdateSplitOrientationButtonState();
+                UpdateViewModeVisibility();
+                Helpers.DebugLogger.Log("[MainWindow] Quad split view restored on startup");
+                return;
+            }
+
             if (ViewModel.RightExplorer.Columns.Count == 0
                 || ViewModel.RightExplorer.CurrentPath == "PC"
                 || string.IsNullOrEmpty(ViewModel.RightExplorer.CurrentPath))
             {
-                NavigateRightPaneToRealPath();
+                _ = NavigateRightPaneToRealPathAsync();
             }
 
             if (ViewModel.RightViewMode == ViewMode.MillerColumns)
@@ -567,35 +722,42 @@ namespace Span
                     LeftAddressBar.CurrentPath = ViewModel.Explorer.CurrentPath;
                 }
 
-                // Initialize right pane based on Tab2 startup settings
-                if (ViewModel.RightExplorer.Columns.Count == 0 ||
-                    ViewModel.RightExplorer.CurrentPath == "PC")
+                if (ViewModel.IsQuadSplit)
                 {
-                    var tab2Behavior = _settings.Tab2StartupBehavior;
-                    if (tab2Behavior == 0)
-                    {
-                        // Home: 우측 패인에 홈 화면 표시
-                        ViewModel.RightViewMode = Models.ViewMode.Home;
-                        Helpers.DebugLogger.Log("[ToggleSplitView] Right pane → Home view");
-                    }
-                    else if (tab2Behavior == 2 && !string.IsNullOrEmpty(_settings.Tab2StartupPath)
-                        && System.IO.Directory.Exists(_settings.Tab2StartupPath))
-                    {
-                        // CustomPath: 사용자 지정 경로로 이동
-                        _ = ViewModel.RightExplorer.NavigateToPath(_settings.Tab2StartupPath);
-                        Helpers.DebugLogger.Log($"[ToggleSplitView] Right pane → custom path: {_settings.Tab2StartupPath}");
-                    }
-                    else
-                    {
-                        // RestoreSession (behavior=1) 또는 fallback: 저장된 경로 복원
-                        NavigateRightPaneToRealPath();
-                        Helpers.DebugLogger.Log("[ToggleSplitView] Right pane → restore session");
-                    }
+                    _ = InitializeQuadPanesAsync();
                 }
+                else
+                {
+                    // Initialize right pane based on Tab2 startup settings
+                    if (ViewModel.RightExplorer.Columns.Count == 0 ||
+                        ViewModel.RightExplorer.CurrentPath == "PC")
+                    {
+                        var tab2Behavior = _settings.Tab2StartupBehavior;
+                        if (tab2Behavior == 0)
+                        {
+                            // Home: 우측 패인에 홈 화면 표시
+                            ViewModel.RightViewMode = Models.ViewMode.Home;
+                            Helpers.DebugLogger.Log("[ToggleSplitView] Right pane → Home view");
+                        }
+                        else if (tab2Behavior == 2 && !string.IsNullOrEmpty(_settings.Tab2StartupPath)
+                            && System.IO.Directory.Exists(_settings.Tab2StartupPath))
+                        {
+                            // CustomPath: 사용자 지정 경로로 이동
+                            _ = ViewModel.RightExplorer.NavigateToPath(_settings.Tab2StartupPath);
+                            Helpers.DebugLogger.Log($"[ToggleSplitView] Right pane → custom path: {_settings.Tab2StartupPath}");
+                        }
+                        else
+                        {
+                            // RestoreSession (behavior=1) 또는 fallback: 저장된 경로 복원
+                            NavigateRightPaneToRealPath();
+                            Helpers.DebugLogger.Log("[ToggleSplitView] Right pane → restore session");
+                        }
+                    }
 
-                // RightExplorer 네비게이션 시 RightAddressBar 자동 동기화
-                SyncRightAddressBar();
-                SubscribeRightExplorerForAddressBar();
+                    // RightExplorer 네비게이션 시 RightAddressBar 자동 동기화
+                    SyncRightAddressBar();
+                    SubscribeRightExplorerForAddressBar();
+                }
 
                 // Close ALL previews when entering split view (saves screen space)
                 // 1) 사이드 패널 미리보기 비활성화
@@ -637,6 +799,7 @@ namespace Span
 
                 // RightExplorer 구독 해제
                 UnsubscribeRightExplorerForAddressBar();
+                UnsubscribeQuadPaneAddressBars();
 
                 // 미리보기 상태 복원: 분할뷰 진입 시 비활성화했으므로 기본 설정값으로 복원
                 try
@@ -670,11 +833,17 @@ namespace Span
 
         private void SyncRightAddressBar()
         {
-            if (ViewModel.RightExplorer != null)
-            {
-                RightAddressBar.PathSegments = ViewModel.RightExplorer.PathSegments;
-                RightAddressBar.CurrentPath = ViewModel.RightExplorer.CurrentPath ?? string.Empty;
-            }
+            if (ViewModel.RightExplorer == null)
+                return;
+
+            var explorer = ViewModel.RightExplorer;
+            RightAddressBar.CurrentPath = explorer.CurrentPath ?? string.Empty;
+
+            // Snapshot segments so the breadcrumb always reflects RightExplorer (not a stale shared ref).
+            var segments = new ObservableCollection<Models.PathSegment>(
+                explorer.PathSegments.Select(s => new Models.PathSegment(s.Name, s.FullPath, s.IsLast)));
+            RightAddressBar.PathSegments = segments;
+            RightAddressBar.RefreshItemsSource();
         }
 
         private void SubscribeRightExplorerForAddressBar()
@@ -684,33 +853,429 @@ namespace Span
 
             _rightExplorerAddressBarHandler = (s, e) =>
             {
-                if (e.PropertyName == nameof(ExplorerViewModel.CurrentPath) ||
-                    e.PropertyName == nameof(ExplorerViewModel.PathSegments))
+                if (e.PropertyName != nameof(ExplorerViewModel.CurrentPath))
+                    return;
+
+                DispatcherQueue.TryEnqueue(() =>
                 {
-                    DispatcherQueue.TryEnqueue(() => SyncRightAddressBar());
-                }
+                    SyncRightAddressBar();
+                    if (ViewModel.IsSplitViewEnabled)
+                        ViewModel.PersistSplitViewState();
+                });
             };
             ViewModel.RightExplorer.PropertyChanged += _rightExplorerAddressBarHandler;
+
+            _rightExplorerPathSegmentsHandler = (_, _) =>
+                DispatcherQueue.TryEnqueue(SyncRightAddressBar);
+            ViewModel.RightExplorer.PathSegments.CollectionChanged += _rightExplorerPathSegmentsHandler;
         }
 
         private void UnsubscribeRightExplorerForAddressBar()
         {
-            if (_rightExplorerAddressBarHandler != null && ViewModel.RightExplorer != null)
+            if (ViewModel.RightExplorer != null)
             {
-                ViewModel.RightExplorer.PropertyChanged -= _rightExplorerAddressBarHandler;
-                _rightExplorerAddressBarHandler = null;
+                if (_rightExplorerAddressBarHandler != null)
+                {
+                    ViewModel.RightExplorer.PropertyChanged -= _rightExplorerAddressBarHandler;
+                    _rightExplorerAddressBarHandler = null;
+                }
+
+                if (_rightExplorerPathSegmentsHandler != null)
+                {
+                    ViewModel.RightExplorer.PathSegments.CollectionChanged -= _rightExplorerPathSegmentsHandler;
+                    _rightExplorerPathSegmentsHandler = null;
+                }
             }
         }
 
         /// <summary>
         /// Navigate the right pane to a real filesystem path (saved path, first drive, or user profile).
         /// </summary>
-        private void NavigateRightPaneToRealPath()
+        private async Task NavigateRightPaneToRealPathAsync()
         {
             var path = ViewModel.GetRightPaneInitialPath();
-            _ = ViewModel.RightExplorer.NavigateToPath(path);
+            await ViewModel.RightExplorer.NavigateToPath(path);
+            SyncRightAddressBar();
             Helpers.DebugLogger.Log($"[MainWindow] Right pane navigated to: {path}");
         }
+
+        private void NavigateRightPaneToRealPath()
+        {
+            _ = NavigateRightPaneToRealPathAsync();
+        }
+
+        #region Quad Split Pane Management
+
+        private PropertyChangedEventHandler? _topRightExplorerAddressBarHandler;
+        private NotifyCollectionChangedEventHandler? _topRightExplorerPathSegmentsHandler;
+        private PropertyChangedEventHandler? _bottomRightExplorerAddressBarHandler;
+        private NotifyCollectionChangedEventHandler? _bottomRightExplorerPathSegmentsHandler;
+        private bool _quadMillerTemplatesInitialized;
+        private bool _quadColumnHandlersSubscribed;
+
+        private ExplorerViewModel GetExplorerForPaneTag(string? tag) => tag switch
+        {
+            "Left" => ViewModel.LeftExplorer,
+            "Right" => ViewModel.RightExplorer,
+            "TopRight" => ViewModel.TopRightExplorer,
+            "BottomRight" => ViewModel.BottomRightExplorer,
+            _ => ViewModel.ActiveExplorer,
+        };
+
+        private ActivePane? GetActivePaneForElement(DependencyObject element)
+        {
+            if (element == null) return null;
+            if (IsDescendant(TopRightPaneContainer, element)) return ActivePane.TopRight;
+            if (IsDescendant(BottomRightPaneContainer, element)) return ActivePane.BottomRight;
+            if (IsDescendant(RightPaneContainer, element)) return ActivePane.Right;
+            if (IsDescendant(LeftPaneContainer, element)) return ActivePane.Left;
+            return null;
+        }
+
+        private void SetQuadPanesVisible(bool visible)
+        {
+            var v = visible ? Visibility.Visible : Visibility.Collapsed;
+            TopRightPaneContainer.Visibility = v;
+            BottomRightPaneContainer.Visibility = v;
+            SplitPaneDividerHorizontal.Visibility = v;
+        }
+
+        private void SetQuadMillerOnlyVisibility()
+        {
+            ViewModel.RightViewMode = Models.ViewMode.MillerColumns;
+
+            MillerTabsHost.Visibility = Visibility.Visible;
+            DetailsTabsHost.Visibility = Visibility.Collapsed;
+            ListTabsHost.Visibility = Visibility.Collapsed;
+            IconTabsHost.Visibility = Visibility.Collapsed;
+            HomeView.Visibility = Visibility.Collapsed;
+
+            LeftPreviewSplitterCol.Width = new GridLength(0);
+            LeftPreviewCol.Width = new GridLength(0);
+            LeftPreviewPanel.Visibility = Visibility.Collapsed;
+
+            MillerScrollViewerRight.Visibility = Visibility.Visible;
+            HomeViewRight.Visibility = Visibility.Collapsed;
+            DetailsViewRight.Visibility = Visibility.Collapsed;
+            ListViewRight.Visibility = Visibility.Collapsed;
+            IconViewRight.Visibility = Visibility.Collapsed;
+            RightPreviewSplitterCol.Width = new GridLength(0);
+            RightPreviewCol.Width = new GridLength(0);
+            RightPreviewPanel.Visibility = Visibility.Collapsed;
+            RightGitStatusBar.Visibility = Visibility.Collapsed;
+            LeftGitStatusBar.Visibility = Visibility.Collapsed;
+        }
+
+        private void InitializeQuadMillerTemplates()
+        {
+            if (_quadMillerTemplatesInitialized)
+                return;
+
+            var template = MillerColumnsControlRight.ItemTemplate;
+            var itemsPanel = MillerColumnsControlRight.ItemsPanel;
+            if (template != null)
+            {
+                MillerColumnsControlTopRight.ItemTemplate = template;
+                MillerColumnsControlBottomRight.ItemTemplate = template;
+            }
+            if (itemsPanel != null)
+            {
+                MillerColumnsControlTopRight.ItemsPanel = itemsPanel;
+                MillerColumnsControlBottomRight.ItemsPanel = itemsPanel;
+            }
+
+            MillerColumnsControlTopRight.AddHandler(
+                UIElement.KeyDownEvent,
+                new KeyEventHandler(OnMillerKeyDown),
+                true);
+            MillerColumnsControlBottomRight.AddHandler(
+                UIElement.KeyDownEvent,
+                new KeyEventHandler(OnMillerKeyDown),
+                true);
+            MillerColumnsControlTopRight.AddHandler(
+                UIElement.CharacterReceivedEvent,
+                new Windows.Foundation.TypedEventHandler<UIElement, CharacterReceivedRoutedEventArgs>(OnMillerCharacterReceived),
+                true);
+            MillerColumnsControlBottomRight.AddHandler(
+                UIElement.CharacterReceivedEvent,
+                new Windows.Foundation.TypedEventHandler<UIElement, CharacterReceivedRoutedEventArgs>(OnMillerCharacterReceived),
+                true);
+
+            MillerScrollViewerTopRight.SizeChanged += OnQuadMillerScrollViewerSizeChanged;
+            MillerScrollViewerBottomRight.SizeChanged += OnQuadMillerScrollViewerSizeChanged;
+
+            _quadMillerTemplatesInitialized = true;
+        }
+
+        private void SubscribeQuadExplorerColumnHandlers()
+        {
+            if (_quadColumnHandlersSubscribed)
+                return;
+
+            ViewModel.TopRightExplorer.Columns.CollectionChanged += OnTopRightColumnsChanged;
+            ViewModel.BottomRightExplorer.Columns.CollectionChanged += OnBottomRightColumnsChanged;
+            _quadColumnHandlersSubscribed = true;
+        }
+
+        private async Task InitializeQuadPanesAsync()
+        {
+            SubscribeQuadExplorerColumnHandlers();
+            InitializeQuadMillerTemplates();
+
+            if (ViewModel.CurrentViewMode == Models.ViewMode.Home)
+                ViewModel.SwitchViewMode(ViewModel.ResolveViewModeFromHome());
+
+            await NavigateQuadPaneIfNeededAsync(ViewModel.LeftExplorer, ActivePane.Left);
+            await NavigateQuadPaneIfNeededAsync(ViewModel.RightExplorer, ActivePane.Right);
+            await NavigateQuadPaneIfNeededAsync(ViewModel.TopRightExplorer, ActivePane.TopRight);
+            await NavigateQuadPaneIfNeededAsync(ViewModel.BottomRightExplorer, ActivePane.BottomRight);
+
+            SyncAllSecondaryAddressBars();
+            SubscribeRightExplorerForAddressBar();
+            SubscribeQuadPaneAddressBars();
+            RelayoutQuadMillerScroll();
+        }
+
+        private void RelayoutQuadMillerScroll()
+        {
+            try { MillerColumnSpacerLeft.Width = 0; } catch { }
+            try { MillerColumnSpacerRight.Width = 0; } catch { }
+
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                if (_isClosed || !ViewModel.IsQuadSplit) return;
+                RelayoutQuadMillerScrollCore();
+            });
+        }
+
+        private void RelayoutQuadMillerScrollCore()
+        {
+            ExplorerViewModel[] explorers =
+            {
+                ViewModel.LeftExplorer,
+                ViewModel.RightExplorer,
+                ViewModel.TopRightExplorer,
+                ViewModel.BottomRightExplorer,
+            };
+
+            foreach (var explorer in explorers)
+            {
+                var sv = GetMillerScrollViewerForExplorer(explorer);
+                ResetMillerHorizontalScroll(sv);
+            }
+
+            ApplyPersistedMillerColumnWidth(GetLeftMillerColumnsControl());
+            ApplyPersistedMillerColumnWidth(MillerColumnsControlRight);
+            ApplyPersistedMillerColumnWidth(MillerColumnsControlTopRight);
+            ApplyPersistedMillerColumnWidth(MillerColumnsControlBottomRight);
+
+            foreach (var explorer in explorers)
+            {
+                if (explorer.Columns.Count == 0) continue;
+                var sv = GetMillerScrollViewerForExplorer(explorer);
+                if (sv == null) continue;
+                ScrollToLastColumnSync(explorer, sv, disableAnimation: true);
+            }
+
+            // Second pass after quad pane layout has measured viewports.
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                if (_isClosed || !ViewModel.IsQuadSplit) return;
+                foreach (var explorer in explorers)
+                {
+                    if (explorer.Columns.Count == 0) continue;
+                    var sv = GetMillerScrollViewerForExplorer(explorer);
+                    if (sv == null) continue;
+                    ScrollToLastColumnSync(explorer, sv, disableAnimation: true);
+                }
+            });
+        }
+
+        private static void ResetMillerHorizontalScroll(ScrollViewer? sv)
+        {
+            if (sv == null) return;
+            try { sv.ChangeView(0, null, null, disableAnimation: true); } catch { }
+        }
+
+        private void ResetMillerSpacerForExplorer(ExplorerViewModel explorer)
+        {
+            try
+            {
+                if (ReferenceEquals(explorer, ViewModel.LeftExplorer))
+                    MillerColumnSpacerLeft.Width = 0;
+                else if (ReferenceEquals(explorer, ViewModel.RightExplorer))
+                    MillerColumnSpacerRight.Width = 0;
+            }
+            catch { }
+        }
+
+        private void OnQuadMillerScrollViewerSizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (!ViewModel.IsQuadSplit || sender is not ScrollViewer sv) return;
+            if (Math.Abs(e.PreviousSize.Width - e.NewSize.Width) < 1) return;
+
+            ExplorerViewModel? explorer = ReferenceEquals(sv, MillerScrollViewerTopRight)
+                ? ViewModel.TopRightExplorer
+                : ReferenceEquals(sv, MillerScrollViewerBottomRight)
+                    ? ViewModel.BottomRightExplorer
+                    : null;
+            if (explorer == null) return;
+
+            ScrollToLastColumnSync(explorer, sv, disableAnimation: true);
+        }
+
+        private async Task NavigateQuadPaneIfNeededAsync(ExplorerViewModel explorer, ActivePane pane)
+        {
+            if (explorer.Columns.Count > 0
+                && explorer.CurrentPath != "PC"
+                && !string.IsNullOrEmpty(explorer.CurrentPath))
+                return;
+
+            var path = ViewModel.GetPaneInitialPath(pane);
+            await explorer.NavigateToPath(path);
+        }
+
+        private void SyncAllSecondaryAddressBars()
+        {
+            SyncRightAddressBar();
+            SyncQuadAddressBar(ViewModel.TopRightExplorer, TopRightAddressBar);
+            SyncQuadAddressBar(ViewModel.BottomRightExplorer, BottomRightAddressBar);
+        }
+
+        private static void SyncQuadAddressBar(ExplorerViewModel? explorer, Controls.AddressBarControl bar)
+        {
+            if (explorer == null) return;
+
+            bar.CurrentPath = explorer.CurrentPath ?? string.Empty;
+            var segments = new ObservableCollection<Models.PathSegment>(
+                explorer.PathSegments.Select(s => new Models.PathSegment(s.Name, s.FullPath, s.IsLast)));
+            bar.PathSegments = segments;
+            bar.RefreshItemsSource();
+        }
+
+        private void SubscribeQuadPaneAddressBars()
+        {
+            SubscribeExplorerForAddressBar(
+                ViewModel.TopRightExplorer,
+                SyncTopRightAddressBar,
+                ref _topRightExplorerAddressBarHandler,
+                ref _topRightExplorerPathSegmentsHandler);
+            SubscribeExplorerForAddressBar(
+                ViewModel.BottomRightExplorer,
+                SyncBottomRightAddressBar,
+                ref _bottomRightExplorerAddressBarHandler,
+                ref _bottomRightExplorerPathSegmentsHandler);
+        }
+
+        private void UnsubscribeQuadPaneAddressBars()
+        {
+            UnsubscribeExplorerForAddressBar(
+                ViewModel.TopRightExplorer,
+                ref _topRightExplorerAddressBarHandler,
+                ref _topRightExplorerPathSegmentsHandler);
+            UnsubscribeExplorerForAddressBar(
+                ViewModel.BottomRightExplorer,
+                ref _bottomRightExplorerAddressBarHandler,
+                ref _bottomRightExplorerPathSegmentsHandler);
+        }
+
+        private void SyncTopRightAddressBar() =>
+            SyncQuadAddressBar(ViewModel.TopRightExplorer, TopRightAddressBar);
+
+        private void SyncBottomRightAddressBar() =>
+            SyncQuadAddressBar(ViewModel.BottomRightExplorer, BottomRightAddressBar);
+
+        private void SubscribeExplorerForAddressBar(
+            ExplorerViewModel? explorer,
+            Action syncAction,
+            ref PropertyChangedEventHandler? propertyHandler,
+            ref NotifyCollectionChangedEventHandler? segmentsHandler)
+        {
+            UnsubscribeExplorerForAddressBar(explorer, ref propertyHandler, ref segmentsHandler);
+            if (explorer == null) return;
+
+            propertyHandler = (_, e) =>
+            {
+                if (e.PropertyName != nameof(ExplorerViewModel.CurrentPath))
+                    return;
+
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    syncAction();
+                    if (ViewModel.IsSplitViewEnabled)
+                        ViewModel.PersistSplitViewState();
+                });
+            };
+            explorer.PropertyChanged += propertyHandler;
+
+            segmentsHandler = (_, _) => DispatcherQueue.TryEnqueue(() => syncAction());
+            explorer.PathSegments.CollectionChanged += segmentsHandler;
+        }
+
+        private void UnsubscribeExplorerForAddressBar(
+            ExplorerViewModel? explorer,
+            ref PropertyChangedEventHandler? propertyHandler,
+            ref NotifyCollectionChangedEventHandler? segmentsHandler)
+        {
+            if (explorer == null) return;
+
+            if (propertyHandler != null)
+            {
+                explorer.PropertyChanged -= propertyHandler;
+                propertyHandler = null;
+            }
+
+            if (segmentsHandler != null)
+            {
+                explorer.PathSegments.CollectionChanged -= segmentsHandler;
+                segmentsHandler = null;
+            }
+        }
+
+        private void OnTopRightColumnsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+            => OnQuadSecondaryColumnsChanged(ViewModel.TopRightExplorer, MillerScrollViewerTopRight, MillerColumnsControlTopRight, e);
+
+        private void OnBottomRightColumnsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+            => OnQuadSecondaryColumnsChanged(ViewModel.BottomRightExplorer, MillerScrollViewerBottomRight, MillerColumnsControlBottomRight, e);
+
+        private void OnQuadSecondaryColumnsChanged(
+            ExplorerViewModel explorer,
+            ScrollViewer scrollViewer,
+            ItemsControl columnsControl,
+            NotifyCollectionChangedEventArgs e)
+        {
+            if (!ViewModel.IsQuadSplit) return;
+
+            bool isReplacing = explorer.IsReplacingLastColumn;
+
+            if (e.Action == NotifyCollectionChangedAction.Add ||
+                e.Action == NotifyCollectionChangedAction.Replace)
+            {
+                if (!isReplacing)
+                    ScrollToLastColumn(explorer, scrollViewer);
+
+                if (_millerSelectionMode != ListViewSelectionMode.Extended)
+                {
+                    DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+                        () => ApplyCheckboxToItemsControl(columnsControl, _millerSelectionMode));
+                }
+            }
+
+            if (e.Action == NotifyCollectionChangedAction.Add &&
+                explorer.Columns.Count > 1 &&
+                !isReplacing)
+            {
+                PrepareAndAnimateNewColumn(columnsControl);
+            }
+
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                ApplyPersistedMillerColumnWidth(columnsControl);
+                SyncAllSecondaryAddressBars();
+            });
+        }
+
+        #endregion
 
         #endregion
 
@@ -722,11 +1287,7 @@ namespace Span
         private void OnPaneNavigateUpClick(object sender, RoutedEventArgs e)
         {
             if (sender is Button btn)
-            {
-                var explorer = (btn.Tag as string) == "Right"
-                    ? ViewModel.RightExplorer : ViewModel.LeftExplorer;
-                explorer.NavigateUp();
-            }
+                GetExplorerForPaneTag(btn.Tag as string).NavigateUp();
         }
 
         /// <summary>
@@ -736,8 +1297,7 @@ namespace Span
         {
             if (sender is Button btn)
             {
-                var explorer = (btn.Tag as string) == "Right"
-                    ? ViewModel.RightExplorer : ViewModel.LeftExplorer;
+                var explorer = GetExplorerForPaneTag(btn.Tag as string);
                 var path = explorer.CurrentPath;
                 if (!string.IsNullOrEmpty(path))
                 {
@@ -763,8 +1323,11 @@ namespace Span
             {
                 if (_isClosed || ViewModel == null) return;
 
-                var viewMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                    ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+                var viewMode = ViewModel.IsQuadSplit
+                    ? Models.ViewMode.MillerColumns
+                    : (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
+                        ? ViewModel.RightViewMode
+                        : ViewModel.CurrentViewMode;
 
                 switch (viewMode)
                 {
@@ -1242,9 +1805,14 @@ namespace Span
 
                 var stackedGlyph = (string)Application.Current.Resources["Icon_SplitOrientationStacked"];
                 var sideBySideGlyph = (string)Application.Current.Resources["Icon_SplitOrientationSideBySide"];
-                SplitOrientationIcon.Glyph = ViewModel.SplitOrientation == SplitOrientation.SideBySide
-                    ? stackedGlyph
-                    : sideBySideGlyph;
+                var quadGlyph = (string)Application.Current.Resources["Icon_SplitOrientationQuad"];
+                SplitOrientationIcon.Glyph = ViewModel.SplitLayoutMode switch
+                {
+                    SplitLayoutMode.DualSideBySide => stackedGlyph,
+                    SplitLayoutMode.DualStacked => quadGlyph,
+                    SplitLayoutMode.Quad => sideBySideGlyph,
+                    _ => stackedGlyph,
+                };
 
                 UpdateSplitOrientationTooltip();
             }
@@ -1259,9 +1827,13 @@ namespace Span
             if (SplitOrientationButton == null)
                 return;
 
-            var key = ViewModel.SplitOrientation == SplitOrientation.SideBySide
-                ? "Tooltip_SplitOrientationStacked"
-                : "Tooltip_SplitOrientationSideBySide";
+            var key = ViewModel.SplitLayoutMode switch
+            {
+                SplitLayoutMode.DualSideBySide => "Tooltip_SplitOrientationStacked",
+                SplitLayoutMode.DualStacked => "Tooltip_SplitOrientationQuad",
+                SplitLayoutMode.Quad => "Tooltip_SplitOrientationSideBySide",
+                _ => "Tooltip_SplitOrientationStacked",
+            };
             ToolTipService.SetToolTip(SplitOrientationButton, _loc.Get(key));
         }
 

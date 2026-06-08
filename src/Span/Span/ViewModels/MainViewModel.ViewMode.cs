@@ -208,11 +208,23 @@ namespace Span.ViewModels
                 }
 
                 var settingsSvc = App.Current.Services.GetRequiredService<SettingsService>();
-                var orientInt = settingsSvc.Get("SplitOrientation", (int)SplitOrientation.SideBySide);
-                if (System.Enum.IsDefined(typeof(SplitOrientation), orientInt))
-                    SplitOrientation = (SplitOrientation)orientInt;
+                var layoutInt = settingsSvc.Get("SplitLayoutMode", -1);
+                if (layoutInt >= 0 && System.Enum.IsDefined(typeof(SplitLayoutMode), layoutInt))
+                {
+                    _splitLayoutMode = (SplitLayoutMode)layoutInt;
+                    _isSplitViewEnabled = _splitLayoutMode != SplitLayoutMode.Single;
+                    _splitOrientation = _splitLayoutMode == SplitLayoutMode.DualStacked
+                        ? SplitOrientation.Stacked
+                        : SplitOrientation.SideBySide;
+                }
+                else
+                {
+                    var orientInt = settingsSvc.Get("SplitOrientation", (int)SplitOrientation.SideBySide);
+                    if (System.Enum.IsDefined(typeof(SplitOrientation), orientInt))
+                        SplitOrientation = (SplitOrientation)orientInt;
+                }
 
-                // IsSplitViewEnabled is restored after tabs load (see RestoreSplitViewFromSettings).
+                // Split layout restored after tabs load (see RestoreSplitViewFromSettings).
 
                 // Preview: 설정에서 기본값 로드 (DefaultPreviewEnabled)
                 var previewDefault = settingsSvc.DefaultPreviewEnabled;
@@ -289,6 +301,11 @@ namespace Span.ViewModels
         }
 
         /// <summary>
+        /// Persist split view state (e.g. after right pane navigation).
+        /// </summary>
+        internal void PersistSplitViewState() => SaveSplitViewState();
+
+        /// <summary>
         /// Save split view state to LocalSettings
         /// </summary>
         private void SaveSplitViewState()
@@ -296,14 +313,15 @@ namespace Span.ViewModels
             try
             {
                 var settingsSvc = App.Current.Services.GetRequiredService<SettingsService>();
+                settingsSvc.Set("SplitLayoutMode", (int)SplitLayoutMode);
                 settingsSvc.Set("IsSplitViewEnabled", IsSplitViewEnabled);
                 settingsSvc.Set("SplitOrientation", (int)SplitOrientation);
 
-                // Save right pane path for restore on next launch
-                if (!string.IsNullOrEmpty(RightExplorer?.CurrentPath) && RightExplorer.CurrentPath != "PC")
-                    settingsSvc.Set("RightPanePath", RightExplorer.CurrentPath);
+                PersistPanePath(settingsSvc, RightExplorer, ActivePane.Right);
+                PersistPanePath(settingsSvc, TopRightExplorer, ActivePane.TopRight);
+                PersistPanePath(settingsSvc, BottomRightExplorer, ActivePane.BottomRight);
 
-                Helpers.DebugLogger.Log($"[MainViewModel] Split state saved: {IsSplitViewEnabled}");
+                Helpers.DebugLogger.Log($"[MainViewModel] Split state saved: mode={SplitLayoutMode}");
             }
             catch (Exception ex)
             {
@@ -311,10 +329,36 @@ namespace Span.ViewModels
             }
         }
 
-        partial void OnSplitOrientationChanged(SplitOrientation value) => SaveSplitViewState();
+        private static void PersistPanePath(SettingsService settingsSvc, ExplorerViewModel? explorer, ActivePane pane)
+        {
+            var key = GetPanePathSettingsKey(pane);
+            if (string.IsNullOrEmpty(key) || explorer == null)
+                return;
+
+            if (!string.IsNullOrEmpty(explorer.CurrentPath) && explorer.CurrentPath != "PC")
+                settingsSvc.Set(key, explorer.CurrentPath);
+        }
+
+        partial void OnSplitOrientationChanged(SplitOrientation value)
+        {
+            if (SplitLayoutMode == SplitLayoutMode.DualSideBySide || SplitLayoutMode == SplitLayoutMode.DualStacked)
+                SaveSplitViewState();
+        }
 
         partial void OnIsSplitViewEnabledChanged(bool value)
         {
+            if (!value)
+            {
+                if (SplitLayoutMode != SplitLayoutMode.Single)
+                    _splitLayoutMode = SplitLayoutMode.Single;
+            }
+            else if (SplitLayoutMode == SplitLayoutMode.Single)
+            {
+                _splitLayoutMode = SplitLayoutMode.DualSideBySide;
+                OnPropertyChanged(nameof(SplitLayoutMode));
+                OnPropertyChanged(nameof(IsQuadSplit));
+            }
+
             SaveSplitViewState();
             SaveActiveTabState();
         }
@@ -329,14 +373,35 @@ namespace Span.ViewModels
                 var settingsSvc = App.Current.Services.GetRequiredService<SettingsService>();
                 MigrateSplitStateFromLocalSettingsIfNeeded(settingsSvc);
 
-                if (!settingsSvc.Get("IsSplitViewEnabled", false))
+                var layoutInt = settingsSvc.Get("SplitLayoutMode", -1);
+                if (layoutInt >= 0 && System.Enum.IsDefined(typeof(SplitLayoutMode), layoutInt))
+                {
+                    var mode = (SplitLayoutMode)layoutInt;
+                    if (mode == SplitLayoutMode.Single)
+                        return;
+
+                    _splitLayoutMode = mode;
+                    _isSplitViewEnabled = true;
+                    _splitOrientation = mode == SplitLayoutMode.DualStacked
+                        ? SplitOrientation.Stacked
+                        : SplitOrientation.SideBySide;
+                    OnPropertyChanged(nameof(SplitLayoutMode));
+                    OnPropertyChanged(nameof(IsSplitViewEnabled));
+                    OnPropertyChanged(nameof(SplitOrientation));
+                    OnPropertyChanged(nameof(IsQuadSplit));
+                }
+                else if (!settingsSvc.Get("IsSplitViewEnabled", false))
+                {
                     return;
+                }
+                else
+                {
+                    var orientInt = settingsSvc.Get("SplitOrientation", (int)SplitOrientation.SideBySide);
+                    if (System.Enum.IsDefined(typeof(SplitOrientation), orientInt))
+                        SplitOrientation = (SplitOrientation)orientInt;
 
-                var orientInt = settingsSvc.Get("SplitOrientation", (int)SplitOrientation.SideBySide);
-                if (System.Enum.IsDefined(typeof(SplitOrientation), orientInt))
-                    SplitOrientation = (SplitOrientation)orientInt;
-
-                IsSplitViewEnabled = true;
+                    IsSplitViewEnabled = true;
+                }
 
                 if (ActiveTab != null)
                 {
@@ -344,7 +409,7 @@ namespace Span.ViewModels
                     ActiveTab.SplitRightViewMode = RightViewMode;
                 }
 
-                Helpers.DebugLogger.Log("[MainViewModel] Split view restored: True");
+                Helpers.DebugLogger.Log($"[MainViewModel] Split view restored: {SplitLayoutMode}");
             }
             catch (Exception ex)
             {
@@ -377,8 +442,17 @@ namespace Span.ViewModels
                 if (local.Values.TryGetValue("SplitOrientation", out var orient) && orient is int orientInt)
                     settingsSvc.Set("SplitOrientation", orientInt);
 
+                if (local.Values.TryGetValue("SplitLayoutMode", out var layout) && layout is int layoutInt)
+                    settingsSvc.Set("SplitLayoutMode", layoutInt);
+
                 if (local.Values.TryGetValue("RightPanePath", out var path) && path is string pathStr)
                     settingsSvc.Set("RightPanePath", pathStr);
+
+                if (local.Values.TryGetValue("TopRightPanePath", out var trPath) && trPath is string trStr)
+                    settingsSvc.Set("TopRightPanePath", trStr);
+
+                if (local.Values.TryGetValue("BottomRightPanePath", out var brPath) && brPath is string brStr)
+                    settingsSvc.Set("BottomRightPanePath", brStr);
 
                 Helpers.DebugLogger.Log("[MainViewModel] Migrated split state from LocalSettings to settings.json");
             }
@@ -387,6 +461,56 @@ namespace Span.ViewModels
                 Helpers.DebugLogger.Log($"[MainViewModel] Split state migration skipped: {ex.Message}");
             }
         }
+
+        #region Pane Routing
+
+        public bool IsQuadSplit => SplitLayoutMode == SplitLayoutMode.Quad;
+
+        public ExplorerViewModel GetExplorerForPane(ActivePane pane) => pane switch
+        {
+            ActivePane.Left => LeftExplorer,
+            ActivePane.Right => RightExplorer,
+            ActivePane.TopRight => TopRightExplorer,
+            ActivePane.BottomRight => BottomRightExplorer,
+            _ => LeftExplorer,
+        };
+
+        public static string GetPanePathSettingsKey(ActivePane pane) => pane switch
+        {
+            ActivePane.Right => "RightPanePath",
+            ActivePane.TopRight => "TopRightPanePath",
+            ActivePane.BottomRight => "BottomRightPanePath",
+            _ => "",
+        };
+
+        public void SetSplitLayoutMode(SplitLayoutMode mode)
+        {
+            SplitLayoutMode = mode;
+            IsSplitViewEnabled = mode != SplitLayoutMode.Single;
+            SplitOrientation = mode == SplitLayoutMode.DualStacked
+                ? SplitOrientation.Stacked
+                : SplitOrientation.SideBySide;
+        }
+
+        partial void OnSplitLayoutModeChanged(SplitLayoutMode value)
+        {
+            var split = value != SplitLayoutMode.Single;
+            if (_isSplitViewEnabled != split)
+                _isSplitViewEnabled = split;
+
+            var orient = value == SplitLayoutMode.DualStacked
+                ? SplitOrientation.Stacked
+                : SplitOrientation.SideBySide;
+            if (_splitOrientation != orient)
+                _splitOrientation = orient;
+
+            OnPropertyChanged(nameof(IsSplitViewEnabled));
+            OnPropertyChanged(nameof(SplitOrientation));
+            OnPropertyChanged(nameof(IsQuadSplit));
+            SaveSplitViewState();
+        }
+
+        #endregion
 
         #endregion
     }

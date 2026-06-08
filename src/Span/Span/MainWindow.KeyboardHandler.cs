@@ -735,8 +735,21 @@ namespace Span
                         // F6: 분할뷰 패인 전환 (Explorer 표준 패인 순환 키)
                         if (ViewModel.IsSplitViewEnabled)
                         {
-                            ViewModel.ActivePane = ViewModel.ActivePane == ActivePane.Left
-                                ? ActivePane.Right : ActivePane.Left;
+                            if (ViewModel.IsQuadSplit)
+                            {
+                                ViewModel.ActivePane = ViewModel.ActivePane switch
+                                {
+                                    ActivePane.Left => ActivePane.TopRight,
+                                    ActivePane.TopRight => ActivePane.Right,
+                                    ActivePane.Right => ActivePane.BottomRight,
+                                    _ => ActivePane.Left,
+                                };
+                            }
+                            else
+                            {
+                                ViewModel.ActivePane = ViewModel.ActivePane == ActivePane.Left
+                                    ? ActivePane.Right : ActivePane.Left;
+                            }
                             FocusActivePane();
                         }
                         e.Handled = true;
@@ -831,8 +844,21 @@ namespace Span
                 case ShortcutCommands.SwitchPane:
                     if (ViewModel.IsSplitViewEnabled)
                     {
-                        ViewModel.ActivePane = ViewModel.ActivePane == ActivePane.Left
-                            ? ActivePane.Right : ActivePane.Left;
+                        if (ViewModel.IsQuadSplit)
+                        {
+                            ViewModel.ActivePane = ViewModel.ActivePane switch
+                            {
+                                ActivePane.Left => ActivePane.TopRight,
+                                ActivePane.TopRight => ActivePane.Right,
+                                ActivePane.Right => ActivePane.BottomRight,
+                                _ => ActivePane.Left,
+                            };
+                        }
+                        else
+                        {
+                            ViewModel.ActivePane = ViewModel.ActivePane == ActivePane.Left
+                                ? ActivePane.Right : ActivePane.Left;
+                        }
                         FocusActivePane();
                     }
                     return true;

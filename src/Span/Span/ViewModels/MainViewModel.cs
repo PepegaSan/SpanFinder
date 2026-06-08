@@ -128,6 +128,20 @@ namespace Span.ViewModels
             set => SetProperty(ref _rightExplorer, value);
         }
 
+        private ExplorerViewModel _topRightExplorer;
+        public ExplorerViewModel TopRightExplorer
+        {
+            get => _topRightExplorer;
+            set => SetProperty(ref _topRightExplorer, value);
+        }
+
+        private ExplorerViewModel _bottomRightExplorer;
+        public ExplorerViewModel BottomRightExplorer
+        {
+            get => _bottomRightExplorer;
+            set => SetProperty(ref _bottomRightExplorer, value);
+        }
+
         /// <summary>
         /// ActionLog/Settings 탭 변환 시 Explorer를 직접 설정.
         /// backing field 교체 + PropertyChanged 구독 관리.
@@ -150,12 +164,16 @@ namespace Span.ViewModels
         /// Returns the explorer for the currently active pane.
         /// Code-behind operations should use this instead of Explorer.
         /// </summary>
-        public ExplorerViewModel ActiveExplorer =>
-            ActivePane == ActivePane.Left ? LeftExplorer : RightExplorer;
+        public ExplorerViewModel ActiveExplorer => GetExplorerForPane(ActivePane);
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(ActiveExplorer))]
+        [NotifyPropertyChangedFor(nameof(IsQuadSplit))]
         private ActivePane _activePane = ActivePane.Left;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsQuadSplit))]
+        private SplitLayoutMode _splitLayoutMode = SplitLayoutMode.Single;
 
         [ObservableProperty]
         private bool _isSplitViewEnabled = false;
@@ -565,6 +583,14 @@ namespace Span.ViewModels
 
             var rightRoot = new FolderItem { Name = "PC", Path = "PC" };
             RightExplorer = new ExplorerViewModel(rightRoot, _fileService);
+
+            var topRightRoot = new FolderItem { Name = "PC", Path = "PC" };
+            TopRightExplorer = new ExplorerViewModel(topRightRoot, _fileService);
+            TopRightExplorer.EnableAutoNavigation = ShouldAutoNavigate(ViewMode.MillerColumns);
+
+            var bottomRightRoot = new FolderItem { Name = "PC", Path = "PC" };
+            BottomRightExplorer = new ExplorerViewModel(bottomRightRoot, _fileService);
+            BottomRightExplorer.EnableAutoNavigation = ShouldAutoNavigate(ViewMode.MillerColumns);
 
             // Populate Sidebar
             _ = LoadDrivesAsync();

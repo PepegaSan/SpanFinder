@@ -176,7 +176,8 @@ namespace Span
             {
                 ItemTemplate = MillerColumnsControl.ItemTemplate,
                 ItemsPanel = MillerColumnsControl.ItemsPanel,
-                ItemsSource = tab.Explorer?.Columns
+                ItemsSource = tab.Explorer?.Columns,
+                HorizontalAlignment = HorizontalAlignment.Left
             };
 
             // 키보드 이벤트 핸들러 등록 (XAML 정의 컨트롤과 동일)
@@ -198,7 +199,16 @@ namespace Span
                 VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 HorizontalScrollMode = ScrollMode.Auto,
                 VerticalScrollMode = ScrollMode.Disabled,
-                Content = itemsControl,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Content = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Children =
+                    {
+                        itemsControl
+                    }
+                },
                 Visibility = Visibility.Collapsed // 생성 시 숨김, 전환 시 표시
             };
 

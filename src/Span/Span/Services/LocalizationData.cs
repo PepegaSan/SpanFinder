@@ -447,6 +447,7 @@ namespace Span.Services
             ("Tooltip_SplitView", "Split View (Ctrl+Shift+S)", "분할 뷰 (Ctrl+Shift+S)", "分割ビュー (Ctrl+Shift+S)", "拆分视图 (Ctrl+Shift+S)", "分割檢視 (Ctrl+Shift+S)", "Geteilte Ansicht (Strg+Umschalt+S)", "Vista dividida (Ctrl+Mayús+S)", "Vue fractionnée (Ctrl+Maj+S)", "Exibição dividida (Ctrl+Shift+S)"),
             ("Tooltip_SplitOrientationStacked", "Stack panes (top/bottom)", "위아래 분할", "上下に分割", "上下堆叠", "上下堆疊", "Untereinander (oben/unten)", "Apilar paneles (arriba/abajo)", "Empiler (haut/bas)", "Empilhar painéis (cima/baixo)"),
             ("Tooltip_SplitOrientationSideBySide", "Side by side panes", "좌우 분할", "左右に分割", "左右并排", "左右並排", "Nebeneinander", "Paneles en paralelo", "Côte à côte", "Painéis lado a lado"),
+            ("Tooltip_SplitOrientationQuad", "Four panes (2×2 grid)", "2×2 분할", "2×2 グリッド", "四窗格 (2×2)", "四窗格 (2×2)", "Vier Fenster (2×2)", "Cuatro paneles (2×2)", "Quatre volets (2×2)", "Quatro painéis (2×2)"),
             ("Tooltip_Help", "Help (?)", "도움말 (?)", "ヘルプ (?)", "帮助 (?)", "說明 (?)", "Hilfe (?)", "Ayuda (?)", "Aide (?)", "Ajuda (?)"),
             ("Tooltip_Log", "Action Log", "작업 로그", "操作ログ", "操作日志", "操作記錄", "Aktionsprotokoll", "Registro de acciones", "Journal des actions", "Log de ações"),
             ("Tooltip_Settings", "Settings (Ctrl+,)", "설정 (Ctrl+,)", "設定 (Ctrl+,)", "设置 (Ctrl+,)", "設定 (Ctrl+,)", "Einstellungen (Strg+,)", "Configuración (Ctrl+,)", "Paramètres (Ctrl+,)", "Configurações (Ctrl+,)"),
