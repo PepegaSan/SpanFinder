@@ -234,17 +234,59 @@ namespace Span.ViewModels
         public string Path => _model.Path;
 
         /// <summary>
-        /// 이름 변경 등으로 인한 in-place 속성 업데이트.
-        /// Remove/Insert 없이 기존 VM 인스턴스의 Name/Path를 갱신하여 스크롤바 깜빡임 방지.
+        /// 이름 변경·파일 덮어쓰기 등으로 인한 in-place 속성 업데이트.
+        /// Remove/Insert 없이 기존 VM 인스턴스의 모델 필드를 갱신하여 스크롤/선택 상태를 보존한다.
         /// </summary>
         internal void UpdateFrom(FileSystemViewModel source)
         {
             _model.Name = source._model.Name;
             _model.Path = source._model.Path;
+
+            bool metadataChanged = false;
+            if (_model is FileItem dstFile && source._model is FileItem srcFile)
+            {
+                metadataChanged = dstFile.Size != srcFile.Size
+                    || dstFile.DateModified != srcFile.DateModified
+                    || dstFile.FileType != srcFile.FileType
+                    || dstFile.IsHidden != srcFile.IsHidden;
+                dstFile.Size = srcFile.Size;
+                dstFile.DateModified = srcFile.DateModified;
+                dstFile.FileType = srcFile.FileType;
+                dstFile.IsHidden = srcFile.IsHidden;
+            }
+            else if (_model is FolderItem dstFolder && source._model is FolderItem srcFolder)
+            {
+                metadataChanged = dstFolder.DateModified != srcFolder.DateModified
+                    || dstFolder.IsHidden != srcFolder.IsHidden
+                    || dstFolder.MaybeHasCustomIcon != srcFolder.MaybeHasCustomIcon
+                    || dstFolder.HasChildEntries != srcFolder.HasChildEntries;
+                dstFolder.DateModified = srcFolder.DateModified;
+                dstFolder.IsHidden = srcFolder.IsHidden;
+                dstFolder.MaybeHasCustomIcon = srcFolder.MaybeHasCustomIcon;
+                dstFolder.HasChildEntries = srcFolder.HasChildEntries;
+            }
+
+            _cachedTooltip = null;
+            if (metadataChanged && ThumbnailSource != null)
+            {
+                ThumbnailSource = null;
+                OnPropertyChanged(nameof(HasThumbnail));
+            }
+
             OnPropertyChanged(nameof(Name));
             OnPropertyChanged(nameof(Path));
             OnPropertyChanged(nameof(DisplayName));
             OnPropertyChanged(nameof(IconGlyph));
+            OnPropertyChanged(nameof(DateModified));
+            OnPropertyChanged(nameof(DateModifiedShort));
+            OnPropertyChanged(nameof(DateModifiedValue));
+            OnPropertyChanged(nameof(FileType));
+            OnPropertyChanged(nameof(Size));
+            OnPropertyChanged(nameof(SizeValue));
+            OnPropertyChanged(nameof(ItemOpacity));
+            OnPropertyChanged(nameof(RelativeAgeText));
+            OnPropertyChanged(nameof(RelativeAgeBrush));
+            OnPropertyChanged(nameof(TooltipText));
         }
 
         /// <summary>

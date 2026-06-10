@@ -147,7 +147,8 @@ namespace Span.ViewModels
                 if (newIdx < oldItems.Count &&
                     string.Equals(oldItems[newIdx].Path, newItem.Path, StringComparison.OrdinalIgnoreCase))
                 {
-                    continue; // 같은 위치에 같은 항목
+                    oldItems[newIdx].UpdateFrom(newItem);
+                    continue;
                 }
 
                 // 현재 컬렉션에서 찾기
@@ -163,6 +164,7 @@ namespace Span.ViewModels
 
                 if (existingIdx >= 0)
                 {
+                    oldItems[existingIdx].UpdateFrom(newItem);
                     // 위치 이동
                     if (existingIdx != newIdx)
                         oldItems.Move(existingIdx, newIdx);

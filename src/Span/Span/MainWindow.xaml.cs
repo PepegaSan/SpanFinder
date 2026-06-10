@@ -636,7 +636,6 @@ namespace Span
             };
             _contextMenuService.ShellCommandExecutedCallback = () =>
             {
-                var currentPath = ViewModel?.ActiveExplorer?.CurrentPath;
                 DispatcherQueue.TryEnqueue(async () =>
                 {
                     await Task.Delay(100);
@@ -648,9 +647,8 @@ namespace Span
                     try
                     {
                         await Task.Delay(1000);
-                        // Only refresh if still on the same folder
-                        if (currentPath != null && ViewModel?.ActiveExplorer?.CurrentPath == currentPath)
-                            await ViewModel.RefreshCurrentFolderAsync();
+                        if (ViewModel == null) return;
+                        await ViewModel.RefreshAllSplitExplorersAsync();
                     }
                     catch (Exception ex)
                     {
@@ -2185,13 +2183,15 @@ namespace Span
                 }
             }
 
-            // Right explorer 컬럼 경로들 (Split View 시)
+            // Split/Quad View: 모든 표시 패인 컬럼 경로
             if (ViewModel?.IsSplitViewEnabled == true)
             {
-                var rightExplorer = ViewModel.RightExplorer;
-                if (rightExplorer != null)
+                foreach (var pane in ViewModel.GetSplitLayoutPanes())
                 {
-                    foreach (var col in rightExplorer.Columns)
+                    if (pane == ActivePane.Left) continue;
+                    var explorer = ViewModel.GetExplorerForPane(pane);
+                    if (explorer == null) continue;
+                    foreach (var col in explorer.Columns)
                     {
                         if (!string.IsNullOrEmpty(col.Path))
                             paths.Add(col.Path);
@@ -2234,15 +2234,18 @@ namespace Span
                 // (네트워크 드라이브 해제 등 엣지 케이스에서 ReloadAsync 실패 시 앱 크래시 방지)
                 try
                 {
-                    var leftExplorer = ViewModel?.Explorer;
-                    if (leftExplorer != null)
-                        await ReloadAndCleanupColumn(leftExplorer, changedPath);
+                    if (ViewModel?.Explorer != null)
+                        await ReloadAndCleanupColumn(ViewModel.Explorer, changedPath);
 
                     if (ViewModel?.IsSplitViewEnabled == true)
                     {
-                        var rightExplorer = ViewModel.RightExplorer;
-                        if (rightExplorer != null)
-                            await ReloadAndCleanupColumn(rightExplorer, changedPath);
+                        foreach (var pane in ViewModel.GetSplitLayoutPanes())
+                        {
+                            if (pane == ActivePane.Left) continue;
+                            var explorer = ViewModel.GetExplorerForPane(pane);
+                            if (explorer != null)
+                                await ReloadAndCleanupColumn(explorer, changedPath);
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -4588,6 +4591,9 @@ namespace Span
 
             if (sender is ListView listView && listView.DataContext is FolderViewModel folderVm)
             {
+                if (GetActivePaneForElement(listView) is ActivePane pane)
+                    ViewModel.ActivePane = pane;
+
                 bool shiftHeld = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
                     Windows.System.VirtualKey.Shift).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 

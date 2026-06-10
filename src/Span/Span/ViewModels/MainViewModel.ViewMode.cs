@@ -494,6 +494,18 @@ namespace Span.ViewModels
 
         public bool IsQuadSplit => SplitLayoutMode == SplitLayoutMode.Quad;
 
+        /// <summary>
+        /// 현재 레이아웃에서 표시 중인 패인 목록 (Single=Left만, Dual=Left+Right, Quad=4개).
+        /// </summary>
+        public IEnumerable<ActivePane> GetSplitLayoutPanes()
+        {
+            if (!IsSplitViewEnabled)
+                return new[] { ActivePane.Left };
+            if (IsQuadSplit)
+                return new[] { ActivePane.Left, ActivePane.Right, ActivePane.TopRight, ActivePane.BottomRight };
+            return new[] { ActivePane.Left, ActivePane.Right };
+        }
+
         public ExplorerViewModel GetExplorerForPane(ActivePane pane) => pane switch
         {
             ActivePane.Left => LeftExplorer,

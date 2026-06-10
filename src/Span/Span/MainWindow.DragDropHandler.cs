@@ -127,7 +127,8 @@ namespace Span
         }
 
         /// <summary>
-        /// End outbound drag. Window stays behind other apps if it was lowered during the drag.
+        /// End outbound drag. If the window was sent behind other apps, leave it there so the
+        /// drop target stays in front; the next user click restores normal stacking.
         /// </summary>
         private void EndOutboundFileDrag()
         {
@@ -140,11 +141,13 @@ namespace Span
 
         /// <summary>
         /// While dragging out to another app, send Span behind other windows when the cursor
-        /// leaves our client area (Explorer-like). Restore when the cursor re-enters for internal drops.
+        /// leaves our window. Do not raise again until drag ends or an internal drop target
+        /// receives DragOver — otherwise the cursor path crossing our window pops Span in front
+        /// of the target app (same vertical band as a neighboring window).
         /// </summary>
         private void UpdateWindowZOrderForOutboundDrag()
         {
-            if (_hwnd == IntPtr.Zero || !IsDragInProgress)
+            if (_hwnd == IntPtr.Zero || !IsDragInProgress || _windowLoweredForDrag)
                 return;
 
             Helpers.NativeMethods.GetCursorPos(out var pt);
@@ -153,24 +156,31 @@ namespace Span
             bool cursorInWindow = pt.X >= rect.Left && pt.X < rect.Right
                                && pt.Y >= rect.Top && pt.Y < rect.Bottom;
 
-            if (!cursorInWindow && !_windowLoweredForDrag)
-            {
-                Helpers.NativeMethods.SetWindowPos(
-                    _hwnd,
-                    Helpers.NativeMethods.HWND_BOTTOM,
-                    0, 0, 0, 0,
-                    Helpers.NativeMethods.SWP_NOSIZE | Helpers.NativeMethods.SWP_NOMOVE | Helpers.NativeMethods.SWP_NOACTIVATE);
-                _windowLoweredForDrag = true;
-            }
-            else if (cursorInWindow && _windowLoweredForDrag)
-            {
-                Helpers.NativeMethods.SetWindowPos(
-                    _hwnd,
-                    Helpers.NativeMethods.HWND_TOP,
-                    0, 0, 0, 0,
-                    Helpers.NativeMethods.SWP_NOSIZE | Helpers.NativeMethods.SWP_NOMOVE | Helpers.NativeMethods.SWP_NOACTIVATE);
-                _windowLoweredForDrag = false;
-            }
+            if (cursorInWindow)
+                return;
+
+            Helpers.NativeMethods.SetWindowPos(
+                _hwnd,
+                Helpers.NativeMethods.HWND_BOTTOM,
+                0, 0, 0, 0,
+                Helpers.NativeMethods.SWP_NOSIZE | Helpers.NativeMethods.SWP_NOMOVE | Helpers.NativeMethods.SWP_NOACTIVATE);
+            _windowLoweredForDrag = true;
+        }
+
+        /// <summary>
+        /// Raise Span again when the user drags back over an internal drop target (pane/column).
+        /// </summary>
+        private void RestoreWindowZOrderForInternalDragIfNeeded()
+        {
+            if (!_windowLoweredForDrag || _hwnd == IntPtr.Zero)
+                return;
+
+            Helpers.NativeMethods.SetWindowPos(
+                _hwnd,
+                Helpers.NativeMethods.HWND_TOP,
+                0, 0, 0, 0,
+                Helpers.NativeMethods.SWP_NOSIZE | Helpers.NativeMethods.SWP_NOMOVE | Helpers.NativeMethods.SWP_NOACTIVATE);
+            _windowLoweredForDrag = false;
         }
 
         /// <summary>
@@ -337,6 +347,7 @@ namespace Span
             e.AcceptedOperation = ToAcceptedOperation(mode);
             e.DragUIOverride.IsCaptionVisible = false;
             e.DragUIOverride.IsGlyphVisible = false;
+            RestoreWindowZOrderForInternalDragIfNeeded();
             UpdateDragTooltip(GetDragCaption(mode, targetFolder.Name), e, sender as UIElement ?? (UIElement)Content);
 
             // Visual feedback: highlight background (캐시된 브러시 사용)
@@ -525,6 +536,7 @@ namespace Span
             e.AcceptedOperation = ToAcceptedOperation(mode);
             e.DragUIOverride.IsCaptionVisible = false;
             e.DragUIOverride.IsGlyphVisible = false;
+            RestoreWindowZOrderForInternalDragIfNeeded();
             UpdateDragTooltip(GetDragCaption(mode, folderVm.Name), e, sender as UIElement ?? (UIElement)Content);
             e.Handled = true; // Prevent bubbling to PaneDragOver
         }
@@ -1011,22 +1023,24 @@ namespace Span
                 }
             }
 
-            // If not found in ActiveExplorer, check opposite explorer (cross-pane drop)
+            // If not found in ActiveExplorer, check other split panes (cross-pane drop)
             if (targetColumnIndex == null && ViewModel.IsSplitViewEnabled)
             {
-                var opposite = ViewModel.ActivePane == Models.ActivePane.Left
-                    ? ViewModel.RightExplorer : ViewModel.LeftExplorer;
-                if (opposite?.Columns != null)
+                foreach (var pane in ViewModel.GetSplitLayoutPanes())
                 {
-                    for (int i = 0; i < opposite.Columns.Count; i++)
+                    if (pane == ViewModel.ActivePane) continue;
+                    var explorer = ViewModel.GetExplorerForPane(pane);
+                    if (explorer?.Columns == null) continue;
+                    for (int i = 0; i < explorer.Columns.Count; i++)
                     {
-                        if (opposite.Columns[i].Path.Equals(destFolder, StringComparison.OrdinalIgnoreCase))
+                        if (explorer.Columns[i].Path.Equals(destFolder, StringComparison.OrdinalIgnoreCase))
                         {
                             targetColumnIndex = i;
-                            targetExplorer = opposite;
+                            targetExplorer = explorer;
                             break;
                         }
                     }
+                    if (targetColumnIndex != null) break;
                 }
             }
 
@@ -1193,6 +1207,7 @@ namespace Span
             e.AcceptedOperation = ToAcceptedOperation(mode);
             e.DragUIOverride.IsCaptionVisible = false;
             e.DragUIOverride.IsGlyphVisible = false;
+            RestoreWindowZOrderForInternalDragIfNeeded();
             UpdateDragTooltip(GetDragCaption(mode, targetExplorer?.CurrentFolder?.Name ?? ""), e, sender as UIElement ?? (UIElement)Content);
 
             // Show drop overlay
@@ -1733,6 +1748,7 @@ namespace Span
             e.AcceptedOperation = ToAcceptedOperation(mode);
             e.DragUIOverride.IsCaptionVisible = false;
             e.DragUIOverride.IsGlyphVisible = false;
+            RestoreWindowZOrderForInternalDragIfNeeded();
             UpdateDragTooltip(GetDragCaption(mode, destFolderName), e, sender);
             e.Handled = true;
         }
@@ -1803,6 +1819,7 @@ namespace Span
             e.AcceptedOperation = ToAcceptedOperation(mode);
             e.DragUIOverride.IsCaptionVisible = false;
             e.DragUIOverride.IsGlyphVisible = false;
+            RestoreWindowZOrderForInternalDragIfNeeded();
             UpdateDragTooltip(GetDragCaption(mode, folderVm.Name), e, grid);
 
             // Visual highlight

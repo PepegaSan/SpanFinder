@@ -342,20 +342,36 @@ namespace Span.ViewModels
         public DateTime LastExplicitRefreshTime { get; internal set; }
 
         /// <summary>
-        /// Split View 활성 시 반대쪽 패널의 모든 컬럼을 리프레시.
-        /// Copy/Move/Undo/Redo 완료 후 소스·대상 양쪽이 모두 최신 상태를 반영하도록 한다.
+        /// Split/Quad View 활성 시 활성 패인을 제외한 모든 패널 컬럼을 리프레시.
+        /// Copy/Move/Undo/Redo 및 Shell 작업 후 다른 패인 UI가 stale하지 않도록 한다.
         /// columnIndex=0으로 호출하면 cascade 로직에 의해 모든 후속 컬럼도 리프레시됨.
         /// </summary>
         private async Task RefreshOppositeExplorerAsync()
         {
             if (!IsSplitViewEnabled) return;
 
-            var opposite = ActivePane == ActivePane.Left ? RightExplorer : LeftExplorer;
-            if (opposite?.Columns == null || opposite.Columns.Count == 0) return;
+            foreach (var pane in GetSplitLayoutPanes())
+            {
+                if (pane == ActivePane) continue;
+                var explorer = GetExplorerForPane(pane);
+                if (explorer?.Columns == null || explorer.Columns.Count == 0) continue;
 
-            Helpers.DebugLogger.Log($"[RefreshOppositeExplorer] Refreshing ALL columns of opposite pane ({(ActivePane == ActivePane.Left ? "Right" : "Left")})");
-            // Refresh from column 0 → cascade reloads all subsequent columns too
-            await RefreshCurrentFolderAsync(0, opposite);
+                Helpers.DebugLogger.Log($"[RefreshOtherSplitExplorers] Refreshing pane {pane}");
+                await RefreshCurrentFolderAsync(0, explorer);
+            }
+        }
+
+        /// <summary>
+        /// Shell 컨텍스트 메뉴 등 외부 작업 후 모든 표시 패인을 리프레시.
+        /// </summary>
+        public async Task RefreshAllSplitExplorersAsync()
+        {
+            foreach (var pane in GetSplitLayoutPanes())
+            {
+                var explorer = GetExplorerForPane(pane);
+                if (explorer?.Columns == null || explorer.Columns.Count == 0) continue;
+                await RefreshCurrentFolderAsync(0, explorer);
+            }
         }
 
         public async Task RefreshCurrentFolderAsync(int? columnIndex = null, ExplorerViewModel? explorer = null)
