@@ -509,8 +509,11 @@ namespace Span
         /// </summary>
         /// <param name="columnIndex">포커스할 컬럼 인덱스</param>
         /// <param name="autoSelect">true이면 SelectedChild가 없을 때 첫 항목을 자동 선택.
-        /// 패인 전환(FocusActivePane) 시에는 false로 호출하여 의도하지 않은 컬럼 생성을 방지.</param>
-        private async void FocusColumnAsync(int columnIndex, bool autoSelect = true)
+        /// 기본값 false: 폴더 진입 시 첫 항목(특히 폴더)을 자동 선택하면 하위 폴더로 자동
+        /// 진입(연쇄 컬럼 생성)하여 붙여넣기/새 폴더 대상이 의도치 않은 하위 폴더가 되고,
+        /// 항상 한 항목이 선택돼 있어 빈 폴더에 붙여넣기가 번거로워지던 문제를 방지한다.
+        /// 키보드 방향키 탐색 등 첫 항목 선택이 필요한 경우에만 명시적으로 true를 전달한다.</param>
+        private async void FocusColumnAsync(int columnIndex, bool autoSelect = false)
         {
             try
             {

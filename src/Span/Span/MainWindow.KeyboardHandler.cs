@@ -1358,8 +1358,8 @@ namespace Span
             {
                 if (activeIndex + 1 < columns.Count)
                 {
-                    // Child column exists — just focus it
-                    FocusColumnAsync(activeIndex + 1);
+                    // Child column exists — focus it and select first item for continued keyboard nav
+                    FocusColumnAsync(activeIndex + 1, autoSelect: true);
                 }
                 else
                 {
@@ -1372,7 +1372,7 @@ namespace Span
                         () =>
                         {
                             if (activeIndex + 1 < (ViewModel.ActiveExplorer?.Columns.Count ?? 0))
-                                FocusColumnAsync(activeIndex + 1);
+                                FocusColumnAsync(activeIndex + 1, autoSelect: true);
                         });
                 }
             }

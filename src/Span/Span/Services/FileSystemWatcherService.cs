@@ -9,8 +9,9 @@ namespace Span.Services
 {
     /// <summary>
     /// 활성 탭의 표시 중인 컬럼 경로들을 감시하여 파일 변경 시 자동 새로고침을 트리거하는 서비스.
-    /// Created/Deleted/Renamed만 구독 (Changed 제외 — 과다 이벤트 방지).
-    /// 300ms 디바운싱으로 대량 변경 시 한 번만 리프레시.
+    /// Created/Deleted/Renamed/Changed 구독 (Changed = 내용/크기/수정시각 변경 감지).
+    /// 300ms 디바운싱으로 대량 변경 시 한 번만 리프레시 — Changed 폭주(대용량 쓰기)는
+    /// 폴더별 디바운스가 자연스럽게 병합하여 쓰기가 멈춘 뒤 1회만 갱신한다.
     /// </summary>
     public class FileSystemWatcherService : IDisposable
     {
@@ -63,7 +64,12 @@ namespace Span.Services
                     {
                         var watcher = new FileSystemWatcher(path)
                         {
-                            NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName,
+                            // LastWrite|Size 추가: 파일 내용 변경(수정 시각/크기)도 감지 →
+                            // 외부 앱이 파일을 수정/덮어써도 현재 보고 있는 폴더가 즉시 갱신됨.
+                            // (이전엔 FileName|DirectoryName만 감시하여 "파일이 변경됐을 때"는
+                            //  다른 폴더로 이동했다 돌아와야 반영되던 문제.)
+                            NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName
+                                | NotifyFilters.LastWrite | NotifyFilters.Size,
                             IncludeSubdirectories = false,
                             InternalBufferSize = BufferSize,
                         };
@@ -71,6 +77,7 @@ namespace Span.Services
                         watcher.Created += OnFileSystemEvent;
                         watcher.Deleted += OnFileSystemEvent;
                         watcher.Renamed += OnFileSystemEvent;
+                        watcher.Changed += OnFileSystemEvent;
                         watcher.Error += OnWatcherError;
                         watcher.EnableRaisingEvents = true;
 
@@ -145,7 +152,8 @@ namespace Span.Services
                 {
                     var newWatcher = new FileSystemWatcher(path)
                     {
-                        NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName,
+                        NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName
+                            | NotifyFilters.LastWrite | NotifyFilters.Size,
                         IncludeSubdirectories = false,
                         InternalBufferSize = BufferSize,
                     };
@@ -153,6 +161,7 @@ namespace Span.Services
                     newWatcher.Created += OnFileSystemEvent;
                     newWatcher.Deleted += OnFileSystemEvent;
                     newWatcher.Renamed += OnFileSystemEvent;
+                    newWatcher.Changed += OnFileSystemEvent;
                     newWatcher.Error += OnWatcherError;
                     newWatcher.EnableRaisingEvents = true;
 

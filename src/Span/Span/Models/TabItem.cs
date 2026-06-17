@@ -56,6 +56,13 @@ namespace Span.Models
         /// </summary>
         public ViewMode SplitRightViewMode { get; set; } = ViewMode.MillerColumns;
 
+        /// <summary>
+        /// 이 탭의 분할 레이아웃 모드 (Single/DualSideBySide/DualStacked/Quad).
+        /// 탭 전환 시 저장/복원되어 탭별 독립적인 그리드 레이아웃을 유지한다.
+        /// (전역 공유 시 단일 탭으로 전환하면 다른 탭의 그리드가 초기화되던 버그 방지.)
+        /// </summary>
+        public SplitLayoutMode SplitLayoutMode { get; set; } = SplitLayoutMode.Single;
+
         // Computed visibility properties for XAML binding
         public Microsoft.UI.Xaml.Visibility IsHomeModeVisible
             => ViewMode == ViewMode.Home ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;

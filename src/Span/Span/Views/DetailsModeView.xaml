@@ -217,7 +217,7 @@
             <ListView.ItemTemplate>
                 <DataTemplate x:DataType="vm:FileSystemViewModel">
                     <Grid Height="24" RightTapped="OnItemRightTapped"
-                          ToolTipService.ToolTip="{x:Bind TooltipText}"
+                          ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneWay}"
                           Opacity="{x:Bind ItemOpacity, Mode=OneWay}">
                         <!-- 데이터 셀: splitter 간격은 각 셀의 Margin.Left에 포함.
                              ApplyCellWidths에서 Border.Width + Margin 설정. -->

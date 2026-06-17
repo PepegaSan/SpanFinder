@@ -260,10 +260,15 @@ internal static class ShellClipboardHelper
     {
         var paths = new List<string>();
         uint count = DragQueryFile(hDrop, 0xFFFFFFFF, null!, 0);
-        var buffer = new char[260];
 
         for (uint i = 0; i < count; i++)
         {
+            // 길이를 먼저 조회하여 MAX_PATH(260)를 초과하는 긴 경로도 잘리지 않게 한다.
+            uint required = DragQueryFile(hDrop, i, null!, 0);
+            if (required == 0)
+                continue;
+
+            var buffer = new char[required + 1]; // +1 for null terminator
             uint len = DragQueryFile(hDrop, i, buffer, (uint)buffer.Length);
             if (len == 0)
                 continue;

@@ -134,8 +134,17 @@ namespace Span.ViewModels
                 Tabs[index].IsActive = true;
                 OnPropertyChanged(nameof(ActiveTab));
 
-                // 분할뷰 상태 복원 (모든 탭 공통 — Settings/ActionLog는 기본값 false)
-                _isSplitViewEnabled = Tabs[index].IsSplitEnabled;
+                // 분할 레이아웃 복원 (탭별 독립) — SplitLayoutMode가 전역 공유되어
+                // 단일 탭 전환 시 다른 탭의 그리드가 초기화되던 버그 방지.
+                var tabLayout = Tabs[index].SplitLayoutMode;
+                // 구버전 호환: SplitLayoutMode 저장 전에 만들어진 탭은 IsSplitEnabled만 신뢰.
+                if (tabLayout == SplitLayoutMode.Single && Tabs[index].IsSplitEnabled)
+                    tabLayout = SplitLayoutMode.DualSideBySide;
+                _splitLayoutMode = tabLayout;
+                _isSplitViewEnabled = tabLayout != SplitLayoutMode.Single;
+                _splitOrientation = tabLayout == SplitLayoutMode.DualStacked
+                    ? SplitOrientation.Stacked
+                    : SplitOrientation.SideBySide;
                 _rightViewMode = Tabs[index].SplitRightViewMode;
 
                 // Settings/ActionLog 탭은 Explorer가 null — Explorer 바인딩 스킵
@@ -193,6 +202,10 @@ namespace Span.ViewModels
             {
                 IsSwitchingTab = false;
             }
+
+            // 탭별 분할 레이아웃을 x:Bind에 통지 (backing field로 설정했으므로 수동 통지 필요).
+            // code-behind의 UpdateViewModeVisibility()가 ApplySplitLayout()으로 실제 레이아웃을 적용한다.
+            NotifySplitViewChanged();
         }
 
         /// <summary>
@@ -337,8 +350,9 @@ namespace Span.ViewModels
                 tab.IconSize = CurrentIconSize;
             tab.Path = tab.Explorer?.CurrentPath ?? "";
 
-            // 분할뷰 상태 저장
+            // 분할뷰 상태 저장 (레이아웃 모드는 탭별 독립)
             tab.IsSplitEnabled = IsSplitViewEnabled;
+            tab.SplitLayoutMode = SplitLayoutMode;
             tab.SplitRightViewMode = RightViewMode;
 
             // Header도 동기화 (Home/RecycleBin 모드 전환 후 저장 시 Header 불일치 방지)
@@ -433,6 +447,9 @@ namespace Span.ViewModels
         public void NotifySplitViewChanged()
         {
             OnPropertyChanged(nameof(IsSplitViewEnabled));
+            OnPropertyChanged(nameof(SplitLayoutMode));
+            OnPropertyChanged(nameof(SplitOrientation));
+            OnPropertyChanged(nameof(IsQuadSplit));
         }
 
         /// <summary>

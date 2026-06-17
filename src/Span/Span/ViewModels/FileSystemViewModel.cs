@@ -239,6 +239,8 @@ namespace Span.ViewModels
         /// </summary>
         internal void UpdateFrom(FileSystemViewModel source)
         {
+            bool nameChanged = !string.Equals(_model.Name, source._model.Name, StringComparison.Ordinal);
+            bool pathChanged = !string.Equals(_model.Path, source._model.Path, StringComparison.Ordinal);
             _model.Name = source._model.Name;
             _model.Path = source._model.Path;
 
@@ -266,11 +268,25 @@ namespace Span.ViewModels
                 dstFolder.HasChildEntries = srcFolder.HasChildEntries;
             }
 
+            // 변경 없음 → 알림 생략 (대용량 폴더 리로드 시 불필요한 PropertyChanged 폭증 방지).
+            if (!nameChanged && !pathChanged && !metadataChanged)
+                return;
+
             _cachedTooltip = null;
-            if (metadataChanged && ThumbnailSource != null)
+
+            if (this is FileViewModel fileVm)
             {
-                ThumbnailSource = null;
-                OnPropertyChanged(nameof(HasThumbnail));
+                if (metadataChanged)
+                {
+                    fileVm.UnloadThumbnail();
+                    if (fileVm.IsThumbnailSupported)
+                        _ = fileVm.LoadThumbnailAsync();
+                }
+            }
+            else if (this is FolderViewModel folderVm && metadataChanged)
+            {
+                folderVm.ClearCustomIcon();
+                folderVm.RequestCustomIconLoad();
             }
 
             OnPropertyChanged(nameof(Name));
@@ -287,6 +303,8 @@ namespace Span.ViewModels
             OnPropertyChanged(nameof(RelativeAgeText));
             OnPropertyChanged(nameof(RelativeAgeBrush));
             OnPropertyChanged(nameof(TooltipText));
+            if (this is FileViewModel)
+                OnPropertyChanged(nameof(IconBrush));
         }
 
         /// <summary>

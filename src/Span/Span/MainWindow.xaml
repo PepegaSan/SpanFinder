@@ -619,7 +619,7 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="models:DriveItem">
                                     <Grid Height="26" Padding="12,0,8,0" Background="Transparent"
-                                          ToolTipService.ToolTip="{x:Bind TooltipText}"
+                                          ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneWay}"
                                           Tapped="OnDriveItemTapped" RightTapped="OnSidebarDriveRightTapped"
                                           PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited">
                                         <Grid.ColumnDefinitions>
@@ -667,7 +667,7 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="models:DriveItem">
                                         <Grid Height="26" Padding="12,0,8,0" Background="Transparent"
-                                              ToolTipService.ToolTip="{x:Bind TooltipText}"
+                                              ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneWay}"
                                               Tapped="OnDriveItemTapped" RightTapped="OnSidebarDriveRightTapped"
                                               PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited">
                                             <Grid.ColumnDefinitions>
@@ -714,7 +714,7 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="models:DriveItem">
                                         <Grid Height="26" Padding="12,0,8,0" Background="Transparent"
-                                              ToolTipService.ToolTip="{x:Bind TooltipText}"
+                                              ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneWay}"
                                               Tapped="OnDriveItemTapped" RightTapped="OnSidebarDriveRightTapped"
                                               PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited">
                                             <Grid.ColumnDefinitions>
@@ -1074,7 +1074,7 @@
                                                                         <local:FileSystemItemTemplateSelector.FolderTemplate>
                                                                             <DataTemplate x:DataType="viewmodels:FolderViewModel">
                                                                                 <Grid Padding="12,2" MinHeight="24" RightTapped="OnFolderRightTapped"
-                                                                                      ToolTipService.ToolTip="{x:Bind TooltipText}"
+                                                                                      ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneWay}"
                                                                                       Opacity="{x:Bind ItemOpacity, Mode=OneWay}"
                                                                                       AllowDrop="True" DragOver="OnFolderItemDragOver" Drop="OnFolderItemDrop" DragLeave="OnFolderItemDragLeave">
                                                                                     <Grid.ColumnDefinitions>
@@ -1113,7 +1113,7 @@
                                                                         <local:FileSystemItemTemplateSelector.FileTemplate>
                                                                             <DataTemplate x:DataType="viewmodels:FileViewModel">
                                                                                 <Grid Padding="12,2" MinHeight="24" RightTapped="OnFileRightTapped"
-                                                                                      ToolTipService.ToolTip="{x:Bind TooltipText}"
+                                                                                      ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneWay}"
                                                                                       Opacity="{x:Bind ItemOpacity, Mode=OneWay}">
                                                                                     <Grid.ColumnDefinitions>
                                                                                         <ColumnDefinition Width="Auto"/>
@@ -1129,7 +1129,7 @@
                                                                                         <Image Source="{x:Bind ThumbnailSource, Mode=OneWay}" Stretch="UniformToFill"
                                                                                                Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrue(HasThumbnail), Mode=OneWay}"
                                                                                                IsHitTestVisible="False" x:Phase="1"/>
-                                                                                        <FontIcon FontFamily="{StaticResource RemixIcons}" Glyph="{x:Bind IconGlyph}" FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}" Foreground="{x:Bind IconBrush}"
+                                                                                        <FontIcon FontFamily="{StaticResource RemixIcons}" Glyph="{x:Bind IconGlyph, Mode=OneWay}" FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}" Foreground="{x:Bind IconBrush, Mode=OneWay}"
                                                                                                   Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfFalse(HasThumbnail), Mode=OneWay}"
                                                                                                   IsHitTestVisible="False"/>
                                                                                         <Border Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrue(HasCloudBadge), Mode=OneWay}"
@@ -1517,7 +1517,7 @@
                                                                         <local:FileSystemItemTemplateSelector.FolderTemplate>
                                                                             <DataTemplate x:DataType="viewmodels:FolderViewModel">
                                                                                 <Grid Padding="12,2" MinHeight="24" RightTapped="OnFolderRightTapped"
-                                                                                      ToolTipService.ToolTip="{x:Bind TooltipText}"
+                                                                                      ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneWay}"
                                                                                       Opacity="{x:Bind ItemOpacity, Mode=OneWay}"
                                                                                       AllowDrop="True" DragOver="OnFolderItemDragOver" Drop="OnFolderItemDrop" DragLeave="OnFolderItemDragLeave">
                                                                                     <Grid.ColumnDefinitions>
@@ -1556,7 +1556,7 @@
                                                                         <local:FileSystemItemTemplateSelector.FileTemplate>
                                                                             <DataTemplate x:DataType="viewmodels:FileViewModel">
                                                                                 <Grid Padding="12,2" MinHeight="24" RightTapped="OnFileRightTapped"
-                                                                                      ToolTipService.ToolTip="{x:Bind TooltipText}"
+                                                                                      ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneWay}"
                                                                                       Opacity="{x:Bind ItemOpacity, Mode=OneWay}">
                                                                                     <Grid.ColumnDefinitions>
                                                                                         <ColumnDefinition Width="Auto"/>
@@ -1572,7 +1572,7 @@
                                                                                         <Image Source="{x:Bind ThumbnailSource, Mode=OneWay}" Stretch="UniformToFill"
                                                                                                Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrue(HasThumbnail), Mode=OneWay}"
                                                                                                IsHitTestVisible="False" x:Phase="1"/>
-                                                                                        <FontIcon FontFamily="{StaticResource RemixIcons}" Glyph="{x:Bind IconGlyph}" FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}" Foreground="{x:Bind IconBrush}"
+                                                                                        <FontIcon FontFamily="{StaticResource RemixIcons}" Glyph="{x:Bind IconGlyph, Mode=OneWay}" FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}" Foreground="{x:Bind IconBrush, Mode=OneWay}"
                                                                                                   Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfFalse(HasThumbnail), Mode=OneWay}"
                                                                                                   IsHitTestVisible="False"/>
                                                                                         <Border Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrue(HasCloudBadge), Mode=OneWay}"
