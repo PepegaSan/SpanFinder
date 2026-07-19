@@ -359,7 +359,8 @@
                 <Rectangle Width="1" Height="20" Fill="{ThemeResource SpanBorderSubtleBrush}" Margin="4,0"/>
                 <TextBox x:Name="SearchBox" AutomationProperties.AutomationId="TextBox_Search" Width="220" Height="28" FontSize="12"
                          PlaceholderText="Search (kind: size: ext: date:)"
-                         ToolTipService.ToolTip="Enter: Search current folder&#x0a;Ctrl+Enter: Search from root&#x0a;&#x0a;Advanced syntax:&#x0a;  kind:image  kind:video  kind:document&#x0a;  size:&gt;1MB  size:&lt;100KB  size:large&#x0a;  date:today  date:thisweek  date:&gt;2024-01-01&#x0a;  ext:.pdf  ext:.txt&#x0a;Combine: kind:image size:&gt;1MB"
+                         ToolTipService.ToolTip="Type to filter current folder (live)&#x0a;Clear field to reset&#x0a;Enter: recursive search in current folder&#x0a;Ctrl+Enter: search from root&#x0a;&#x0a;Advanced syntax:&#x0a;  kind:image  kind:video  kind:document&#x0a;  size:&gt;1MB  size:&lt;100KB  size:large&#x0a;  date:today  date:thisweek  date:&gt;2024-01-01&#x0a;  ext:.pdf  ext:.txt&#x0a;Combine: kind:image size:&gt;1MB"
+                         TextChanged="OnSearchBoxTextChanged"
                          KeyDown="OnSearchBoxKeyDown"/>
             </StackPanel>
         </Grid>
@@ -1790,21 +1791,26 @@
                             <FontIcon Glyph="&#xE8C8;" FontSize="11"/>
                         </Button>
                     </Grid>
-                    <ScrollViewer x:Name="MillerScrollViewerTopRight" Grid.Row="1"
-                                  HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled"
-                                  HorizontalScrollMode="Enabled"
-                                  HorizontalContentAlignment="Left"
-                                  AllowDrop="True" DragOver="OnMillerEmptyAreaDragOver" DragLeave="OnMillerEmptyAreaDragLeave">
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
-                            <ItemsControl x:Name="MillerColumnsControlTopRight" HorizontalAlignment="Left" ItemsSource="{x:Bind ViewModel.TopRightExplorer.Columns, Mode=OneWay}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Horizontal"/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                            </ItemsControl>
-                        </StackPanel>
-                    </ScrollViewer>
+                    <Grid Grid.Row="1">
+                        <ScrollViewer x:Name="MillerScrollViewerTopRight"
+                                      HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled"
+                                      HorizontalScrollMode="Enabled"
+                                      HorizontalContentAlignment="Left"
+                                      AllowDrop="True" DragOver="OnMillerEmptyAreaDragOver" DragLeave="OnMillerEmptyAreaDragLeave">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                <ItemsControl x:Name="MillerColumnsControlTopRight" HorizontalAlignment="Left" ItemsSource="{x:Bind ViewModel.TopRightExplorer.Columns, Mode=OneWay}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
+                            </StackPanel>
+                        </ScrollViewer>
+                        <views:DetailsModeView x:Name="DetailsViewTopRight" Visibility="Collapsed"/>
+                        <views:ListModeView x:Name="ListViewTopRight" Visibility="Collapsed"/>
+                        <views:IconModeView x:Name="IconViewTopRight" Visibility="Collapsed"/>
+                    </Grid>
                 </Grid>
 
                 <!-- ===== BOTTOM-RIGHT PANE (quad) ===== -->
@@ -1849,21 +1855,26 @@
                             <FontIcon Glyph="&#xE8C8;" FontSize="11"/>
                         </Button>
                     </Grid>
-                    <ScrollViewer x:Name="MillerScrollViewerBottomRight" Grid.Row="1"
-                                  HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled"
-                                  HorizontalScrollMode="Enabled"
-                                  HorizontalContentAlignment="Left"
-                                  AllowDrop="True" DragOver="OnMillerEmptyAreaDragOver" DragLeave="OnMillerEmptyAreaDragLeave">
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
-                            <ItemsControl x:Name="MillerColumnsControlBottomRight" HorizontalAlignment="Left" ItemsSource="{x:Bind ViewModel.BottomRightExplorer.Columns, Mode=OneWay}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Horizontal"/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                            </ItemsControl>
-                        </StackPanel>
-                    </ScrollViewer>
+                    <Grid Grid.Row="1">
+                        <ScrollViewer x:Name="MillerScrollViewerBottomRight"
+                                      HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled"
+                                      HorizontalScrollMode="Enabled"
+                                      HorizontalContentAlignment="Left"
+                                      AllowDrop="True" DragOver="OnMillerEmptyAreaDragOver" DragLeave="OnMillerEmptyAreaDragLeave">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                <ItemsControl x:Name="MillerColumnsControlBottomRight" HorizontalAlignment="Left" ItemsSource="{x:Bind ViewModel.BottomRightExplorer.Columns, Mode=OneWay}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
+                            </StackPanel>
+                        </ScrollViewer>
+                        <views:DetailsModeView x:Name="DetailsViewBottomRight" Visibility="Collapsed"/>
+                        <views:ListModeView x:Name="ListViewBottomRight" Visibility="Collapsed"/>
+                        <views:IconModeView x:Name="IconViewBottomRight" Visibility="Collapsed"/>
+                    </Grid>
                 </Grid>
 
                 <!-- Horizontal split divider (quad) -->

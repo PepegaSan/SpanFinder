@@ -429,6 +429,23 @@ namespace Span.Views
             if (ViewModel?.CurrentFolder == null) return;
             if (sender is not GridView gridView) return;
 
+            var folder = ViewModel.CurrentFolder;
+            var host = ContextMenuHost as MainWindow;
+            if (host != null && host.TryPreserveFolderMultiSelectOnRightClick(
+                    gridView.SelectedItems, folder,
+                    () =>
+                    {
+                        _isSyncingSelection = true;
+                        try
+                        {
+                            gridView.SelectedItems.Clear();
+                            foreach (var item in folder.SelectedItems)
+                                gridView.SelectedItems.Add(item);
+                        }
+                        finally { _isSyncingSelection = false; }
+                    }))
+                return;
+
             _isSyncingSelection = true;
             try
             {
@@ -439,7 +456,7 @@ namespace Span.Views
                     .Cast<object>()
                     .ToList();
 
-                ViewModel.CurrentFolder.SyncSelectedItems(realItems);
+                folder.SyncSelectedItems(realItems);
 
                 // Also set SelectedChild for single selection (excluding "..")
                 if (gridView.SelectedItems.Count == 1)
@@ -447,10 +464,10 @@ namespace Span.Views
                     var single = gridView.SelectedItems[0] as FileSystemViewModel;
                     if (single != null && !IsParentDotDot(single))
                     {
-                        ViewModel.CurrentFolder.SelectedChild = single;
+                        folder.SelectedChild = single;
                     }
                 }
-                (ContextMenuHost as MainWindow)?.ViewModel?.UpdateStatusBar();
+                host?.ViewModel?.UpdateStatusBar();
             }
             finally
             {

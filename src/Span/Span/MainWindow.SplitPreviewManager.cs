@@ -81,17 +81,10 @@ namespace Span
         }
 
         /// <summary>
-        /// View mode for file operations in the active pane (copy, delete, paste, selection).
-        /// Quad split always uses Miller columns in all four panes.
+        /// View mode for file operations (copy, delete, paste, selection).
+        /// Dual/Quad share one explorer view mode; CurrentViewMode is the source of truth.
         /// </summary>
-        private ViewMode GetActivePaneViewMode()
-        {
-            if (ViewModel.IsQuadSplit)
-                return ViewMode.MillerColumns;
-            if (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                return ViewModel.RightViewMode;
-            return ViewModel.CurrentViewMode;
-        }
+        private ViewMode GetActivePaneViewMode() => ViewModel.CurrentViewMode;
 
         /// <summary>
         /// Map an explorer instance to its Miller ItemsControl (independent of ActivePane).
@@ -625,7 +618,12 @@ namespace Span
                 BottomRightPaneContainer.Margin = new Thickness(0, 1, 0, 0);
 
                 SetQuadPanesVisible(true);
-                SetQuadMillerOnlyVisibility();
+                // Keep shared mode: sync Right to Current before applying visibility
+                if (ViewModel.RightViewMode != ViewModel.CurrentViewMode)
+                    ViewModel.RightViewMode = ViewModel.CurrentViewMode;
+                if (ViewModel.LeftViewMode != ViewModel.CurrentViewMode)
+                    ViewModel.LeftViewMode = ViewModel.CurrentViewMode;
+                ApplyQuadSharedViewVisibility();
                 SyncRightAddressBar();
                 SubscribeRightExplorerForAddressBar();
                 SubscribeQuadPaneAddressBars();
@@ -990,26 +988,55 @@ namespace Span
             SplitPaneDividerHorizontal.Visibility = v;
         }
 
-        private void SetQuadMillerOnlyVisibility()
+        /// <summary>
+        /// Quad: all 4 panes show the same explorer view mode (Miller/Details/List/Icon).
+        /// </summary>
+        private void ApplyQuadSharedViewVisibility()
         {
-            ViewModel.RightViewMode = Models.ViewMode.MillerColumns;
+            var mode = ViewModel.CurrentViewMode;
+            // Special modes are left-only; keep explorer panes on last usable mode
+            if (mode is Models.ViewMode.Home or Models.ViewMode.Settings
+                or Models.ViewMode.ActionLog or Models.ViewMode.RecycleBin)
+            {
+                mode = Models.ViewMode.MillerColumns;
+                ViewModel.CurrentViewMode = mode;
+            }
+
+            ViewModel.LeftViewMode = mode;
+            ViewModel.RightViewMode = mode;
             ViewModel.SyncExplorerAutoNavigationForLayout();
 
-            MillerTabsHost.Visibility = Visibility.Visible;
-            DetailsTabsHost.Visibility = Visibility.Collapsed;
-            ListTabsHost.Visibility = Visibility.Collapsed;
-            IconTabsHost.Visibility = Visibility.Collapsed;
+            bool miller = mode == Models.ViewMode.MillerColumns;
+            bool details = mode == Models.ViewMode.Details;
+            bool list = mode == Models.ViewMode.List;
+            bool icon = Helpers.ViewModeExtensions.IsIconMode(mode);
+
+            MillerTabsHost.Visibility = miller ? Visibility.Visible : Visibility.Collapsed;
+            DetailsTabsHost.Visibility = details ? Visibility.Visible : Visibility.Collapsed;
+            ListTabsHost.Visibility = list ? Visibility.Visible : Visibility.Collapsed;
+            IconTabsHost.Visibility = icon ? Visibility.Visible : Visibility.Collapsed;
             HomeView.Visibility = Visibility.Collapsed;
 
             LeftPreviewSplitterCol.Width = new GridLength(0);
             LeftPreviewCol.Width = new GridLength(0);
             LeftPreviewPanel.Visibility = Visibility.Collapsed;
 
-            MillerScrollViewerRight.Visibility = Visibility.Visible;
+            MillerScrollViewerRight.Visibility = miller ? Visibility.Visible : Visibility.Collapsed;
             HomeViewRight.Visibility = Visibility.Collapsed;
-            DetailsViewRight.Visibility = Visibility.Collapsed;
-            ListViewRight.Visibility = Visibility.Collapsed;
-            IconViewRight.Visibility = Visibility.Collapsed;
+            DetailsViewRight.Visibility = details ? Visibility.Visible : Visibility.Collapsed;
+            ListViewRight.Visibility = list ? Visibility.Visible : Visibility.Collapsed;
+            IconViewRight.Visibility = icon ? Visibility.Visible : Visibility.Collapsed;
+
+            MillerScrollViewerTopRight.Visibility = miller ? Visibility.Visible : Visibility.Collapsed;
+            DetailsViewTopRight.Visibility = details ? Visibility.Visible : Visibility.Collapsed;
+            ListViewTopRight.Visibility = list ? Visibility.Visible : Visibility.Collapsed;
+            IconViewTopRight.Visibility = icon ? Visibility.Visible : Visibility.Collapsed;
+
+            MillerScrollViewerBottomRight.Visibility = miller ? Visibility.Visible : Visibility.Collapsed;
+            DetailsViewBottomRight.Visibility = details ? Visibility.Visible : Visibility.Collapsed;
+            ListViewBottomRight.Visibility = list ? Visibility.Visible : Visibility.Collapsed;
+            IconViewBottomRight.Visibility = icon ? Visibility.Visible : Visibility.Collapsed;
+
             RightPreviewSplitterCol.Width = new GridLength(0);
             RightPreviewCol.Width = new GridLength(0);
             RightPreviewPanel.Visibility = Visibility.Collapsed;
@@ -1295,6 +1322,9 @@ namespace Span
             ItemsControl columnsControl,
             NotifyCollectionChangedEventArgs e)
         {
+            // TopRight/BottomRight 컬럼 변경 시 Watcher 경로 갱신 (Left-only 갱신 버그 수정).
+            UpdateFileSystemWatcherPaths();
+
             if (!ViewModel.IsQuadSplit) return;
 
             bool isReplacing = explorer.IsReplacingLastColumn;

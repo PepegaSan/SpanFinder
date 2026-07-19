@@ -1405,7 +1405,11 @@ namespace Span
             {
                 column.SelectedChild = column.Children[currentIdx - 1];
                 var listView = GetListViewForColumn(activeIndex);
-                listView?.ScrollIntoView(column.SelectedChild);
+                if (listView != null && column.SelectedChild != null)
+                {
+                    ApplyMillerListViewSelection(listView, new[] { column.SelectedChild });
+                    listView.ScrollIntoView(column.SelectedChild);
+                }
             }
         }
 
@@ -1425,7 +1429,11 @@ namespace Span
             {
                 column.SelectedChild = column.Children[currentIdx + 1];
                 var listView = GetListViewForColumn(activeIndex);
-                listView?.ScrollIntoView(column.SelectedChild);
+                if (listView != null && column.SelectedChild != null)
+                {
+                    ApplyMillerListViewSelection(listView, new[] { column.SelectedChild });
+                    listView.ScrollIntoView(column.SelectedChild);
+                }
             }
         }
 
@@ -1477,7 +1485,11 @@ namespace Span
             column.SelectedChild = target;
 
             var listView = GetListViewForColumn(activeIndex);
-            listView?.ScrollIntoView(target);
+            if (listView != null)
+            {
+                ApplyMillerListViewSelection(listView, new[] { target });
+                listView.ScrollIntoView(target);
+            }
         }
 
         #endregion
@@ -1612,7 +1624,11 @@ namespace Span
 
             column.SelectedChild = match;
             var listView = GetListViewForColumn(activeIndex);
-            listView?.ScrollIntoView(match);
+            if (listView != null)
+            {
+                ApplyMillerListViewSelection(listView, new[] { match });
+                listView.ScrollIntoView(match);
+            }
         }
 
         /// <summary>

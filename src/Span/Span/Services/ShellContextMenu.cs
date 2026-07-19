@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -724,6 +725,139 @@ namespace Span.Services
         }
 
         /// <summary>
+        /// Multi-file shell session (same parent folder). Shell extensions / AHK taggers
+        /// receive all selected paths via GetUIObjectOf(cidl > 1).
+        /// </summary>
+        public static Session? CreateSession(IntPtr hwnd, IReadOnlyList<string> paths, BlockingCollection<Action>? staWorkQueue = null)
+        {
+            if (paths == null || paths.Count == 0) return null;
+            if (paths.Count == 1) return CreateSession(hwnd, paths[0], staWorkQueue);
+
+            var parentDir = Path.GetDirectoryName(paths[0]);
+            if (string.IsNullOrEmpty(parentDir))
+                return CreateSession(hwnd, paths[0], staWorkQueue);
+
+            for (int i = 1; i < paths.Count; i++)
+            {
+                var otherParent = Path.GetDirectoryName(paths[i]);
+                if (!string.Equals(otherParent, parentDir, StringComparison.OrdinalIgnoreCase))
+                    return CreateSession(hwnd, paths[0], staWorkQueue);
+            }
+
+            var itemPidls = new List<IntPtr>();
+            var childPidls = new List<IntPtr>();
+            IntPtr shellFolderPtr = IntPtr.Zero;
+            IntPtr contextMenuPtr = IntPtr.Zero;
+            object? shellFolderObj = null;
+            object? contextMenuObj = null;
+
+            try
+            {
+                Helpers.DebugLogger.Log($"[ShellContextMenu] CreateSession(multi) count={paths.Count}");
+                var iidFolder = new Guid("000214E6-0000-0000-C000-000000000046");
+
+                for (int i = 0; i < paths.Count; i++)
+                {
+                    int hr = SHParseDisplayName(paths[i], IntPtr.Zero, out IntPtr pidl, 0, out _);
+                    if (hr != 0 || pidl == IntPtr.Zero)
+                        return CreateSession(hwnd, paths[0], staWorkQueue);
+                    itemPidls.Add(pidl);
+
+                    hr = SHBindToParent(pidl, ref iidFolder, out IntPtr sfPtr, out IntPtr childPidl);
+                    if (hr != 0 || sfPtr == IntPtr.Zero)
+                        return CreateSession(hwnd, paths[0], staWorkQueue);
+
+                    if (i == 0)
+                    {
+                        shellFolderPtr = sfPtr;
+                        shellFolderObj = Marshal.GetObjectForIUnknown(shellFolderPtr);
+                    }
+                    else if (sfPtr != shellFolderPtr)
+                    {
+                        Marshal.Release(sfPtr);
+                        return CreateSession(hwnd, paths[0], staWorkQueue);
+                    }
+                    else
+                    {
+                        Marshal.Release(sfPtr);
+                    }
+
+                    childPidls.Add(childPidl);
+                }
+
+                if (shellFolderObj == null) return null;
+                var shellFolder = (IShellFolder)shellFolderObj;
+                var iidCM = new Guid("000214e4-0000-0000-c000-000000000046");
+                int cmHr = shellFolder.GetUIObjectOf(hwnd, (uint)childPidls.Count, childPidls.ToArray(),
+                    ref iidCM, IntPtr.Zero, out contextMenuPtr);
+                if (cmHr != 0 || contextMenuPtr == IntPtr.Zero)
+                    return CreateSession(hwnd, paths[0], staWorkQueue);
+
+                contextMenuObj = Marshal.GetObjectForIUnknown(contextMenuPtr);
+                var contextMenu = (IContextMenu)contextMenuObj;
+
+                IContextMenu2? cm2 = null;
+                IContextMenu3? cm3 = null;
+                try { cm3 = (IContextMenu3)contextMenuObj; } catch { }
+                if (cm3 == null) { try { cm2 = (IContextMenu2)contextMenuObj; } catch { } }
+
+                IntPtr hMenu = CreatePopupMenu();
+                if (hMenu == IntPtr.Zero) return null;
+
+                Helpers.NativeMethods.SetThreadErrorMode(
+                    Helpers.NativeMethods.SEM_FAILCRITICALERRORS |
+                    Helpers.NativeMethods.SEM_NOGPFAULTERRORBOX |
+                    Helpers.NativeMethods.SEM_NOOPENFILEERRORBOX,
+                    out uint oldErrorMode);
+                List<ShellMenuItem> items;
+                try
+                {
+                    int qhr = contextMenu.QueryContextMenu(hMenu, 0, FIRST_CMD, LAST_CMD,
+                        CMF_NORMAL | CMF_EXPLORE | CMF_CANRENAME);
+                    if (qhr < 0)
+                    {
+                        DestroyMenu(hMenu);
+                        return null;
+                    }
+                    items = EnumerateMenuItems(hMenu, contextMenu, cm2, cm3, 0);
+                }
+                finally
+                {
+                    Helpers.NativeMethods.SetThreadErrorMode(oldErrorMode, out _);
+                }
+
+                // First absolute PIDL in _pidl, remaining in extraPidls (child pidls alias into these)
+                var firstPidl = itemPidls[0];
+                var extra = itemPidls.Skip(1).ToArray();
+                var session = new Session(
+                    contextMenu, contextMenuObj, shellFolderObj,
+                    contextMenuPtr, shellFolderPtr, firstPidl,
+                    hMenu, hwnd, items, staWorkQueue, extra);
+
+                itemPidls.Clear(); // ownership transferred
+                shellFolderPtr = IntPtr.Zero;
+                contextMenuPtr = IntPtr.Zero;
+                shellFolderObj = null;
+                contextMenuObj = null;
+                return session;
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[ShellContextMenu] CreateSession(multi) EXCEPTION: {ex.Message}");
+                return null;
+            }
+            finally
+            {
+                foreach (var pidl in itemPidls)
+                {
+                    if (pidl != IntPtr.Zero) CoTaskMemFree(pidl);
+                }
+                if (contextMenuObj != null) try { Marshal.ReleaseComObject(contextMenuObj); } catch { }
+                if (shellFolderObj != null) try { Marshal.ReleaseComObject(shellFolderObj); } catch { }
+            }
+        }
+
+        /// <summary>
         /// 폴더 배경(빈 영역) 컨텍스트 메뉴용 세션 생성.
         /// IShellFolder::CreateViewObject로 폴더 자체의 IContextMenu를 가져온다.
         /// TortoiseSVN, TortoiseGit 등 배경 메뉴에 등록된 셸 확장이 여기에 포함된다.
@@ -920,12 +1054,18 @@ namespace Span.Services
         /// If the shell extension takes too long (e.g. unresponsive third-party),
         /// returns null so the caller can show custom-only menu items.
         /// </summary>
-        public static async Task<Session?> CreateSessionAsync(IntPtr hwnd, string path, int timeoutMs = 3000)
+        public static Task<Session?> CreateSessionAsync(IntPtr hwnd, string path, int timeoutMs = 3000)
+            => CreateSessionAsync(hwnd, (IReadOnlyList<string>)new[] { path }, timeoutMs);
+
+        public static async Task<Session?> CreateSessionAsync(IntPtr hwnd, IReadOnlyList<string> paths, int timeoutMs = 3000)
         {
+            if (paths == null || paths.Count == 0) return null;
+            var pathLabel = paths.Count == 1 ? paths[0] : $"{paths.Count} items";
+
             // Throttle concurrent STA threads — 슬롯 없으면 500ms만 대기 후 포기
             if (!await s_staThrottle.WaitAsync(Math.Min(timeoutMs, 500)))
             {
-                Helpers.DebugLogger.Log($"[ShellContextMenu] STA throttle timeout for: {path}");
+                Helpers.DebugLogger.Log($"[ShellContextMenu] STA throttle timeout for: {pathLabel}");
                 return null;
             }
 
@@ -939,7 +1079,7 @@ namespace Span.Services
                 // Shell COM objects require STA — use a dedicated STA thread that stays alive
                 var staThread = new Thread(() =>
                 {
-                    try { result = CreateSession(hwnd, path, workQueue); }
+                    try { result = CreateSession(hwnd, paths, workQueue); }
                     catch (Exception ex) { caught = ex; }
                     finally { creationDone.Set(); }
 
@@ -982,7 +1122,7 @@ namespace Span.Services
 
                 if (!completed)
                 {
-                    Helpers.DebugLogger.Log($"[ShellContextMenu] CreateSession timed out ({timeoutMs}ms) for: {path}");
+                    Helpers.DebugLogger.Log($"[ShellContextMenu] CreateSession timed out ({timeoutMs}ms) for: {pathLabel}");
                     // Bug fix: workQueue.CompleteAdding()을 즉시 호출하지 않음.
                     // 이전 코드는 STA가 result를 만들기 전에 queue를 닫아 STA가 빈 foreach로 즉시 종료,
                     // worker 스레드가 result?.Dispose()를 호출하면서 STA 객체를 다른 어퍼트먼트에서 release →
@@ -1007,7 +1147,7 @@ namespace Span.Services
                         Helpers.DebugLogger.Log($"[ShellContextMenu] CreateSessionAsync Inner: {caught.InnerException.GetType().Name}: {caught.InnerException.Message}");
                     try
                     {
-                        SentrySdk.AddBreadcrumb($"CreateSessionAsync path={System.IO.Path.GetFileName(path)}", "shell.menu");
+                        SentrySdk.AddBreadcrumb($"CreateSessionAsync path={pathLabel}", "shell.menu");
                         App.Current.Services.GetService<CrashReportingService>()?.CaptureException(caught, "ShellContextMenu.CreateSessionAsync");
                     }
                     catch { }
@@ -1369,6 +1509,7 @@ namespace Span.Services
             private readonly IntPtr _contextMenuPtr;
             private readonly IntPtr _shellFolderPtr;
             private readonly IntPtr _pidl;
+            private readonly IntPtr[] _extraPidls;
             private readonly IntPtr _hMenu;
             private readonly IntPtr _hwnd;
             private readonly object _lock = new();
@@ -1387,7 +1528,8 @@ namespace Span.Services
                 object contextMenuImpl, object contextMenuObj, object shellFolderObj,
                 IntPtr contextMenuPtr, IntPtr shellFolderPtr, IntPtr pidl,
                 IntPtr hMenu, IntPtr hwnd, List<ShellMenuItem> items,
-                BlockingCollection<Action>? staWorkQueue = null)
+                BlockingCollection<Action>? staWorkQueue = null,
+                IntPtr[]? extraPidls = null)
             {
                 _contextMenuImpl = contextMenuImpl;
                 _contextMenuObj = contextMenuObj;
@@ -1395,6 +1537,7 @@ namespace Span.Services
                 _contextMenuPtr = contextMenuPtr;
                 _shellFolderPtr = shellFolderPtr;
                 _pidl = pidl;
+                _extraPidls = extraPidls ?? Array.Empty<IntPtr>();
                 _hMenu = hMenu;
                 _hwnd = hwnd;
                 Items = items;
@@ -1528,6 +1671,10 @@ namespace Span.Services
                 {
                     if (_hMenu != IntPtr.Zero) DestroyMenu(_hMenu);
                     if (_pidl != IntPtr.Zero) CoTaskMemFree(_pidl);
+                    foreach (var extra in _extraPidls)
+                    {
+                        if (extra != IntPtr.Zero) CoTaskMemFree(extra);
+                    }
 
                     // RCW를 통해 Release — Marshal.Release와 이중 호출하면 참조 카운트 오류 발생
                     try { Marshal.ReleaseComObject(_contextMenuObj); } catch { }

@@ -149,8 +149,25 @@ namespace Span.Views
             if (ViewModel?.CurrentFolder == null) return;
             if (sender is GridView gridView)
             {
-                ViewModel.CurrentFolder.SyncSelectedItems(gridView.SelectedItems);
-                (ContextMenuHost as MainWindow)?.ViewModel?.UpdateStatusBar();
+                var folder = ViewModel.CurrentFolder;
+                var host = ContextMenuHost as MainWindow;
+                if (host != null && host.TryPreserveFolderMultiSelectOnRightClick(
+                        gridView.SelectedItems, folder,
+                        () =>
+                        {
+                            _isSyncingSelection = true;
+                            try
+                            {
+                                gridView.SelectedItems.Clear();
+                                foreach (var item in folder.SelectedItems)
+                                    gridView.SelectedItems.Add(item);
+                            }
+                            finally { _isSyncingSelection = false; }
+                        }))
+                    return;
+
+                folder.SyncSelectedItems(gridView.SelectedItems);
+                host?.ViewModel?.UpdateStatusBar();
             }
         }
 

@@ -559,8 +559,25 @@ namespace Span.Views
             if (ViewModel?.CurrentFolder == null) return;
             if (sender is ListView listView)
             {
-                ViewModel.CurrentFolder.SyncSelectedItems(listView.SelectedItems);
-                (ContextMenuHost as MainWindow)?.ViewModel?.UpdateStatusBar();
+                var folder = ViewModel.CurrentFolder;
+                var host = ContextMenuHost as MainWindow;
+                if (host != null && host.TryPreserveFolderMultiSelectOnRightClick(
+                        listView.SelectedItems, folder,
+                        () =>
+                        {
+                            _isSyncingSelection = true;
+                            try
+                            {
+                                listView.SelectedItems.Clear();
+                                foreach (var item in folder.SelectedItems)
+                                    listView.SelectedItems.Add(item);
+                            }
+                            finally { _isSyncingSelection = false; }
+                        }))
+                    return;
+
+                folder.SyncSelectedItems(listView.SelectedItems);
+                host?.ViewModel?.UpdateStatusBar();
             }
         }
 

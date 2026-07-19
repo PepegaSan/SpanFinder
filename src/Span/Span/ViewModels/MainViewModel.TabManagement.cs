@@ -145,18 +145,19 @@ namespace Span.ViewModels
                 _splitOrientation = tabLayout == SplitLayoutMode.DualStacked
                     ? SplitOrientation.Stacked
                     : SplitOrientation.SideBySide;
-                _rightViewMode = Tabs[index].SplitRightViewMode;
 
                 // Settings/ActionLog 탭은 Explorer가 null — Explorer 바인딩 스킵
                 if (Tabs[index].ViewMode == ViewMode.Settings)
                 {
                     _currentViewMode = ViewMode.Settings;
                     _leftViewMode = ViewMode.Settings;
+                    _rightViewMode = ViewMode.Settings;
                 }
                 else if (Tabs[index].ViewMode == ViewMode.ActionLog)
                 {
                     _currentViewMode = ViewMode.ActionLog;
                     _leftViewMode = ViewMode.ActionLog;
+                    _rightViewMode = ViewMode.ActionLog;
                 }
                 else
                 {
@@ -184,8 +185,11 @@ namespace Span.ViewModels
                     }
 
                     // ★ ViewMode도 backing field 직접 설정 — PropertyChanged 미발생
+                    // Split/Quad: shared view mode for all panes (ignore legacy SplitRightViewMode mismatch)
                     _currentViewMode = Tabs[index].ViewMode;
                     _leftViewMode = Tabs[index].ViewMode;
+                    _rightViewMode = Tabs[index].ViewMode;
+                    Tabs[index].SplitRightViewMode = Tabs[index].ViewMode;
                     if (Helpers.ViewModeExtensions.IsIconMode(Tabs[index].ViewMode))
                         _currentIconSize = Tabs[index].IconSize;
                 }

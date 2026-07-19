@@ -886,11 +886,8 @@ namespace Span
                 case "MillerClickBehavior":
                     Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, () =>
                     {
-                        bool isDouble = (value as string) == "double";
-                        bool leftIsMiller = ViewModel.LeftViewMode == Models.ViewMode.MillerColumns;
-                        bool rightIsMiller = ViewModel.RightViewMode == Models.ViewMode.MillerColumns;
-                        ViewModel.Explorer.EnableAutoNavigation = leftIsMiller && !isDouble;
-                        ViewModel.RightExplorer.EnableAutoNavigation = rightIsMiller && !isDouble;
+                        // Includes TopRight/BottomRight in Quad via SyncExplorerAutoNavigationForLayout
+                        ViewModel.SyncExplorerAutoNavigationForLayout();
                     });
                     break;
 

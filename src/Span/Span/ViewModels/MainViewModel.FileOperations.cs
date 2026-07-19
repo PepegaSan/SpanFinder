@@ -435,8 +435,18 @@ namespace Span.ViewModels
             // Notify ExplorerViewModel so Details/List/Icon views rebind
             explorer.NotifyCurrentItemsChanged();
 
+            // Miller ListView has no SelectedItem binding — ask the view to re-push
+            // VM selection into ListViews after reload (otherwise highlights vanish).
+            ExplorerColumnsRefreshed?.Invoke(explorer);
+
             Helpers.DebugLogger.Log($"[RefreshCurrentFolderAsync] ===== COMPLETE ({lastIndex - targetIndex + 1} column(s)) =====");
         }
+
+        /// <summary>
+        /// Fired after RefreshCurrentFolderAsync finishes reloading columns.
+        /// MainWindow uses this to restore Miller ListView highlights.
+        /// </summary>
+        public event Action<ExplorerViewModel>? ExplorerColumnsRefreshed;
 
         #endregion
 

@@ -155,6 +155,28 @@ namespace Span.ViewModels
         private bool IsAutoNavSuppressed => Volatile.Read(ref _autoNavSuppressCount) > 0;
 
         /// <summary>
+        /// 일시적으로 자동 네비게이션을 억제한다 (새 폴더 생성 후 리네임 등).
+        /// Dispose 시 억제가 해제된다. EnableAutoNavigation 전역값은 건드리지 않는다.
+        /// </summary>
+        public IDisposable SuppressAutoNavigation()
+        {
+            Interlocked.Increment(ref _autoNavSuppressCount);
+            return new AutoNavSuppressScope(this);
+        }
+
+        private sealed class AutoNavSuppressScope : IDisposable
+        {
+            private ExplorerViewModel? _owner;
+            public AutoNavSuppressScope(ExplorerViewModel owner) => _owner = owner;
+            public void Dispose()
+            {
+                var owner = Interlocked.Exchange(ref _owner, null);
+                if (owner != null)
+                    Interlocked.Decrement(ref owner._autoNavSuppressCount);
+            }
+        }
+
+        /// <summary>
         /// 탭 전환 시 SelectionChanged로 인한 컬럼 자동 추가 억제용 타임스탬프.
         /// Environment.TickCount64 기준으로 이 시점 이전의 이벤트는 무시.
         /// </summary>
@@ -1483,12 +1505,15 @@ namespace Span.ViewModels
             }
             catch (OperationCanceledException) { return; }
             if (token.IsCancellationRequested) return;
+            // New-folder rename etc. may suppress auto-nav across the debounce window.
+            if (IsAutoNavSuppressed || !EnableAutoNavigation) return;
 
             try
             {
                 // Validate state after await
                 if (Columns.IndexOf(parentFolder) != parentIndex) return;
                 if (parentFolder.SelectedChild != selectedFolder) return;
+                if (IsAutoNavSuppressed || !EnableAutoNavigation) return;
 
                 // Push current path to history before changing (Miller auto-navigation)
                 PushToHistory(selectedFolder.Path);

@@ -509,10 +509,9 @@ namespace Span.Services
                 menu.Items.Add(new MenuFlyoutSeparator());
                 menu.Items.Add(CreateItem(_loc.Get("Properties"), "\uE946", () => ShowProperties(file), "R"));
 
-                // Shell 항목: 캐시 히트 → 메뉴 표시 전 삽입 + 백그라운드 재검증
-                //              캐시 미스 → await로 대기 후 삽입 (최대 1.5초)
+                // Shell 항목: pass full multi-selection so AHK/tagger extensions see all files
                 if (!isArchive)
-                    await AppendShellExtensionItemsAsync(menu, file.Path, forceShellExtensions);
+                    await AppendShellExtensionItemsAsync(menu, host.GetSelectedPathsForContextMenu(file.Path), forceShellExtensions);
             }
 
             // Cleanup session when menu closes
@@ -584,10 +583,9 @@ namespace Span.Services
             menu.Items.Add(new MenuFlyoutSeparator());
             menu.Items.Add(CreateItem(_loc.Get("Properties"), "\uE946", () => ShowProperties(folder), "R"));
 
-            // Shell 항목: 캐시 히트 → 메뉴 표시 전 삽입 + 백그라운드 재검증
-            //              캐시 미스 → await로 대기 후 삽입 (최대 1.5초)
+            // Shell 항목: pass full multi-selection so AHK/tagger extensions see all files
             if (!isRemote && !isArchive)
-                await AppendShellExtensionItemsAsync(menu, folder.Path, forceShellExtensions);
+                await AppendShellExtensionItemsAsync(menu, host.GetSelectedPathsForContextMenu(folder.Path), forceShellExtensions);
 
             menu.Closed += OnMenuClosed;
             TrackFlyout(menu);
@@ -864,8 +862,12 @@ namespace Span.Services
         /// Shell 확장 항목을 메뉴에 추가 (await로 대기, 최대 1.5초 타임아웃).
         /// </summary>
         private Task AppendShellExtensionItemsAsync(MenuFlyout menu, string path, bool forceLoad = false)
+            => AppendShellExtensionItemsAsync(menu, (IReadOnlyList<string>)new[] { path }, forceLoad);
+
+        private Task AppendShellExtensionItemsAsync(MenuFlyout menu, IReadOnlyList<string> paths, bool forceLoad = false)
         {
             if (OwnerHwnd == IntPtr.Zero) return Task.CompletedTask;
+            if (paths == null || paths.Count == 0) return Task.CompletedTask;
 
             // ShowShellExtensions OFF + forceLoad가 아닌 경우 → "셸 확장 항목 표시" 메뉴만 추가
             if (!forceLoad && !_settings.ShowShellExtensions)
@@ -879,11 +881,17 @@ namespace Span.Services
                 return Task.CompletedTask;
             }
 
-            return AppendShellExtensionItemsCoreAsync(menu, path);
+            return AppendShellExtensionItemsCoreAsync(menu, paths);
         }
 
-        private async Task AppendShellExtensionItemsCoreAsync(MenuFlyout menu, string path, bool background = false)
+        private Task AppendShellExtensionItemsCoreAsync(MenuFlyout menu, string path, bool background = false)
+            => AppendShellExtensionItemsCoreAsync(menu, (IReadOnlyList<string>)new[] { path }, background);
+
+        private async Task AppendShellExtensionItemsCoreAsync(MenuFlyout menu, IReadOnlyList<string> paths, bool background = false)
         {
+            if (paths == null || paths.Count == 0) return;
+            var path = paths[0];
+
             // Insert loading indicator before Properties (last 2 items = separator + Properties)
             int loadingIdx = Math.Max(0, menu.Items.Count - 2);
             var loadingSep = new MenuFlyoutSeparator();
@@ -906,10 +914,10 @@ namespace Span.Services
                 _currentSession = null;
 
                 var label = background ? "BackgroundSession" : "CreateSession";
-                Helpers.DebugLogger.Log($"[ContextMenuService] Shell {label}Async START: {path}");
+                Helpers.DebugLogger.Log($"[ContextMenuService] Shell {label}Async START: count={paths.Count}, first={path}");
                 var session = background
                     ? await ShellContextMenu.CreateBackgroundSessionAsync(OwnerHwnd, path)
-                    : await ShellContextMenu.CreateSessionAsync(OwnerHwnd, path);
+                    : await ShellContextMenu.CreateSessionAsync(OwnerHwnd, paths);
                 _currentSession = session;
                 // 이 메뉴가 닫힐 때 자기 세션만 정리하도록 매핑
                 if (session != null)

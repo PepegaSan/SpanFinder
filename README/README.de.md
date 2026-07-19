@@ -43,7 +43,7 @@
 |---|---|---|
 | **Miller Columns** | Nicht vorhanden | Hierarchische Mehrspalten-Navigation |
 | **Multi-Tab** | Nur Windows 11 (Basis) | Tab-Abreissen und Wiederandocken, Duplizieren, vollstaendige Sitzungswiederherstellung |
-| **Geteilte Ansicht** | Nicht vorhanden | Dual-Panel mit unabhaengigen Ansichtsmodi |
+| **Geteilte Ansicht** | Nicht vorhanden | Dual + Quad (2×2), gemeinsamer Ansichtsmodus fuer alle Panels |
 | **Vorschau-Panel** | Basis | 10+ Typen — Bilder, Video, Audio, Code, Hex, Schriften, PDF |
 | **Tastaturnavigation** | Eingeschraenkt | 30+ Shortcuts, Autovervollstaendigung, Tastatur-First-Design |
 | **Batch-Umbenennung** | Nicht vorhanden | Regex, Praefix/Suffix, sequentielle Nummerierung |
@@ -83,11 +83,12 @@ Navigieren Sie tiefe Ordnerhierarchien, ohne den Kontext zu verlieren. Jede Spal
 - **Tab-Duplizieren**: Tab mit exaktem Pfad und Einstellungen klonen
 - Automatische Sitzungssicherung: App schliessen und wieder oeffnen — alle Tabs sind noch da
 
-### Geteilte Ansicht — Echtes Dual-Panel
+### Geteilte Ansicht — Dual & Quad
 
-- Unabhaengige Links-Rechts-Navigation
-- Verschiedene Ansichtsmodi pro Panel moeglich (links Miller, rechts Details)
-- Individuelles Vorschau-Panel fuer jedes Panel
+- **Dual-Panel**: nebeneinander oder gestapelt, mit unabhaengiger Navigation pro Panel
+- **Quad (2×2)**: vier Panels fuer paralleles Browsen
+- **Gemeinsamer Ansichtsmodus**: alle sichtbaren Panels nutzen denselben Modus (Miller / Details / Liste / Symbole)
+- Individuelles Vorschau-Panel im Dual-Layout
 - Drag-and-Drop zwischen Panels zum Kopieren/Verschieben
 
 ![Geteilte Ansicht mit ueber 14.000 Elementen](2.jpg)
@@ -162,6 +163,8 @@ Ueber 30 Shortcuts fuer Nutzer, die die Haende nicht von der Tastatur nehmen:
 
 ### Intelligente Suche
 
+- **Live-Filter**: Im Suchfeld tippen filtert den aktuellen Ordner; Feld leeren setzt zurueck (ohne Enter)
+- **Rekursive Suche**: Enter durchsucht den aktuellen Ordnerbaum; Strg+Enter ab der Wurzel
 - **Strukturierte Abfragen**: `type:image`, `size:>100MB`, `date:today`, `ext:.pdf`
 - **Autovervollstaendigung**: In jeder Spalte tippen und sofort filtern
 - **Hintergrundverarbeitung**: Die Suche blockiert die Benutzeroberflaeche nicht

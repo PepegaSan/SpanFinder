@@ -9,6 +9,7 @@ using Span.ViewModels;
 using Span.Services;
 using Span.Services.FileOperations;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
@@ -557,6 +558,9 @@ namespace Span
             ViewModel.RightExplorer.Columns.CollectionChanged += OnRightColumnsChanged;
             ViewModel.RightExplorer.NavigationError += OnNavigationError;
             ViewModel.RightExplorer.PathHighlightsUpdated += OnPathHighlightsUpdated;
+            ViewModel.TopRightExplorer.PathHighlightsUpdated += OnPathHighlightsUpdated;
+            ViewModel.BottomRightExplorer.PathHighlightsUpdated += OnPathHighlightsUpdated;
+            ViewModel.ExplorerColumnsRefreshed += OnExplorerColumnsRefreshed;
             // v1.4.19: 좌/우 모두 정적 forward 이벤트로 통합 → 인스턴스 단위 구독 불필요
 
             // v1.4.19: 자식 컨트롤(ListView 등)의 자동 BringIntoView 요청을 부모 ScrollViewer가
@@ -598,7 +602,7 @@ namespace Span
             // AddressBarControl에 PathSegments/CurrentPath 바인딩
             SyncAddressBarControls(ViewModel.Explorer);
 
-            // Set ViewModel for Details and Icon views (right pane)
+            // Set ViewModel for Details and Icon views (right + quad secondary panes)
             HomeViewRight.MainViewModel = ViewModel;
             DetailsViewRight.IsRightPane = true;
             DetailsViewRight.ViewModel = ViewModel.RightExplorer;
@@ -606,6 +610,9 @@ namespace Span
             ListViewRight.ViewModel = ViewModel.RightExplorer;
             IconViewRight.IsRightPane = true;
             IconViewRight.ViewModel = ViewModel.RightExplorer;
+
+            WireQuadSecondaryExplorerView(DetailsViewTopRight, ListViewTopRight, IconViewTopRight, ViewModel.TopRightExplorer);
+            WireQuadSecondaryExplorerView(DetailsViewBottomRight, ListViewBottomRight, IconViewBottomRight, ViewModel.BottomRightExplorer);
 
             // Get HWND early (needed by child views and context menu service)
             _hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -685,9 +692,14 @@ namespace Span
             DetailsViewRight.ContextMenuService = _contextMenuService;
             DetailsViewRight.ContextMenuHost = this;
             DetailsViewRight.OwnerHwnd = _hwnd;
+            ListViewRight.ContextMenuService = _contextMenuService;
+            ListViewRight.ContextMenuHost = this;
+            ListViewRight.OwnerHwnd = _hwnd;
             IconViewRight.ContextMenuService = _contextMenuService;
             IconViewRight.ContextMenuHost = this;
             IconViewRight.OwnerHwnd = _hwnd;
+            WireQuadSecondaryContextMenu(DetailsViewTopRight, ListViewTopRight, IconViewTopRight);
+            WireQuadSecondaryContextMenu(DetailsViewBottomRight, ListViewBottomRight, IconViewBottomRight);
 
             // ★ ItemsControl에서 키보드 이벤트 가로채기 (both panes)
             MillerColumnsControl.AddHandler(
@@ -1039,12 +1051,8 @@ namespace Span
                     DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
                         ApplyPersistedMillerColumnWidthsAll);
 
-                    // Apply MillerClickBehavior on startup
-                    if (_settings.MillerClickBehavior == "double")
-                    {
-                        ViewModel.Explorer.EnableAutoNavigation = false;
-                        ViewModel.RightExplorer.EnableAutoNavigation = false;
-                    }
+                    // Apply MillerClickBehavior on startup (all panes, including Quad TR/BR)
+                    ViewModel.SyncExplorerAutoNavigationForLayout();
 
                     // Restore saved sort/group settings (settings.json)
                     try
@@ -1392,6 +1400,8 @@ namespace Span
                 // from reaching UI during teardown — the primary crash cause).
                 ViewModel?.Explorer?.Cleanup();       // Left pane
                 ViewModel?.RightExplorer?.Cleanup();   // Right pane
+                ViewModel?.TopRightExplorer?.Cleanup();
+                ViewModel?.BottomRightExplorer?.Cleanup();
 
                 // STEP 2: Unsubscribe MainWindow event handlers BEFORE ViewModel.Cleanup()
                 // so collection Clear() notifications don't reach MainWindow handlers.
@@ -1406,6 +1416,8 @@ namespace Span
                 // v1.4.19: BringIntoView 핸들러 해제
                 try { MillerScrollViewer.BringIntoViewRequested -= OnMillerBringIntoViewRequested; } catch { }
                 try { MillerScrollViewerRight.BringIntoViewRequested -= OnMillerBringIntoViewRequested; } catch { }
+                try { MillerScrollViewerTopRight.BringIntoViewRequested -= OnMillerBringIntoViewRequested; } catch { }
+                try { MillerScrollViewerBottomRight.BringIntoViewRequested -= OnMillerBringIntoViewRequested; } catch { }
                 // v1.4.19: 정적 forward 이벤트 해제 (메모리 누수 방지)
                 try { ViewModels.ExplorerViewModel.AnyBeforeReplaceLastColumn -= OnAnyBeforeReplaceLastColumn; } catch { }
                 try { ViewModels.ExplorerViewModel.AnyAfterReplaceLastColumn -= OnAnyAfterReplaceLastColumn; } catch { }
@@ -1413,11 +1425,17 @@ namespace Span
                 {
                     ViewModel.RightExplorer.Columns.CollectionChanged -= OnRightColumnsChanged;
                     ViewModel.RightExplorer.NavigationError -= OnNavigationError;
+                    ViewModel.RightExplorer.PathHighlightsUpdated -= OnPathHighlightsUpdated;
                 }
+                if (ViewModel?.TopRightExplorer != null)
+                    ViewModel.TopRightExplorer.PathHighlightsUpdated -= OnPathHighlightsUpdated;
+                if (ViewModel?.BottomRightExplorer != null)
+                    ViewModel.BottomRightExplorer.PathHighlightsUpdated -= OnPathHighlightsUpdated;
                 if (ViewModel != null)
                 {
                     ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
                     ViewModel.PropertyChanged -= OnViewModelPropertyChangedForPreview;
+                    ViewModel.ExplorerColumnsRefreshed -= OnExplorerColumnsRefreshed;
                 }
 
                 // Per-Tab Miller Panels 정리
@@ -1686,6 +1704,11 @@ namespace Span
         private void OnRightColumnsChanged(object? sender, NotifyCollectionChangedEventArgs e)
         {
             Helpers.DebugLogger.Log($"[OnRightColumnsChanged] Action={e.Action}, IsSplit={ViewModel.IsSplitViewEnabled}, RightViewMode={ViewModel.RightViewMode}, RightColumns={ViewModel.RightExplorer?.Columns?.Count}");
+
+            // Right/Quad 네비게이션 후에도 Watcher 경로를 갱신해야 함.
+            // (이전엔 Left OnColumnsChanged에서만 호출되어 Right/TopRight/BottomRight
+            //  폴더 변경이 현재 뷰에 반영되지 않던 버그.)
+            UpdateFileSystemWatcherPaths();
 
             if (!ViewModel.IsSplitViewEnabled) return;
 
@@ -2270,8 +2293,13 @@ namespace Span
                 await col.ReloadAsync();
                 explorer.NotifyCurrentItemsChanged();
 
-                // 리로드 후 빈 컬럼 → 자식 컬럼 정리 + Active를 부모로 이동
-                if (col.Children.Count == 0 && i + 1 < explorer.Columns.Count)
+                // Mirror RefreshCurrentFolderAsync: SelectedChild gone → orphan child columns
+                if (col.SelectedChild == null && i + 1 < explorer.Columns.Count)
+                {
+                    explorer.CleanupColumnsFrom(i + 1);
+                }
+                // 리로드 후 빈 컬럼 → 자식 컬럼 정리
+                else if (col.Children.Count == 0 && i + 1 < explorer.Columns.Count)
                 {
                     explorer.CleanupColumnsFrom(i + 1);
                 }
@@ -2280,7 +2308,67 @@ namespace Span
                 {
                     explorer.SetActiveColumn(explorer.Columns[i - 1]);
                 }
+
+                RestoreMillerListViewSelection(explorer);
                 break;
+            }
+        }
+
+        private static void WireQuadSecondaryExplorerView(
+            Views.DetailsModeView details,
+            Views.ListModeView list,
+            Views.IconModeView icon,
+            ExplorerViewModel explorer)
+        {
+            details.IsRightPane = true;
+            details.IsManualViewModel = true;
+            details.ViewModel = explorer;
+            list.IsRightPane = true;
+            list.IsManualViewModel = true;
+            list.ViewModel = explorer;
+            icon.IsRightPane = true;
+            icon.IsManualViewModel = true;
+            icon.ViewModel = explorer;
+        }
+
+        private void WireQuadSecondaryContextMenu(
+            Views.DetailsModeView details,
+            Views.ListModeView list,
+            Views.IconModeView icon)
+        {
+            details.ContextMenuService = _contextMenuService;
+            details.ContextMenuHost = this;
+            details.OwnerHwnd = _hwnd;
+            list.ContextMenuService = _contextMenuService;
+            list.ContextMenuHost = this;
+            list.OwnerHwnd = _hwnd;
+            icon.ContextMenuService = _contextMenuService;
+            icon.ContextMenuHost = this;
+            icon.OwnerHwnd = _hwnd;
+        }
+
+        /// <summary>
+        /// After F5 / file-op / watcher refresh: re-push VM selection into Miller ListViews.
+        /// ListView has no SelectedItem binding, so highlights otherwise vanish after reload.
+        /// </summary>
+        private void OnExplorerColumnsRefreshed(ExplorerViewModel explorer)
+        {
+            if (_isClosed || explorer == null) return;
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                if (_isClosed) return;
+                RestoreMillerListViewSelection(explorer);
+            });
+        }
+
+        private void RestoreMillerListViewSelection(ExplorerViewModel explorer)
+        {
+            if (explorer?.Columns == null) return;
+            for (int i = 0; i < explorer.Columns.Count; i++)
+            {
+                var listView = GetListViewForColumn(i, explorer);
+                if (listView == null) continue;
+                SyncMillerListViewSelection(listView, explorer.Columns[i]);
             }
         }
 
@@ -5022,6 +5110,56 @@ namespace Span
                 ApplyMillerListViewSelection(listView, new[] { column.SelectedChild });
         }
 
+        /// <summary>
+        /// Explorer-like: right-click on an already multi-selected item must not collapse
+        /// the selection to one file — shell extensions / AHK taggers need all paths.
+        /// </summary>
+        private bool TryPreserveMultiSelectOnRightClick(ListView listView, FolderViewModel folderVm)
+        {
+            if ((Helpers.NativeMethods.GetAsyncKeyState(Helpers.NativeMethods.VK_RBUTTON) & 0x8000) == 0)
+                return false;
+            if (listView.SelectedItems.Count != 1 || folderVm.SelectedItems.Count <= 1)
+                return false;
+
+            var clicked = listView.SelectedItem as FileSystemViewModel;
+            if (clicked == null) return false;
+            if (!folderVm.SelectedItems.Any(i =>
+                    ReferenceEquals(i, clicked)
+                    || string.Equals(i.Path, clicked.Path, StringComparison.OrdinalIgnoreCase)))
+                return false;
+
+            ApplyMillerListViewSelection(listView, folderVm.SelectedItems.ToList());
+            Helpers.DebugLogger.Log(
+                $"[Selection] Preserved multi-select on right-click: {folderVm.SelectedItems.Count} item(s)");
+            return true;
+        }
+
+        /// <summary>
+        /// Shared helper for Details/List/Icon views (called via MainWindow cast).
+        /// </summary>
+        internal bool TryPreserveFolderMultiSelectOnRightClick(
+            IList<object> selectedUiItems,
+            FolderViewModel folderVm,
+            Action restoreUiSelection)
+        {
+            if ((Helpers.NativeMethods.GetAsyncKeyState(Helpers.NativeMethods.VK_RBUTTON) & 0x8000) == 0)
+                return false;
+            if (selectedUiItems.Count != 1 || folderVm.SelectedItems.Count <= 1)
+                return false;
+
+            var clicked = selectedUiItems[0] as FileSystemViewModel;
+            if (clicked == null) return false;
+            if (!folderVm.SelectedItems.Any(i =>
+                    ReferenceEquals(i, clicked)
+                    || string.Equals(i.Path, clicked.Path, StringComparison.OrdinalIgnoreCase)))
+                return false;
+
+            restoreUiSelection();
+            Helpers.DebugLogger.Log(
+                $"[Selection] Preserved multi-select on right-click (view): {folderVm.SelectedItems.Count} item(s)");
+            return true;
+        }
+
         private void ApplyMillerListViewSelection(ListView listView, IReadOnlyList<ViewModels.FileSystemViewModel> items)
         {
             if (items.Count == 0) return;
@@ -5035,6 +5173,27 @@ namespace Span
                     if (ListViewContainsItem(listView, item))
                         listView.SelectedItems.Add(item);
                 }
+            }
+            finally
+            {
+                _isSyncingSelection = false;
+            }
+        }
+
+        /// <summary>
+        /// Restore multi-select into a Details/List/Icon ListViewBase without re-entering SelectionChanged sync.
+        /// </summary>
+        internal void ApplyViewListSelection(
+            Microsoft.UI.Xaml.Controls.ListViewBase listView,
+            IReadOnlyList<ViewModels.FileSystemViewModel> items)
+        {
+            if (items.Count == 0) return;
+            _isSyncingSelection = true;
+            try
+            {
+                listView.SelectedItems.Clear();
+                foreach (var item in items)
+                    listView.SelectedItems.Add(item);
             }
             finally
             {
@@ -5090,6 +5249,12 @@ namespace Span
                 // SyncChildren may replace the collection, causing ListView to lose selection
                 // temporarily. Without this guard, SelectedChild would be nulled and child columns removed.
                 if (folderVm.IsBulkUpdating) return;
+
+                // Explorer-Verhalten: Rechtsklick auf bereits multi-selektiertes Item
+                // darf die Mehrfachauswahl nicht auf 1 Item kollabieren — sonst sehen
+                // Shell-Extensions / AHK-Tagger (swapface etc.) nur eine Datei.
+                if (TryPreserveMultiSelectOnRightClick(listView, folderVm))
+                    return;
 
                 _isSyncingSelection = true;
                 try
@@ -5190,13 +5355,23 @@ namespace Span
 
         private void ApplyPathIndicatorsImpl(ViewModels.ExplorerViewModel sender, Dictionary<int, ViewModels.FileSystemViewModel?> highlightMap)
         {
-            // Determine which ItemsControl based on sender (left vs right pane)
+            // Determine which ItemsControl based on sender (left / right / quad panes)
             ItemsControl control;
             string paneLabel;
             if (sender == ViewModel.RightExplorer)
             {
                 control = MillerColumnsControlRight;
                 paneLabel = "Right";
+            }
+            else if (sender == ViewModel.TopRightExplorer)
+            {
+                control = MillerColumnsControlTopRight;
+                paneLabel = "TopRight";
+            }
+            else if (sender == ViewModel.BottomRightExplorer)
+            {
+                control = MillerColumnsControlBottomRight;
+                paneLabel = "BottomRight";
             }
             else if (_activeMillerTabId != null && _tabMillerPanels.TryGetValue(_activeMillerTabId, out var panel))
             {
@@ -5667,7 +5842,7 @@ namespace Span
         private void OnViewModeIconExtraLarge(object sender, RoutedEventArgs e)
         {
             ViewModel.SwitchViewMode(Models.ViewMode.IconExtraLarge);
-            GetActiveIconView()?.UpdateIconSize(Models.ViewMode.IconExtraLarge);
+            SyncSplitIconSizes(Models.ViewMode.IconExtraLarge);
             UpdateViewModeVisibility();
             UpdateViewModeIcon();
             UpdatePreviewButtonState();
@@ -5676,7 +5851,7 @@ namespace Span
         private void OnViewModeIconLarge(object sender, RoutedEventArgs e)
         {
             ViewModel.SwitchViewMode(Models.ViewMode.IconLarge);
-            GetActiveIconView()?.UpdateIconSize(Models.ViewMode.IconLarge);
+            SyncSplitIconSizes(Models.ViewMode.IconLarge);
             UpdateViewModeVisibility();
             UpdateViewModeIcon();
             UpdatePreviewButtonState();
@@ -5685,7 +5860,7 @@ namespace Span
         private void OnViewModeIconMedium(object sender, RoutedEventArgs e)
         {
             ViewModel.SwitchViewMode(Models.ViewMode.IconMedium);
-            GetActiveIconView()?.UpdateIconSize(Models.ViewMode.IconMedium);
+            SyncSplitIconSizes(Models.ViewMode.IconMedium);
             UpdateViewModeVisibility();
             UpdateViewModeIcon();
             UpdatePreviewButtonState();
@@ -5694,10 +5869,21 @@ namespace Span
         private void OnViewModeIconSmall(object sender, RoutedEventArgs e)
         {
             ViewModel.SwitchViewMode(Models.ViewMode.IconSmall);
-            GetActiveIconView()?.UpdateIconSize(Models.ViewMode.IconSmall);
+            SyncSplitIconSizes(Models.ViewMode.IconSmall);
             UpdateViewModeVisibility();
             UpdateViewModeIcon();
             UpdatePreviewButtonState();
+        }
+
+        /// <summary>Apply icon size to every visible pane in Dual/Quad (shared view mode).</summary>
+        private void SyncSplitIconSizes(Models.ViewMode iconMode)
+        {
+            GetActiveIconView()?.UpdateIconSize(iconMode);
+            if (!ViewModel.IsSplitViewEnabled) return;
+            IconViewRight.UpdateIconSize(iconMode);
+            if (!ViewModel.IsQuadSplit) return;
+            IconViewTopRight.UpdateIconSize(iconMode);
+            IconViewBottomRight.UpdateIconSize(iconMode);
         }
 
         // =================================================================
@@ -5785,11 +5971,8 @@ namespace Span
             var newMode = _allViewModes[newIndex];
             ViewModel.SwitchViewMode(newMode);
 
-            // If switching to icon mode, update icon size
             if (Helpers.ViewModeExtensions.IsIconMode(newMode))
-            {
-                GetActiveIconView()?.UpdateIconSize(newMode);
-            }
+                SyncSplitIconSizes(newMode);
 
             UpdateViewModeVisibility();
             UpdateViewModeIcon();
@@ -6395,12 +6578,17 @@ namespace Span
                         c.Path.Equals(newPath, StringComparison.OrdinalIgnoreCase));
                     if (newFolder != null)
                     {
-                        parentColumn.SelectedChild = newFolder;
-                        newFolder.BeginRename();
-                        await System.Threading.Tasks.Task.Delay(100);
-                        int colIndex = columns.IndexOf(parentColumn);
-                        if (colIndex >= 0)
-                            FocusRenameTextBox(colIndex);
+                        // Keep suppress across selection debounce so rename stays in parent column
+                        using (ViewModel.ActiveExplorer?.SuppressAutoNavigation())
+                        {
+                            parentColumn.SelectedChild = newFolder;
+                            parentColumn.SyncSelectedItems(new List<object> { newFolder });
+                            newFolder.BeginRename();
+                            await System.Threading.Tasks.Task.Delay(200);
+                            int colIndex = columns.IndexOf(parentColumn);
+                            if (colIndex >= 0)
+                                FocusRenameTextBox(colIndex);
+                        }
                     }
                 }
             }

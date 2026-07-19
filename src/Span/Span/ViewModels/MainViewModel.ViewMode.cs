@@ -81,23 +81,25 @@ namespace Span.ViewModels
                 return;
             }
 
-            // Determine which pane's view mode to update
-            if (IsSplitViewEnabled && ActivePane == ActivePane.Right)
+            // Split/Quad: all visible panes share one explorer view mode (Miller/Details/List/Icon).
+            // Independent left/right modes were confusing; dual=2 and quad=4 stay in sync.
+            if (IsSplitViewEnabled)
             {
-                if (RightViewMode == mode) return;
+                bool already =
+                    CurrentViewMode == mode && LeftViewMode == mode && RightViewMode == mode;
+                if (already && !Helpers.ViewModeExtensions.IsIconMode(mode))
+                    return;
+                if (already && Helpers.ViewModeExtensions.IsIconMode(mode) && CurrentIconSize == mode)
+                    return;
 
                 if (Helpers.ViewModeExtensions.IsIconMode(mode))
-                {
                     CurrentIconSize = mode;
-                    RightViewMode = mode;
-                }
-                else
-                {
-                    RightViewMode = mode;
-                }
 
-                RightExplorer.EnableAutoNavigation = ShouldAutoNavigate(mode);
-                Helpers.DebugLogger.Log($"[MainViewModel] Right pane AutoNav: {RightExplorer.EnableAutoNavigation} (mode: {mode})");
+                CurrentViewMode = mode;
+                LeftViewMode = mode;
+                RightViewMode = mode;
+                SyncExplorerAutoNavigationForLayout();
+                Helpers.DebugLogger.Log($"[MainViewModel] Shared split ViewMode: {Helpers.ViewModeExtensions.GetDisplayName(mode)} (quad={IsQuadSplit})");
             }
             else
             {
@@ -124,6 +126,7 @@ namespace Span.ViewModels
             {
                 ActiveTab.ViewMode = CurrentViewMode;
                 ActiveTab.IconSize = CurrentIconSize;
+                ActiveTab.SplitRightViewMode = RightViewMode;
             }
             SaveViewModePreference();
             UpdateActiveTabHeader();
@@ -359,6 +362,15 @@ namespace Span.ViewModels
                 OnPropertyChanged(nameof(IsQuadSplit));
             }
 
+            // Entering split: force shared view mode on all panes
+            if (value && CurrentViewMode is not ViewMode.Home and not ViewMode.Settings
+                and not ViewMode.ActionLog and not ViewMode.RecycleBin)
+            {
+                LeftViewMode = CurrentViewMode;
+                RightViewMode = CurrentViewMode;
+                SyncExplorerAutoNavigationForLayout();
+            }
+
             SaveSplitViewState();
             SaveActiveTabState();
         }
@@ -466,25 +478,30 @@ namespace Span.ViewModels
 
         /// <summary>
         /// Keep Miller auto-navigation in sync with the active layout.
-        /// Quad mode always shows Miller in all panes even when LeftViewMode differs.
+        /// Dual/Quad: all panes share CurrentViewMode (and thus the same AutoNav setting).
         /// </summary>
         public void SyncExplorerAutoNavigationForLayout()
         {
             if (IsQuadSplit)
             {
-                bool autoNav = ShouldAutoNavigate(ViewMode.MillerColumns);
+                bool autoNav = ShouldAutoNavigate(CurrentViewMode);
                 LeftExplorer.EnableAutoNavigation = autoNav;
                 RightExplorer.EnableAutoNavigation = autoNav;
                 TopRightExplorer.EnableAutoNavigation = autoNav;
                 BottomRightExplorer.EnableAutoNavigation = autoNav;
-                Helpers.DebugLogger.Log($"[MainViewModel] Quad AutoNav: {autoNav}");
+                Helpers.DebugLogger.Log($"[MainViewModel] Quad AutoNav: {autoNav} mode={CurrentViewMode}");
                 return;
             }
 
             if (IsSplitViewEnabled)
             {
-                LeftExplorer.EnableAutoNavigation = ShouldAutoNavigate(LeftViewMode);
-                RightExplorer.EnableAutoNavigation = ShouldAutoNavigate(RightViewMode);
+                // Dual: keep Left/Right in sync
+                var mode = CurrentViewMode;
+                if (RightViewMode != mode) RightViewMode = mode;
+                if (LeftViewMode != mode) LeftViewMode = mode;
+                bool autoNav = ShouldAutoNavigate(mode);
+                LeftExplorer.EnableAutoNavigation = autoNav;
+                RightExplorer.EnableAutoNavigation = autoNav;
             }
             else
             {

@@ -50,7 +50,7 @@
 |---|---|---|
 | **Miller Columns** | No | Yes — hierarchical multi-column navigation |
 | **Multi-Tab** | Windows 11 only (basic) | Full tabs with tear-off, re-docking, duplication, session restore |
-| **Split View** | No | Dual-pane with independent view modes |
+| **Split View** | No | Dual + Quad (2×2), shared view mode across panes |
 | **Preview Panel** | Basic | 10+ file types — images, video, audio, code, hex, fonts, PDF |
 | **Keyboard Navigation** | Limited | 150+ features, 30+ shortcuts, type-ahead search, full keyboard-first design |
 | **Batch Rename** | No | Regex, prefix/suffix, sequential numbering |
@@ -90,11 +90,12 @@ Navigate deep folder hierarchies without losing context. Each column represents 
 - **Tab duplication**: Clone a tab with its exact path and settings
 - Session auto-save: Close the app, reopen it — every tab exactly where you left it
 
-### Split View — True Dual-Pane
+### Split View — Dual & Quad
 
-- Side-by-side file browsing with independent navigation per pane
-- Each pane can use a different view mode (Miller left, Details right)
-- Separate preview panels for each pane
+- **Dual pane**: side-by-side or stacked, with independent navigation per pane
+- **Quad (2×2)**: four panes for parallel browsing
+- **Shared view mode**: all visible panes use the same Miller / Details / List / Icons mode (switch once, apply everywhere)
+- Separate preview panels in dual layout
 - Drag files between panes for copy/move operations
 
 ![Split View with 14K+ Items](README/2.jpg)
@@ -170,6 +171,8 @@ Press **Space** for Quick Look (macOS Finder style):
 
 ### Smart Search
 
+- **Live filter**: type in the search box to filter the current folder; clear the field to reset (no Enter needed)
+- **Recursive search**: Enter searches the current folder tree; Ctrl+Enter searches from the root
 - **Structured queries**: `type:image`, `size:>100MB`, `date:today`, `ext:.pdf`
 - **Type-ahead**: Start typing in any column to filter instantly
 - **Background processing**: Search never freezes the UI

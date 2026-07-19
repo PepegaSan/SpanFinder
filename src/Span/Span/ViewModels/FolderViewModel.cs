@@ -1470,31 +1470,53 @@ namespace Span.ViewModels
         }
 
         /// <summary>
-        /// Children에 없는 SelectedItems 항목을 제거한다 (고아 참조 방지).
+        /// Children에 없는 SelectedItems 항목을 제거하고,
+        /// Path는 같지만 인스턴스가 교체된 경우(전체 Children 교체) 현재 Children으로 재매핑한다.
         /// SyncChildren에서 Children이 변경된 후 호출된다.
-        /// SelectedChild도 Children에 없으면 null로 설정한다.
         /// </summary>
         private void PruneSelectedItems()
         {
             if (SelectedItems.Count > 0)
             {
-                var childPaths = new HashSet<string>(
-                    Children.Select(c => c.Path), StringComparer.OrdinalIgnoreCase);
+                var byPath = new Dictionary<string, FileSystemViewModel>(
+                    Children.Count, StringComparer.OrdinalIgnoreCase);
+                foreach (var child in Children)
+                    byPath[child.Path] = child;
 
-                for (int i = SelectedItems.Count - 1; i >= 0; i--)
+                var remapped = new List<FileSystemViewModel>(SelectedItems.Count);
+                foreach (var item in SelectedItems)
                 {
-                    if (!childPaths.Contains(SelectedItems[i].Path))
-                        SelectedItems.RemoveAt(i);
+                    if (byPath.TryGetValue(item.Path, out var current))
+                        remapped.Add(current);
                 }
 
-                OnPropertyChanged(nameof(HasMultiSelection));
+                bool changed = remapped.Count != SelectedItems.Count;
+                if (!changed)
+                {
+                    for (int i = 0; i < remapped.Count; i++)
+                    {
+                        if (!ReferenceEquals(remapped[i], SelectedItems[i]))
+                        {
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (changed)
+                {
+                    SelectedItems.Clear();
+                    foreach (var item in remapped)
+                        SelectedItems.Add(item);
+                    OnPropertyChanged(nameof(HasMultiSelection));
+                }
             }
 
-            // SelectedChild도 Children에 없으면 null로 설정
-            if (SelectedChild != null &&
-                !Children.Any(c => string.Equals(c.Path, SelectedChild.Path, StringComparison.OrdinalIgnoreCase)))
+            // SelectedChild도 현재 Children 인스턴스로 재매핑 (없으면 null)
+            if (SelectedChild != null && !Children.Contains(SelectedChild))
             {
-                SelectedChild = null;
+                SelectedChild = Children.FirstOrDefault(c =>
+                    string.Equals(c.Path, SelectedChild.Path, StringComparison.OrdinalIgnoreCase));
             }
         }
 

@@ -1044,11 +1044,15 @@ namespace Span
                 }
             }
 
-            // Execute file operation — RefreshOppositeExplorerAsync handles split view refresh
-            await ViewModel.ExecuteFileOperationAsync(op, targetColumnIndex);
+            // Cross-pane drop: targetColumnIndex belongs to targetExplorer, NOT ActiveExplorer.
+            // Passing it into ExecuteFileOperationAsync would refresh the wrong pane's columns
+            // (and can prune child columns via SelectedChild cleanup). Refresh ActiveExplorer
+            // from its last/source column; dest pane is covered by RefreshOppositeExplorerAsync
+            // plus an explicit targeted refresh below.
+            bool crossPane = targetExplorer != null && targetExplorer != ViewModel.ActiveExplorer;
+            await ViewModel.ExecuteFileOperationAsync(op, crossPane ? null : targetColumnIndex);
 
-            // If target was in the opposite explorer, also refresh that specific column
-            if (targetExplorer != null && targetExplorer != ViewModel.ActiveExplorer)
+            if (crossPane)
             {
                 await ViewModel.RefreshCurrentFolderAsync(targetColumnIndex, targetExplorer);
             }
@@ -1064,14 +1068,25 @@ namespace Span
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase)!;
 
-                var activeExplorer = ViewModel.ActiveExplorer;
+                // Skip explorers already refreshed via ActiveExplorer / RefreshOppositeExplorerAsync
+                // (all currently visible split/quad panes).
+                var alreadyRefreshed = new HashSet<ExplorerViewModel>();
+                if (ViewModel.ActiveExplorer != null)
+                    alreadyRefreshed.Add(ViewModel.ActiveExplorer);
+                if (ViewModel.IsSplitViewEnabled)
+                {
+                    foreach (var pane in ViewModel.GetSplitLayoutPanes())
+                    {
+                        var paneExplorer = ViewModel.GetExplorerForPane(pane);
+                        if (paneExplorer != null)
+                            alreadyRefreshed.Add(paneExplorer);
+                    }
+                }
+
                 foreach (var tab in ViewModel.Tabs)
                 {
                     var explorer = tab.Explorer;
-                    if (explorer == null || explorer == activeExplorer) continue;
-                    // Split View 반대 패널도 이미 처리됨
-                    if (ViewModel.IsSplitViewEnabled && explorer == (ViewModel.ActivePane == Models.ActivePane.Left
-                        ? ViewModel.RightExplorer : ViewModel.LeftExplorer)) continue;
+                    if (explorer == null || alreadyRefreshed.Contains(explorer)) continue;
 
                     for (int i = 0; i < explorer.Columns.Count; i++)
                     {
@@ -1137,9 +1152,8 @@ namespace Span
                     { targetColumnIndex = i; break; }
                 }
             }
-            await ViewModel.RefreshCurrentFolderAsync(targetColumnIndex);
-            await ViewModel.RefreshCurrentFolderAsync(0,
-                ViewModel.ActivePane == Models.ActivePane.Left ? ViewModel.RightExplorer : ViewModel.LeftExplorer);
+            // Refresh all visible split/quad panes (not just Left↔Right dual).
+            await ViewModel.RefreshAllSplitExplorersAsync();
 
             if (errors.Count > 0)
                 ViewModel.ShowError(string.Join("\n", errors));

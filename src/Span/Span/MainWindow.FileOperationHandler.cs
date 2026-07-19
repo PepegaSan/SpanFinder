@@ -228,12 +228,32 @@ namespace Span
         }
 
         /// <summary>
-        /// Pick the Miller column with the largest explicit selection (ignores navigation-only SelectedChild).
+        /// Pick selection from the interaction column first; only then fall back to another
+        /// column's explicit multi-select. Avoids copying a stale multi-select from column 0
+        /// while the user is focused on column 1.
         /// </summary>
         private List<FileSystemViewModel> GetMillerColumnSelection(bool syncToViewModel = true)
         {
             var columns = ViewModel.ActiveExplorer.Columns;
             int focusIndex = GetInteractionColumnIndex();
+
+            // Prefer the column the user is interacting with when it has an explicit selection.
+            if (focusIndex >= 0 && focusIndex < columns.Count)
+            {
+                var focusCol = columns[focusIndex];
+                var focusListView = GetListViewForColumn(focusIndex, ViewModel.ActiveExplorer);
+                if (GetExplicitMillerSelection(focusCol, focusListView, out var focused) > 0)
+                {
+                    if (syncToViewModel)
+                    {
+                        if (focusListView?.SelectedItems.Count > 0)
+                            focusCol.SyncSelectedItems(focusListView.SelectedItems);
+                        else if (focusListView != null && focused.Count > focusListView.SelectedItems.Count)
+                            ApplyMillerListViewSelection(focusListView, focused);
+                    }
+                    return focused;
+                }
+            }
 
             List<FileSystemViewModel>? best = null;
             int bestCount = 0;
@@ -261,15 +281,6 @@ namespace Span
 
             if (best == null || bestCount == 0)
             {
-                // Focused column only — never steal from another column's navigation SelectedChild
-                if (focusIndex >= 0 && focusIndex < columns.Count)
-                {
-                    var col = columns[focusIndex];
-                    var listView = GetListViewForColumn(focusIndex);
-                    if (GetExplicitMillerSelection(col, listView, out var focused) > 0)
-                        return focused;
-                }
-
                 return new List<FileSystemViewModel>();
             }
 
@@ -1172,16 +1183,22 @@ namespace Span
                 var op = new Span.Services.FileOperations.NewFolderOperation(newPath, router);
                 await ViewModel.ExecuteFileOperationAsync(op, activeIndex >= 0 ? activeIndex : (int?)null);
 
-                // Select the new folder and start inline rename
+                // Select the new folder and start inline rename.
+                // Suppress auto-nav for the whole rename kickoff: SelectedChild=Folder would
+                // otherwise open a child column after the 150ms selection debounce.
                 var newFolder = currentFolder.Children.FirstOrDefault(c =>
                     c.Path.Equals(newPath, StringComparison.OrdinalIgnoreCase));
                 if (newFolder != null)
                 {
-                    currentFolder.SelectedChild = newFolder;
-                    newFolder.BeginRename();
-                    await System.Threading.Tasks.Task.Delay(100);
-                    if (viewMode == ViewMode.MillerColumns && activeIndex >= 0)
-                        FocusRenameTextBox(activeIndex);
+                    using (ViewModel.ActiveExplorer?.SuppressAutoNavigation())
+                    {
+                        currentFolder.SelectedChild = newFolder;
+                        currentFolder.SyncSelectedItems(new List<object> { newFolder });
+                        newFolder.BeginRename();
+                        await System.Threading.Tasks.Task.Delay(200);
+                        if (viewMode == ViewMode.MillerColumns && activeIndex >= 0)
+                            FocusRenameTextBox(activeIndex);
+                    }
                     // non-Miller: 해당 뷰에서 rename TextBox 포커스는 IsRenaming 바인딩으로 자동 처리
                 }
             }
@@ -1209,30 +1226,27 @@ namespace Span
             {
                 var viewMode = GetActivePaneViewMode();
 
-                FolderViewModel? column;
-                if (viewMode != ViewMode.MillerColumns)
+                if (viewMode == ViewMode.MillerColumns)
                 {
-                    column = ViewModel.ActiveExplorer.CurrentFolder;
-                }
-                else
-                {
+                    // Shared path: cascade reload, orphan-column cleanup, ListView highlight restore
                     var columns = ViewModel.ActiveExplorer.Columns;
                     int activeIndex = GetActiveColumnIndex();
                     if (activeIndex < 0) activeIndex = columns.Count - 1;
                     if (activeIndex < 0 || activeIndex >= columns.Count) return;
-                    column = columns[activeIndex];
+                    await ViewModel.RefreshCurrentFolderAsync(activeIndex);
+                    return;
                 }
+
+                var column = ViewModel.ActiveExplorer.CurrentFolder;
                 if (column == null) return;
 
-                var previousSelection = column.SelectedChild;
-
+                var previousPath = column.SelectedChild?.Path;
                 await column.ReloadAsync();
 
-                // 이전 선택 복원 (이름 기준)
-                if (previousSelection != null)
+                if (previousPath != null)
                 {
                     var restored = column.Children.FirstOrDefault(c =>
-                        c.Name.Equals(previousSelection.Name, StringComparison.OrdinalIgnoreCase));
+                        c.Path.Equals(previousPath, StringComparison.OrdinalIgnoreCase));
                     if (restored != null)
                         column.SelectedChild = restored;
                 }
@@ -1800,44 +1814,61 @@ namespace Span
         //  Search Box
         // =================================================================
 
+        private DispatcherTimer? _searchDebounceTimer;
+        private bool _searchBoxUpdating;
+
+        /// <summary>
+        /// Live filter while typing; clearing the box resets without Enter.
+        /// Enter still starts recursive (deep) search.
+        /// </summary>
+        private void OnSearchBoxTextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isClosed || _searchBoxUpdating) return;
+
+            string queryText = SearchBox.Text.Trim();
+            if (string.IsNullOrEmpty(queryText))
+            {
+                _searchDebounceTimer?.Stop();
+                ClearActiveSearch();
+                return;
+            }
+
+            // Debounce live filter (reuse one timer — avoid stacking Tick handlers)
+            if (_searchDebounceTimer == null)
+            {
+                _searchDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+                _searchDebounceTimer.Tick += (_, _) =>
+                {
+                    _searchDebounceTimer?.Stop();
+                    if (_isClosed) return;
+                    ApplyLiveSearchFilter(SearchBox.Text.Trim());
+                };
+            }
+            _searchDebounceTimer.Stop();
+            _searchDebounceTimer.Start();
+        }
+
         private void OnSearchBoxKeyDown(object sender, KeyRoutedEventArgs e)
         {
             if (e.Key == Windows.System.VirtualKey.Escape)
             {
                 // RecycleBin 모드: Escape는 RecycleBinHandler에서 통합 처리
                 if (ViewModel.CurrentViewMode == ViewMode.RecycleBin) return;
-                // 재귀 검색 중이면 취소+복원
-                var explorer = ViewModel.ActiveExplorer;
-                if (explorer?.HasActiveSearchResults == true)
-                {
-                    explorer.CancelRecursiveSearch();
-                    ViewModel.UpdateStatusBar();
-                }
-                // 기존 인라인 필터 복원
-                else if (_isSearchFiltered)
-                {
-                    RestoreSearchFilter();
-                }
-                SearchBox.Text = string.Empty;
+                _searchDebounceTimer?.Stop();
+                ClearActiveSearch();
+                _searchBoxUpdating = true;
+                try { SearchBox.Text = string.Empty; }
+                finally { _searchBoxUpdating = false; }
                 GetActiveMillerColumnsControl().Focus(FocusState.Keyboard);
                 e.Handled = true;
             }
             else if (e.Key == Windows.System.VirtualKey.Enter)
             {
+                _searchDebounceTimer?.Stop();
                 string queryText = SearchBox.Text.Trim();
                 if (string.IsNullOrEmpty(queryText))
                 {
-                    // 빈 검색어 + Enter → 검색 결과/인라인 필터 해제 후 원래 폴더 복원
-                    var exp = ViewModel.ActiveExplorer;
-                    if (exp?.HasActiveSearchResults == true)
-                    {
-                        exp.CancelRecursiveSearch();
-                        ViewModel.UpdateStatusBar();
-                    }
-                    else if (_isSearchFiltered)
-                    {
-                        RestoreSearchFilter();
-                    }
+                    ClearActiveSearch();
                     GetActiveMillerColumnsControl().Focus(FocusState.Keyboard);
                     e.Handled = true;
                     return;
@@ -1906,6 +1937,84 @@ namespace Span
 
                 e.Handled = true;
             }
+        }
+
+        /// <summary>
+        /// Clear recursive search results and/or live column filter. Safe to call repeatedly.
+        /// </summary>
+        private void ClearActiveSearch()
+        {
+            if (ViewModel.CurrentViewMode == ViewMode.RecycleBin)
+            {
+                RecycleBinView.FilterItems(string.Empty);
+                return;
+            }
+
+            var explorer = ViewModel.ActiveExplorer;
+            if (explorer?.HasActiveSearchResults == true)
+            {
+                explorer.CancelRecursiveSearch();
+                ViewModel.UpdateStatusBar();
+            }
+
+            if (_isSearchFiltered)
+                RestoreSearchFilter();
+        }
+
+        /// <summary>
+        /// Instant filter of the current folder/column while typing (not recursive).
+        /// </summary>
+        private void ApplyLiveSearchFilter(string queryText)
+        {
+            if (string.IsNullOrEmpty(queryText))
+            {
+                ClearActiveSearch();
+                return;
+            }
+
+            if (ViewModel.CurrentViewMode == ViewMode.RecycleBin)
+            {
+                RecycleBinView.FilterItems(queryText);
+                return;
+            }
+
+            var explorer = ViewModel.ActiveExplorer;
+            if (explorer == null) return;
+
+            // Typing after a recursive search → leave results and filter current folder instead
+            if (explorer.HasActiveSearchResults)
+            {
+                explorer.CancelRecursiveSearch();
+                ViewModel.UpdateStatusBar();
+            }
+
+            var query = Helpers.SearchQueryParser.Parse(queryText);
+            if (query.IsEmpty)
+            {
+                ClearActiveSearch();
+                return;
+            }
+
+            FolderViewModel? column;
+            int columnIndex;
+            var viewMode = GetActivePaneViewMode();
+            if (viewMode == ViewMode.MillerColumns)
+            {
+                var columns = explorer.Columns;
+                columnIndex = GetInteractionColumnIndex();
+                if (columnIndex < 0) columnIndex = columns.Count - 1;
+                if (columnIndex < 0 || columnIndex >= columns.Count) return;
+                column = columns[columnIndex];
+            }
+            else
+            {
+                column = explorer.CurrentFolder;
+                if (column == null) return;
+                columnIndex = explorer.Columns.IndexOf(column);
+                if (columnIndex < 0) columnIndex = explorer.Columns.Count - 1;
+            }
+
+            ApplySearchFilter(column, query, columnIndex);
         }
 
         // ── Search Filter State ──
