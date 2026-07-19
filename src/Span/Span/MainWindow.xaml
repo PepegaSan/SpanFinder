@@ -74,6 +74,9 @@
                                       PointerMoved="OnTabItemPointerMoved"
                                       PointerReleased="OnTabItemPointerReleased"
                                       RightTapped="OnTabRightTapped"
+                                      AllowDrop="True"
+                                      DragOver="OnTabDragOver"
+                                      DragLeave="OnTabDragLeave"
                                       Tag="{x:Bind}">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
@@ -450,11 +453,20 @@
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
+                                        <!-- desktop.ini 커스텀 아이콘 (있을 때만, Issue #39 a) -->
+                                        <Image Grid.Column="0"
+                                               Source="{x:Bind CustomIcon, Mode=OneWay}"
+                                               Visibility="{x:Bind CustomIconVisibility, Mode=OneWay}"
+                                               Width="16" Height="16"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,12,0"/>
+                                        <!-- 기본 글리프 (CustomIcon 없을 때) -->
                                         <TextBlock Grid.Column="0"
                                                    Text="{x:Bind IconGlyph}"
                                                    FontFamily="{StaticResource RemixIcons}"
                                                    FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}"
                                                    Foreground="{x:Bind IconBrush}"
+                                                   Visibility="{x:Bind GlyphVisibility, Mode=OneWay}"
                                                    VerticalAlignment="Center"
                                                    Margin="0,0,12,0"/>
                                         <TextBlock Grid.Column="1"
@@ -578,11 +590,20 @@
                                 <DataTemplate x:DataType="TreeViewNode">
                                     <StackPanel Orientation="Horizontal" Spacing="8"
                                                 ToolTipService.ToolTip="{Binding Content.Path}">
-                                        <TextBlock Text="{Binding Content.IconGlyph}"
-                                                   FontFamily="{StaticResource RemixIcons}"
-                                                   FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}"
-                                                   Foreground="{Binding Content.IconBrush}"
+                                        <Grid>
+                                            <!-- desktop.ini 커스텀 아이콘 (Issue #39 a) -->
+                                            <Image Source="{Binding Content.CustomIcon, Mode=OneWay}"
+                                                   Visibility="{Binding Content.CustomIconVisibility, Mode=OneWay}"
+                                                   Width="16" Height="16"
                                                    VerticalAlignment="Center"/>
+                                            <!-- 기본 글리프 (CustomIcon 없을 때) -->
+                                            <TextBlock Text="{Binding Content.IconGlyph}"
+                                                       FontFamily="{StaticResource RemixIcons}"
+                                                       FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}"
+                                                       Foreground="{Binding Content.IconBrush}"
+                                                       Visibility="{Binding Content.GlyphVisibility, Mode=OneWay}"
+                                                       VerticalAlignment="Center"/>
+                                        </Grid>
                                         <TextBlock Text="{Binding Content.Name}"
                                                    FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
                                                    VerticalAlignment="Center"
@@ -1125,13 +1146,17 @@
                                                                                     </Grid.ColumnDefinitions>
                                                                                     <!-- Col0: path indicator placeholder (matches FolderTemplate column structure) -->
                                                                                     <Border Grid.Column="0" Width="1" CornerRadius="0.5" Margin="-8,2,0,2" Visibility="Collapsed"/>
-                                                                                    <Grid Grid.Column="1" Width="16" Height="16" Margin="0,0,12,0" VerticalAlignment="Center">
+                                                                                    <Grid Grid.Column="1" Width="{Binding IconFontSize, Source={StaticResource FontScale}}" Height="{Binding IconFontSize, Source={StaticResource FontScale}}" Margin="0,0,12,0" VerticalAlignment="Center">
                                                                                         <!-- Opacity 전환: Visibility→Opacity로 레이아웃 패스 없이 렌더링만 전환 (14K 스크롤 지터 방지) -->
                                                                                         <Image Source="{x:Bind ThumbnailSource, Mode=OneWay}" Stretch="UniformToFill"
                                                                                                Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrue(HasThumbnail), Mode=OneWay}"
                                                                                                IsHitTestVisible="False" x:Phase="1"/>
+                                                                                        <!-- Issue #41: CustomIcon 레이어 — exe/lnk 자체 리소스 아이콘 -->
+                                                                                        <Image Source="{x:Bind CustomIcon, Mode=OneWay}" Stretch="Uniform"
+                                                                                               Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrueAndFalse(HasCustomIcon, HasThumbnail), Mode=OneWay}"
+                                                                                               IsHitTestVisible="False" x:Phase="1"/>
                                                                                         <FontIcon FontFamily="{StaticResource RemixIcons}" Glyph="{x:Bind IconGlyph, Mode=OneWay}" FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}" Foreground="{x:Bind IconBrush, Mode=OneWay}"
-                                                                                                  Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfFalse(HasThumbnail), Mode=OneWay}"
+                                                                                                  Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfBothFalse(HasThumbnail, HasCustomIcon), Mode=OneWay}"
                                                                                                   IsHitTestVisible="False"/>
                                                                                         <Border Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrue(HasCloudBadge), Mode=OneWay}"
                                                                                                 HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-4,-4"
@@ -1568,13 +1593,17 @@
                                                                                     </Grid.ColumnDefinitions>
                                                                                     <!-- Col0: path indicator placeholder (matches FolderTemplate column structure) -->
                                                                                     <Border Grid.Column="0" Width="1" CornerRadius="0.5" Margin="-8,2,0,2" Visibility="Collapsed"/>
-                                                                                    <Grid Grid.Column="1" Width="16" Height="16" Margin="0,0,12,0" VerticalAlignment="Center">
+                                                                                    <Grid Grid.Column="1" Width="{Binding IconFontSize, Source={StaticResource FontScale}}" Height="{Binding IconFontSize, Source={StaticResource FontScale}}" Margin="0,0,12,0" VerticalAlignment="Center">
                                                                                         <!-- Opacity 전환: Visibility→Opacity로 레이아웃 패스 없이 렌더링만 전환 (14K 스크롤 지터 방지) -->
                                                                                         <Image Source="{x:Bind ThumbnailSource, Mode=OneWay}" Stretch="UniformToFill"
                                                                                                Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrue(HasThumbnail), Mode=OneWay}"
                                                                                                IsHitTestVisible="False" x:Phase="1"/>
+                                                                                        <!-- Issue #41: CustomIcon 레이어 — exe/lnk 자체 리소스 아이콘 -->
+                                                                                        <Image Source="{x:Bind CustomIcon, Mode=OneWay}" Stretch="Uniform"
+                                                                                               Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrueAndFalse(HasCustomIcon, HasThumbnail), Mode=OneWay}"
+                                                                                               IsHitTestVisible="False" x:Phase="1"/>
                                                                                         <FontIcon FontFamily="{StaticResource RemixIcons}" Glyph="{x:Bind IconGlyph, Mode=OneWay}" FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}" Foreground="{x:Bind IconBrush, Mode=OneWay}"
-                                                                                                  Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfFalse(HasThumbnail), Mode=OneWay}"
+                                                                                                  Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfBothFalse(HasThumbnail, HasCustomIcon), Mode=OneWay}"
                                                                                                   IsHitTestVisible="False"/>
                                                                                         <Border Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrue(HasCloudBadge), Mode=OneWay}"
                                                                                                 HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-4,-4"

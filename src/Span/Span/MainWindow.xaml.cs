@@ -183,18 +183,38 @@ namespace Span
         {
             var explorer = ViewModel?.ActiveExplorer;
             if (explorer == null) return;
-            await explorer.NavigateTo(folder);
 
-            // 로딩 완료 후 파일 선택 시도
-            await Task.Delay(300); // 폴더 로드 대기
-            var lastCol = explorer.Columns.LastOrDefault();
-            if (lastCol == null) return;
-
-            var target = lastCol.Children.FirstOrDefault(
-                i => string.Equals(i.Name, fileName, StringComparison.OrdinalIgnoreCase));
-            if (target != null)
+            // Issue #44: NavigateTo 후 auto-navigation이 첫 항목을 자동 선택하며 자식 컬럼을 생성
+            // 하는 것을 방지. 억제 없이 Columns.LastOrDefault()를 쓰면 잘못된 자식 컬럼을 잡아
+            // 파일이 선택되지 않고 첫 항목이 남는 현상이 발생 (Chrome/Opera "Show in folder" 등).
+            using (explorer.SuppressAutoNavigationScope())
             {
-                target.IsSelected = true;
+                await explorer.NavigateTo(folder);
+
+                // Children 로드 완료를 이벤트가 아닌 polling으로 흡수 (최대 ~2초)
+                FolderViewModel? targetCol = null;
+                FileSystemViewModel? target = null;
+                for (int i = 0; i < 40; i++)
+                {
+                    if (_isClosed) return;
+                    targetCol = explorer.Columns.FirstOrDefault(c =>
+                        c.Path.Equals(folder.Path, StringComparison.OrdinalIgnoreCase));
+                    target = targetCol?.Children.FirstOrDefault(
+                        x => string.Equals(x.Name, fileName, StringComparison.OrdinalIgnoreCase));
+                    if (target != null) break;
+                    await Task.Delay(50);
+                }
+
+                if (targetCol != null && target != null)
+                {
+                    targetCol.SelectedChild = target;
+                    target.IsSelected = true;
+                    Helpers.DebugLogger.Log($"[NavigateAndSelectFile] Selected '{fileName}' in '{folder.Path}'");
+                }
+                else
+                {
+                    Helpers.DebugLogger.Log($"[NavigateAndSelectFile] File '{fileName}' NOT found in '{folder.Path}' after polling");
+                }
             }
         }
 
@@ -879,8 +899,15 @@ namespace Span
                         this.SizeChanged += (_, __) => UpdateTitleBarRegions();
 
                         // Chrome-style dynamic tab width: recalculate on tab add/remove
+                        // Issue #48: 새 탭 추가 후 passthrough 영역을 갱신하지 않으면 새 탭이
+                        // 캡션(드래그) 영역으로 남아 middle-click 등 pointer 이벤트를 못 받음
+                        // (탭 전환 전까지). RecalculateTabWidths 후 UpdateTitleBarRegions 명시 호출.
                         ViewModel.Tabs.CollectionChanged += (_, __) =>
-                            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, RecalculateTabWidths);
+                            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+                            {
+                                RecalculateTabWidths();
+                                UpdateTitleBarRegions();
+                            });
                         // Loaded 시점에는 레이아웃 미완료 → 지연 호출로 정확한 ActualWidth 사용
                         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, RecalculateTabWidths);
 
@@ -1023,8 +1050,13 @@ namespace Span
                     this.SizeChanged += (_, __) => UpdateTitleBarRegions();
 
                     // Chrome-style dynamic tab width: recalculate on tab add/remove
+                    // Issue #48: 새 탭 passthrough 갱신 (위 상세 주석 참조)
                     ViewModel.Tabs.CollectionChanged += (_, __) =>
-                        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, RecalculateTabWidths);
+                        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+                        {
+                            RecalculateTabWidths();
+                            UpdateTitleBarRegions();
+                        });
                     RecalculateTabWidths();
 
                     // ViewMode Visibility 초기화 (x:Bind 제거 후 코드비하인드에서 관리)
@@ -4435,6 +4467,8 @@ namespace Span
                     HasUnrealizedChildren = HasSubfolders(fav.Path)
                 };
                 FavoritesTreeView.RootNodes.Add(node);
+                // Issue #39 a: desktop.ini 커스텀 아이콘 lazy 로드 (트리 뷰)
+                fav.RequestCustomIconLoad();
             }
         }
 
@@ -4496,17 +4530,20 @@ namespace Span
                         if ((info.Attributes & System.IO.FileAttributes.Hidden) != 0) continue;
                         if ((info.Attributes & System.IO.FileAttributes.System) != 0) continue;
 
+                        var childContent = new SidebarFolderNode
+                        {
+                            Name = info.Name,
+                            Path = dir,
+                            IconGlyph = Services.IconService.Current?.FolderGlyph ?? "\uED53"
+                        };
                         var childNode = new TreeViewNode
                         {
-                            Content = new SidebarFolderNode
-                            {
-                                Name = info.Name,
-                                Path = dir,
-                                IconGlyph = Services.IconService.Current?.FolderGlyph ?? "\uED53"
-                            },
+                            Content = childContent,
                             HasUnrealizedChildren = true // Assume subfolders may exist; checked lazily on next expand
                         };
                         args.Node.Children.Add(childNode);
+                        // Issue #39 a: desktop.ini \uCEE4\uC2A4\uD140 \uC544\uC774\uCF58 lazy \uB85C\uB4DC (\uC790\uC2DD \uB178\uB4DC)
+                        childContent.RequestCustomIconLoad();
                     }
                     catch { /* Skip inaccessible directories */ }
                 }
@@ -4703,7 +4740,10 @@ namespace Span
         /// </summary>
         private void OnSidebarContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
         {
-            // No-op: 스케일은 XAML 바인딩이 처리.
+            // Issue #39 a: 사이드바 즐겨찾기에 desktop.ini 커스텀 아이콘 lazy 로드 트리거.
+            // FolderCustomIconsEnabled 설정 ON일 때만 실제 로드 (모델 내부에서 게이트).
+            if (args.Item is FavoriteItem favorite)
+                favorite.RequestCustomIconLoad();
         }
 
         /// <summary>
@@ -4751,6 +4791,49 @@ namespace Span
                 }
                 catch { /* ignore */ }
             });
+
+            // Issue #45: 컬럼 너비 자동 조정 옵션이 켜져 있으면 내용에 맞춰 fit.
+            if (_settings.AutoFitColumnWidth)
+                _ = AutoFitColumnWhenReadyAsync(grid);
+        }
+
+        /// <summary>
+        /// Issue #45: 콘텐츠 Grid에서 폭 Grid(MillerColumnWidth 바인딩)를 찾아,
+        /// Children 로드 완료 후 내용에 맞춘 폭으로 자동 조정한다.
+        /// 폭 Grid.Width에 로컬 값을 세팅하면 바인딩보다 우선 적용된다
+        /// (설정 OFF 후 재네비게이션 시 새 Grid가 바인딩을 복원).
+        /// </summary>
+        private async System.Threading.Tasks.Task AutoFitColumnWhenReadyAsync(Grid contentGrid)
+        {
+            try
+            {
+                // contentGrid → Border → 폭 Grid (line 953: Width 바인딩)
+                var border = VisualTreeHelper.GetParent(contentGrid) as FrameworkElement;
+                var widthGrid = VisualTreeHelper.GetParent(border) as Grid;
+                if (widthGrid == null) return;
+
+                var column = contentGrid.DataContext as FolderViewModel;
+                if (column == null) return;
+
+                // Children 로드 완료 대기 (컬럼 가시화 시 EnsureChildrenLoadedAsync가 비동기 populate)
+                for (int i = 0; i < 20; i++)
+                {
+                    if (_isClosed) return;
+                    if (!_settings.AutoFitColumnWidth) return; // 로딩 중 설정 OFF 시 중단
+                    if (column.Children.Count > 0)
+                    {
+                        double fitted = MeasureColumnContentWidth(column);
+                        widthGrid.Width = fitted;
+                        return;
+                    }
+                    await System.Threading.Tasks.Task.Delay(50);
+                }
+                // 빈 폴더 등: 기본 폭 유지
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[AutoFitColumn] failed: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -6567,29 +6650,59 @@ namespace Span
             {
                 System.IO.Directory.CreateDirectory(newPath);
 
-                // Find and refresh the column for this parent
                 var columns = ViewModel.ActiveExplorer?.Columns; if (columns == null) return;
                 var parentColumn = columns.FirstOrDefault(c =>
                     c.Path.Equals(parentFolderPath, StringComparison.OrdinalIgnoreCase));
-                if (parentColumn != null)
+                if (parentColumn == null) return;
+
+                await parentColumn.ReloadAsync();
+
+                // Children polling — SyncChildren race 대비
+                Span.ViewModels.FileSystemViewModel? newFolder = null;
+                for (int i = 0; i < 10; i++)
                 {
-                    await parentColumn.ReloadAsync();
-                    var newFolder = parentColumn.Children.FirstOrDefault(c =>
+                    newFolder = parentColumn.Children.FirstOrDefault(c =>
                         c.Path.Equals(newPath, StringComparison.OrdinalIgnoreCase));
-                    if (newFolder != null)
+                    if (newFolder != null) break;
+                    await System.Threading.Tasks.Task.Delay(50);
+                }
+                if (newFolder == null)
+                {
+                    Helpers.DebugLogger.Log($"[ContextMenu] PerformNewFolder: new folder not found after polling ({newPath})");
+                    return;
+                }
+
+                int colIndex = columns.IndexOf(parentColumn);
+                var explorer = ViewModel.ActiveExplorer!;
+
+                // 컨텍스트 메뉴 닫힘 → 컬럼 GotFocus → CancelAnyActiveRename 호출 차단.
+                // _renamePendingFocus = true 상태에서는 CancelAnyActiveRename과
+                // OnRenameTextBoxLostFocus가 첫 줄에서 return하여 rename이 죽지 않음.
+                _renamePendingFocus = true;
+                try
+                {
+                    using (explorer.SuppressAutoNavigationScope())
                     {
-                        // Keep suppress across selection debounce so rename stays in parent column
-                        using (ViewModel.ActiveExplorer?.SuppressAutoNavigation())
-                        {
-                            parentColumn.SelectedChild = newFolder;
-                            parentColumn.SyncSelectedItems(new List<object> { newFolder });
-                            newFolder.BeginRename();
-                            await System.Threading.Tasks.Task.Delay(200);
-                            int colIndex = columns.IndexOf(parentColumn);
-                            if (colIndex >= 0)
-                                FocusRenameTextBox(colIndex);
-                        }
+                        parentColumn.SelectedChild = newFolder;
+                        parentColumn.SyncSelectedItems(new List<object> { newFolder });
+                        newFolder.BeginRename();
+                        _renameTargetPath = newFolder.Path;
+                        _renameSelectionCycle = 0;
+
+                        var itemsHost = colIndex >= 0 ? GetListViewForColumn(colIndex) : null;
+                        if (itemsHost != null)
+                            await FocusRenameTextBoxWithPollingAsync(itemsHost, newFolder);
+                        else
+                            Helpers.DebugLogger.Log($"[ContextMenu] PerformNewFolder: no ListView for col={colIndex}");
+
+                        // 큐된 SelectionChanged / GotFocus 이벤트 흡수
+                        await System.Threading.Tasks.Task.Delay(200);
                     }
+                }
+                finally
+                {
+                    _renamePendingFocus = false;
+                    Helpers.DebugLogger.Log($"[ContextMenu] PerformNewFolder: cleared _renamePendingFocus, final IsRenaming={newFolder.IsRenaming}");
                 }
             }
             catch (Exception ex)
@@ -6618,24 +6731,53 @@ namespace Span
                 var result = await op.ExecuteAsync();
                 if (!result.Success) return;
 
-                // Refresh column and start rename
                 var columns = ViewModel.ActiveExplorer?.Columns; if (columns == null) return;
                 var parentColumn = columns.FirstOrDefault(c =>
                     c.Path.Equals(parentFolderPath, StringComparison.OrdinalIgnoreCase));
-                if (parentColumn != null)
+                if (parentColumn == null) return;
+
+                await parentColumn.ReloadAsync();
+
+                Span.ViewModels.FileSystemViewModel? newFile = null;
+                for (int i = 0; i < 10; i++)
                 {
-                    await parentColumn.ReloadAsync();
-                    var newFile = parentColumn.Children.FirstOrDefault(c =>
+                    newFile = parentColumn.Children.FirstOrDefault(c =>
                         c.Path.Equals(newPath, StringComparison.OrdinalIgnoreCase));
-                    if (newFile != null)
+                    if (newFile != null) break;
+                    await System.Threading.Tasks.Task.Delay(50);
+                }
+                if (newFile == null)
+                {
+                    Helpers.DebugLogger.Log($"[ContextMenu] PerformNewFile: new file not found after polling ({newPath})");
+                    return;
+                }
+
+                int colIndex = columns.IndexOf(parentColumn);
+                var explorer = ViewModel.ActiveExplorer!;
+
+                _renamePendingFocus = true;
+                try
+                {
+                    using (explorer.SuppressAutoNavigationScope())
                     {
                         parentColumn.SelectedChild = newFile;
                         newFile.BeginRename();
-                        await System.Threading.Tasks.Task.Delay(100);
-                        int colIndex = columns.IndexOf(parentColumn);
-                        if (colIndex >= 0)
-                            FocusRenameTextBox(colIndex);
+                        _renameTargetPath = newFile.Path;
+                        _renameSelectionCycle = 0;
+
+                        var itemsHost = colIndex >= 0 ? GetListViewForColumn(colIndex) : null;
+                        if (itemsHost != null)
+                            await FocusRenameTextBoxWithPollingAsync(itemsHost, newFile);
+                        else
+                            Helpers.DebugLogger.Log($"[ContextMenu] PerformNewFile: no ListView for col={colIndex}");
+
+                        await System.Threading.Tasks.Task.Delay(200);
                     }
+                }
+                finally
+                {
+                    _renamePendingFocus = false;
+                    Helpers.DebugLogger.Log($"[ContextMenu] PerformNewFile: cleared _renamePendingFocus, final IsRenaming={newFile.IsRenaming}");
                 }
             }
             catch (Exception ex)
@@ -6655,24 +6797,53 @@ namespace Span
 
                 if (newPath == null) return; // Command 타입 — 외부 프로세스가 처리
 
-                // Refresh column and start rename
                 var columns = ViewModel.ActiveExplorer?.Columns; if (columns == null) return;
                 var parentColumn = columns.FirstOrDefault(c =>
                     c.Path.Equals(parentFolderPath, StringComparison.OrdinalIgnoreCase));
-                if (parentColumn != null)
+                if (parentColumn == null) return;
+
+                await parentColumn.ReloadAsync();
+
+                Span.ViewModels.FileSystemViewModel? newFile = null;
+                for (int i = 0; i < 10; i++)
                 {
-                    await parentColumn.ReloadAsync();
-                    var newFile = parentColumn.Children.FirstOrDefault(c =>
+                    newFile = parentColumn.Children.FirstOrDefault(c =>
                         c.Path.Equals(newPath, StringComparison.OrdinalIgnoreCase));
-                    if (newFile != null)
+                    if (newFile != null) break;
+                    await System.Threading.Tasks.Task.Delay(50);
+                }
+                if (newFile == null)
+                {
+                    Helpers.DebugLogger.Log($"[ContextMenu] PerformNewFileFromShellNew: new file not found after polling ({newPath})");
+                    return;
+                }
+
+                int colIndex = columns.IndexOf(parentColumn);
+                var explorer = ViewModel.ActiveExplorer!;
+
+                _renamePendingFocus = true;
+                try
+                {
+                    using (explorer.SuppressAutoNavigationScope())
                     {
                         parentColumn.SelectedChild = newFile;
                         newFile.BeginRename();
-                        await System.Threading.Tasks.Task.Delay(100);
-                        int colIndex = columns.IndexOf(parentColumn);
-                        if (colIndex >= 0)
-                            FocusRenameTextBox(colIndex);
+                        _renameTargetPath = newFile.Path;
+                        _renameSelectionCycle = 0;
+
+                        var itemsHost = colIndex >= 0 ? GetListViewForColumn(colIndex) : null;
+                        if (itemsHost != null)
+                            await FocusRenameTextBoxWithPollingAsync(itemsHost, newFile);
+                        else
+                            Helpers.DebugLogger.Log($"[ContextMenu] PerformNewFileFromShellNew: no ListView for col={colIndex}");
+
+                        await System.Threading.Tasks.Task.Delay(200);
                     }
+                }
+                finally
+                {
+                    _renamePendingFocus = false;
+                    Helpers.DebugLogger.Log($"[ContextMenu] PerformNewFileFromShellNew: cleared _renamePendingFocus, final IsRenaming={newFile.IsRenaming}");
                 }
             }
             catch (Exception ex)

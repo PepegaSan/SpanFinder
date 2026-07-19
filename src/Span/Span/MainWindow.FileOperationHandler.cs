@@ -927,8 +927,25 @@ namespace Span
                 if (activeIndex < 0 || activeIndex >= columns.Count) return;
 
                 var col = columns[activeIndex];
-                destDir = col.Path;
-                targetFolder = col;
+
+                // Issue #49: 선택된 항목이 폴더면 그 폴더가 붙여넣기 대상 (Windows Explorer 동작).
+                // Column View에서 부모 컬럼의 폴더를 선택 → 자식 컬럼에 내용 표시 상태에서
+                // Ctrl+V는 부모 폴더가 아닌 선택된 자식 폴더에 붙여넣어야 자연스러움.
+                if (col.SelectedChild is FolderViewModel selectedFolder
+                    && !string.IsNullOrEmpty(selectedFolder.Path)
+                    && System.IO.Directory.Exists(selectedFolder.Path))
+                {
+                    destDir = selectedFolder.Path;
+                    targetFolder = selectedFolder;
+                    // targetColumnIndex는 자식 컬럼(activeIndex + 1)이 있으면 그쪽을 리프레시
+                    if (activeIndex + 1 < columns.Count && columns[activeIndex + 1].Path.Equals(destDir, StringComparison.OrdinalIgnoreCase))
+                        activeIndex = activeIndex + 1;
+                }
+                else
+                {
+                    destDir = col.Path;
+                    targetFolder = col;
+                }
                 Helpers.DebugLogger.Log($"[HandlePaste] FINAL destDir={destDir}");
             }
 
@@ -1183,23 +1200,58 @@ namespace Span
                 var op = new Span.Services.FileOperations.NewFolderOperation(newPath, router);
                 await ViewModel.ExecuteFileOperationAsync(op, activeIndex >= 0 ? activeIndex : (int?)null);
 
-                // Select the new folder and start inline rename.
-                // Suppress auto-nav for the whole rename kickoff: SelectedChild=Folder would
-                // otherwise open a child column after the 150ms selection debounce.
-                var newFolder = currentFolder.Children.FirstOrDefault(c =>
-                    c.Path.Equals(newPath, StringComparison.OrdinalIgnoreCase));
-                if (newFolder != null)
+                // 새 폴더가 Children에 반영될 때까지 짧게 polling (Refresh가 끝났어도 SyncChildren race 대비)
+                FileSystemViewModel? newFolder = null;
+                for (int i = 0; i < 10; i++)
                 {
-                    using (ViewModel.ActiveExplorer?.SuppressAutoNavigation())
+                    newFolder = currentFolder.Children.FirstOrDefault(c =>
+                        c.Path.Equals(newPath, StringComparison.OrdinalIgnoreCase));
+                    if (newFolder != null) break;
+                    await System.Threading.Tasks.Task.Delay(50);
+                }
+
+                if (newFolder == null)
+                {
+                    Helpers.DebugLogger.Log($"[FileOp] HandleNewFolder: new folder not found in Children after polling ({newPath})");
+                    return;
+                }
+
+                Helpers.DebugLogger.Log($"[FileOp] HandleNewFolder: viewMode={viewMode}, activeIndex={activeIndex}, newFolder='{newFolder.Name}' found");
+
+                // 핵심 가드: _renamePendingFocus = true 동안
+                //  - CancelAnyActiveRename() 첫 줄에서 return
+                //  - OnRenameTextBoxLostFocus 첫 줄에서 return
+                // → ListView SelectionChanged가 fire되어도 rename이 즉시 취소되지 않음.
+                //
+                // 추가로 SuppressAutoNavigationScope로 자식 컬럼 자동 생성도 함께 차단하여
+                // UI 컨테이너 재구성 race를 막는다.
+                var explorer = ViewModel.ActiveExplorer;
+                _renamePendingFocus = true;
+                try
+                {
+                    using (explorer.SuppressAutoNavigationScope())
                     {
                         currentFolder.SelectedChild = newFolder;
                         currentFolder.SyncSelectedItems(new List<object> { newFolder });
                         newFolder.BeginRename();
+                        _renameTargetPath = newFolder.Path;
+                        _renameSelectionCycle = 0;
+
+                        var itemsHost = GetItemsHostForViewMode(viewMode, activeIndex);
+                        if (itemsHost != null)
+                            await FocusRenameTextBoxWithPollingAsync(itemsHost, newFolder);
+                        else
+                            Helpers.DebugLogger.Log($"[FileOp] HandleNewFolder: no ItemsHost for viewMode={viewMode}");
+
+                        // FolderVm_PropertyChanged의 Task.Yield continuation 및 늦게 도착하는
+                        // ListView SelectionChanged 이벤트를 흡수.
                         await System.Threading.Tasks.Task.Delay(200);
-                        if (viewMode == ViewMode.MillerColumns && activeIndex >= 0)
-                            FocusRenameTextBox(activeIndex);
                     }
-                    // non-Miller: 해당 뷰에서 rename TextBox 포커스는 IsRenaming 바인딩으로 자동 처리
+                }
+                finally
+                {
+                    _renamePendingFocus = false;
+                    Helpers.DebugLogger.Log($"[FileOp] HandleNewFolder: cleared _renamePendingFocus, final IsRenaming={newFolder.IsRenaming}");
                 }
             }
             catch (Exception ex)
@@ -1391,6 +1443,67 @@ namespace Span
             }
 
             FocusRenameTextBoxCore(listView, columnIndex);
+        }
+
+        /// <summary>
+        /// HandleNewFolder 전용: 현재 활성 뷰의 ListViewBase(ListView/GridView)를 반환.
+        /// Miller / Details / List / Icon 모두 지원.
+        /// </summary>
+        private Microsoft.UI.Xaml.Controls.ListViewBase? GetItemsHostForViewMode(ViewMode viewMode, int activeIndex)
+        {
+            switch (viewMode)
+            {
+                case ViewMode.MillerColumns:
+                    return activeIndex >= 0 ? GetListViewForColumn(activeIndex) : null;
+                case ViewMode.Details:
+                    return GetActiveDetailsView()?.ItemsHost;
+                case ViewMode.List:
+                    return GetActiveListView()?.ItemsHost;
+                case ViewMode.IconSmall:
+                case ViewMode.IconMedium:
+                case ViewMode.IconLarge:
+                case ViewMode.IconExtraLarge:
+                    return GetActiveIconView()?.ItemsHost;
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// 새 폴더 생성 직후 rename TextBox에 포커스를 잡기 위한 polling 헬퍼.
+        /// 컨테이너 생성/가상화 race를 50ms × 최대 10회 polling으로 흡수.
+        /// </summary>
+        private async System.Threading.Tasks.Task FocusRenameTextBoxWithPollingAsync(
+            Microsoft.UI.Xaml.Controls.ListViewBase listView,
+            FileSystemViewModel item)
+        {
+            if (listView == null || item == null) return;
+
+            try { listView.ScrollIntoView(item); } catch { /* ignore */ }
+
+            bool containerFound = false;
+            bool textBoxFound = false;
+            for (int i = 0; i < 20; i++)
+            {
+                if (_isClosed) return;
+
+                var container = listView.ContainerFromItem(item) as UIElement;
+                if (container != null)
+                {
+                    containerFound = true;
+                    var textBox = VisualTreeHelpers.FindChild<TextBox>(container as DependencyObject);
+                    if (textBox != null)
+                    {
+                        textBoxFound = true;
+                        Helpers.DebugLogger.Log($"[FileOp] FocusRename: TextBox found at attempt {i + 1}, IsRenaming={item.IsRenaming}");
+                        ApplyRenameSelection(textBox, item is FolderViewModel);
+                        return;
+                    }
+                }
+                await System.Threading.Tasks.Task.Delay(50);
+            }
+
+            Helpers.DebugLogger.Log($"[FileOp] FocusRename: FAILED — containerFound={containerFound}, textBoxFound={textBoxFound}, IsRenaming={item.IsRenaming}, path={item.Path}");
         }
 
         private void FocusRenameTextBoxCore(ListView listView, int columnIndex)
