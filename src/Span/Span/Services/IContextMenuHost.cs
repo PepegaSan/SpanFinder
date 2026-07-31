@@ -19,6 +19,8 @@ namespace Span.Services
         void PerformPaste(string targetFolderPath);
         void PerformDelete(string path, string itemName);
         void PerformRename(FileSystemViewModel item);
+        /// <summary>Resolve path to the live ViewModel in a visible pane, then inline-rename.</summary>
+        void PerformRenameByPath(string path);
         void PerformOpen(FileSystemViewModel item);
         void PerformOpenDrive(DriveItem drive);
         void PerformOpenFavorite(FavoriteItem fav);

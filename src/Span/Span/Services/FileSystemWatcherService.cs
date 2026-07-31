@@ -111,6 +111,26 @@ namespace Span.Services
             _debounceTimers.Clear();
         }
 
+        /// <summary>
+        /// Recreate every active watcher. FileSystemWatcher can miss events (or go silent)
+        /// after the process was backgrounded / suspended for a long time; reaffirming on
+        /// foreground resume restores reliable change detection.
+        /// </summary>
+        public void ReaffirmAllWatchers()
+        {
+            List<string> paths;
+            lock (_lock)
+            {
+                paths = _watchers.Keys.ToList();
+            }
+
+            foreach (var path in paths)
+                RecreateWatcher(path);
+
+            if (paths.Count > 0)
+                Helpers.DebugLogger.Log($"[FileSystemWatcher] Reaffirmed {paths.Count} watcher(s) after resume");
+        }
+
         private void OnFileSystemEvent(object sender, FileSystemEventArgs e)
         {
             if (sender is not FileSystemWatcher watcher) return;

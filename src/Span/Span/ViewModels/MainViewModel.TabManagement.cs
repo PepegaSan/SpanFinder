@@ -216,9 +216,11 @@ namespace Span.ViewModels
                 IsSwitchingTab = false;
             }
 
-            // 탭별 분할 레이아웃을 x:Bind에 통지 (backing field로 설정했으므로 수동 통지 필요).
-            // code-behind의 UpdateViewModeVisibility()가 ApplySplitLayout()으로 실제 레이아웃을 적용한다.
+            // 탭별 분할 + ViewMode를 x:Bind/UI에 통지 (backing field로 설정했으므로 수동 통지 필요).
+            // ViewMode를 빼먹으면 이전 탭의 Details/List/Icon-Host가 그대로 남아
+            // Miller-탭으로 돌아와도 "다른 탭의 뷰"가 보이는 버그가 난다.
             NotifySplitViewChanged();
+            NotifyViewModeChanged();
         }
 
         /// <summary>
@@ -450,8 +452,10 @@ namespace Span.ViewModels
         /// </summary>
         public void NotifyViewModeChanged()
         {
-            // LeftViewMode는 XAML x:Bind에서 사용하지 않으므로 제거 (불필요한 바인딩 평가 방지)
             OnPropertyChanged(nameof(CurrentViewMode));
+            OnPropertyChanged(nameof(LeftViewMode));
+            OnPropertyChanged(nameof(RightViewMode));
+            OnPropertyChanged(nameof(CurrentIconSize));
         }
 
         /// <summary>

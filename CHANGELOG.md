@@ -21,6 +21,8 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 - Groups can be **expanded and collapsed**.
 - Context menu entries: **New group**, **Move to group**, rename/delete group on the group header.
 - **Fix:** Removing one favorite no longer moves items in other groups back to the ungrouped list.
+- **Unified sidebar list** (July 2026): one flat list with section headers (OneCommander-style) instead of nested ListViews — drag to reorder pins **and** groups in a single list.
+- **Drop into group:** dragging a folder onto a group header or a pin inside a group adds it to that group (not only to ungrouped favorites). The drag tooltip shows the target group name.
 
 ### Paper theme
 
@@ -63,6 +65,14 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 - **Fix:** Cut/Copy via native Windows shell context menu now enables **Paste** in SpanFinder (syncs OS clipboard / `CF_HDROP`).
 - **Ctrl+Shift+C** — copy path (selected item or current folder); rebind in Settings → Shortcuts.
 - **Fix:** Delete failures show **file in use** / read-only messages instead of misleading “admin required” when another program locks the file.
+
+### Split view, rename, and live folders (July 2026)
+
+- **Quad toolbar button:** one-click **2×2** split next to the other split controls; click again to leave split view.
+- **Per-pane New button:** each Dual/Quad pane header has a **New…** menu (new folder + Shell New types), without needing an empty-area right-click.
+- **Shell rename:** “Rename” from the native Windows context menu now starts Span’s **inline rename** (raw shell rename with no UI did nothing in WinUI).
+- **Tab view-mode bleed fix:** switching tabs no longer leaves the wrong host visible or overwrites another tab’s saved view mode when Dual/Quad layouts differ.
+- **Resume refresh:** after the window was backgrounded for a few seconds, returning to the foreground **reaffirms file-system watchers** and refreshes visible panes so external changes are not missed.
 
 ---
 

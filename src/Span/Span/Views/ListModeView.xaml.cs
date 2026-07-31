@@ -981,6 +981,9 @@ namespace Span.Views
             var vm = textBox.DataContext as FileSystemViewModel;
             if (vm == null || !vm.IsRenaming) return;
 
+            if ((ContextMenuHost as MainWindow)?.IsRenameFocusPending == true)
+                return;
+
             vm.CommitRename();
             _renameTargetPath = null;
         }

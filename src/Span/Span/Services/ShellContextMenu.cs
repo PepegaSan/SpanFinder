@@ -15,11 +15,12 @@ namespace Span.Services
     /// <summary>Span-specific item appended below the native shell context menu.</summary>
     public sealed record SpanFooterItem(string Text, Action Action);
 
-    /// <summary>Routes standard shell copy/cut through Span's clipboard (same as Ctrl+C / Ctrl+X).</summary>
+    /// <summary>Routes standard shell verbs through Span (copy/cut/rename don't work via raw InvokeCommand in WinUI).</summary>
     public sealed class ShellStandardVerbHandlers
     {
         public Action? Copy { get; init; }
         public Action? Cut { get; init; }
+        public Action? Rename { get; init; }
     }
 
     /// <summary>
@@ -557,6 +558,14 @@ namespace Span.Services
             if (string.Equals(verb, "cut", StringComparison.OrdinalIgnoreCase) && handlers.Cut != null)
             {
                 handlers.Cut();
+                return true;
+            }
+
+            // Shell rename with CMIC_MASK_FLAG_NO_UI does nothing useful outside Explorer —
+            // route to Span's inline rename instead.
+            if (string.Equals(verb, "rename", StringComparison.OrdinalIgnoreCase) && handlers.Rename != null)
+            {
+                handlers.Rename();
                 return true;
             }
 

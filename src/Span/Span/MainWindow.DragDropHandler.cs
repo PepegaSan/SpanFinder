@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.Extensions.DependencyInjection;
 using Span.Helpers;
+using Span.Models;
 using Span.ViewModels;
 using Span.Services;
 using Span.Services.FileOperations;
@@ -15,6 +16,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI.Input;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.Foundation;
 
 namespace Span
 {
@@ -246,28 +248,46 @@ namespace Span
             if (e.DataView.Contains(StandardDataFormats.Text) ||
                 e.DataView.Contains(StandardDataFormats.StorageItems))
             {
+                // Link (not Move) so the ListView does not treat folder drops as item reorder.
                 e.AcceptedOperation = DataPackageOperation.Link;
+                e.Handled = true;
                 e.DragUIOverride.IsCaptionVisible = false;
                 e.DragUIOverride.IsGlyphVisible = false;
-                UpdateDragTooltip(_loc.Get("DragAddToFavorites"), e, sender as UIElement ?? (UIElement)Content);
+
+                var groupId = ResolveFavoriteDropTargetGroupId(e);
+                var groupName = !string.IsNullOrEmpty(groupId)
+                    ? ViewModel.FavoriteGroups.FirstOrDefault(g => g.Id == groupId)?.Name
+                    : null;
+                var tip = string.IsNullOrEmpty(groupName)
+                    ? _loc.Get("DragAddToFavorites")
+                    : $"{_loc.Get("DragAddToFavorites")}: {groupName}";
+                UpdateDragTooltip(tip, e, sender as UIElement ?? (UIElement)Content);
             }
         }
 
         /// <summary>
         /// 즐겨찾기 사이드바에 드롭 시 드롭된 경로를 즐겨찾기 목록에 추가한다.
+        /// Drop-Zielgruppe kommt von der Zeile unter dem Cursor (Header/Item), sonst ungruppiert.
         /// </summary>
         private async void OnFavoritesDrop(object sender, DragEventArgs e)
         {
             HideDragTooltip();
+            if (!e.DataView.Contains(StandardDataFormats.Text) &&
+                !e.DataView.Contains(StandardDataFormats.StorageItems))
+                return;
+
+            e.Handled = true;
             try
             {
+                var groupId = ResolveFavoriteDropTargetGroupId(e);
+
                 if (e.DataView.Contains(StandardDataFormats.Text))
                 {
                     var path = await e.DataView.GetTextAsync();
                     if (!string.IsNullOrEmpty(path) && System.IO.Directory.Exists(path))
                     {
-                        ViewModel.AddToFavorites(path);
-                        Helpers.DebugLogger.Log($"[Sidebar] Folder dropped to favorites: {path}");
+                        ViewModel.AddToFavorites(path, groupId);
+                        Helpers.DebugLogger.Log($"[Sidebar] Folder dropped to favorites: {path} group={groupId ?? "(ungrouped)"}");
                     }
                 }
                 else if (e.DataView.Contains(StandardDataFormats.StorageItems))
@@ -277,8 +297,8 @@ namespace Span
                     {
                         if (!string.IsNullOrEmpty(item.Path) && System.IO.Directory.Exists(item.Path))
                         {
-                            ViewModel.AddToFavorites(item.Path);
-                            Helpers.DebugLogger.Log($"[Sidebar] External folder dropped to favorites: {item.Path}");
+                            ViewModel.AddToFavorites(item.Path, groupId);
+                            Helpers.DebugLogger.Log($"[Sidebar] External folder dropped to favorites: {item.Path} group={groupId ?? "(ungrouped)"}");
                         }
                     }
                 }
@@ -287,6 +307,51 @@ namespace Span
             {
                 Helpers.DebugLogger.Log($"[DragDrop] OnFavoritesDrop error: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Resolve which favorites group is under the pointer (null = ungrouped zone).
+        /// </summary>
+        private string? ResolveFavoriteDropTargetGroupId(DragEventArgs e)
+        {
+            var list = FavoritesSidebarList;
+            if (list == null || ViewModel.FavoritesSidebarRows.Count == 0)
+                return null;
+
+            if (Content is UIElement root)
+            {
+                var hostPos = e.GetPosition(root);
+                foreach (var el in VisualTreeHelper.FindElementsInHostCoordinates(hostPos, list))
+                {
+                    if (el is not FrameworkElement fe) continue;
+                    if (FindParentDataContext<FavoriteGroupHeaderRow>(fe) is { } header)
+                        return header.GroupId;
+                    if (FindParentDataContext<FavoriteItemRow>(fe) is { } row)
+                        return row.GroupId;
+                }
+            }
+
+            // Fallback: map Y to the section of the nearest row (virtualized containers may miss hit-test).
+            var y = e.GetPosition(list).Y;
+            string? activeGroupId = null;
+            for (int i = 0; i < ViewModel.FavoritesSidebarRows.Count; i++)
+            {
+                var row = ViewModel.FavoritesSidebarRows[i];
+                if (row is FavoriteGroupHeaderRow header)
+                    activeGroupId = header.GroupId;
+                else if (row is FavoriteItemRow itemRow)
+                    activeGroupId = itemRow.GroupId;
+
+                if (list.ContainerFromIndex(i) is not FrameworkElement container)
+                    continue;
+
+                var top = container.TransformToVisual(list).TransformPoint(new Point(0, 0)).Y;
+                var bottom = top + container.ActualHeight;
+                if (y < bottom)
+                    return activeGroupId;
+            }
+
+            return activeGroupId;
         }
 
         #endregion

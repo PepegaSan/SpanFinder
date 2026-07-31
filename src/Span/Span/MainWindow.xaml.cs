@@ -260,6 +260,13 @@ namespace Span
         private FileSystemWatcherService? _watcherService;
         private System.IO.FileSystemWatcher? _networkShortcutsWatcher;
 
+        // Resume reconciliation: OS may drop watcher events while the window is backgrounded.
+        private DateTime? _backgroundedAtUtc;
+        private DateTime _lastResumeRefreshUtc = DateTime.MinValue;
+        private bool _resumeRefreshInProgress;
+        private const double ResumeRefreshMinBackgroundSeconds = 3.0;
+        private const double ResumeRefreshCooldownSeconds = 2.0;
+
         /// <summary>
         /// 현재 테마에 맞는 브러시를 조회한다.
         /// 윈도우 레벨 ThemeDictionaries (커스텀 테마) → 앱 레벨 (시스템 accent) 순으로 fallback.
@@ -305,6 +312,7 @@ namespace Span
 
         // H2: 동일 ViewMode 탭 전환 시 NotifyViewModeChanged 스킵
         private ViewMode _previousViewMode = ViewMode.MillerColumns;
+        private bool _isUpdatingViewModeVisibility;
 
         // ── Per-Tab Miller Panels (Show/Hide pattern for instant tab switching) ──
         // 각 탭마다 별도 ScrollViewer+ItemsControl 쌍 유지 — Visibility 토글로 즉시 전환
@@ -1412,8 +1420,28 @@ namespace Span
                     SaveShelfToSettings();
                 }
 
-                // FileSystemWatcher 정리
-                _watcherService?.StopAll();
+                // FileSystemWatcher 정리 — PathChanged 구독 해제.
+                // StopAll()는 싱글톤이므로 마지막 MainWindow에서만 호출 (다른 창의 감시 유지).
+                this.Activated -= OnWindowActivatedForFolderRefresh;
+                if (_watcherService != null)
+                {
+                    _watcherService.PathChanged -= OnWatcherPathChanged;
+                    int otherMainWindows = 0;
+                    try
+                    {
+                        foreach (var w in App.Current.GetRegisteredWindows())
+                        {
+                            if (w is MainWindow mw && !ReferenceEquals(mw, this) && !mw.IsClosed)
+                                otherMainWindows++;
+                        }
+                    }
+                    catch { }
+
+                    if (otherMainWindows == 0)
+                        _watcherService.StopAll();
+
+                    _watcherService = null;
+                }
                 _networkShortcutsWatcher?.Dispose();
                 _networkShortcutsWatcher = null;
 
@@ -2186,6 +2214,8 @@ namespace Span
                 _watcherService = App.Current.Services.GetRequiredService<FileSystemWatcherService>();
                 _watcherService.PathChanged += OnWatcherPathChanged;
                 UpdateFileSystemWatcherPaths();
+                this.Activated -= OnWindowActivatedForFolderRefresh;
+                this.Activated += OnWindowActivatedForFolderRefresh;
             }
             catch (Exception ex)
             {
@@ -2255,6 +2285,68 @@ namespace Span
             }
 
             _watcherService.SetWatchedPaths(paths);
+        }
+
+        /// <summary>
+        /// After the window was backgrounded long enough that FileSystemWatcher may have
+        /// missed OS notifications, reload every visible pane when we come back.
+        /// </summary>
+        private void OnWindowActivatedForFolderRefresh(object sender, WindowActivatedEventArgs args)
+        {
+            if (_isClosed) return;
+
+            if (args.WindowActivationState == WindowActivationState.Deactivated)
+            {
+                _backgroundedAtUtc ??= DateTime.UtcNow;
+                return;
+            }
+
+            // CodeActivated / PointerActivated → foreground again
+            if (_backgroundedAtUtc == null) return;
+
+            var backgroundedFor = DateTime.UtcNow - _backgroundedAtUtc.Value;
+            _backgroundedAtUtc = null;
+
+            if (backgroundedFor.TotalSeconds < ResumeRefreshMinBackgroundSeconds)
+                return;
+
+            if ((DateTime.UtcNow - _lastResumeRefreshUtc).TotalSeconds < ResumeRefreshCooldownSeconds)
+                return;
+
+            if (_resumeRefreshInProgress) return;
+
+            _ = RefreshVisibleFoldersAfterResumeAsync(backgroundedFor);
+        }
+
+        private async System.Threading.Tasks.Task RefreshVisibleFoldersAfterResumeAsync(TimeSpan backgroundedFor)
+        {
+            if (_isClosed || ViewModel == null || _resumeRefreshInProgress) return;
+
+            _resumeRefreshInProgress = true;
+            _lastResumeRefreshUtc = DateTime.UtcNow;
+            try
+            {
+                Helpers.DebugLogger.Log(
+                    $"[FileWatcher] Resume refresh after {backgroundedFor.TotalSeconds:F1}s in background");
+
+                // Watchers can go silent after suspension — recreate before relying on them again.
+                try { _watcherService?.ReaffirmAllWatchers(); } catch { }
+                UpdateFileSystemWatcherPaths();
+
+                // Brief yield so Activate/layout settle before SyncChildren churn.
+                await System.Threading.Tasks.Task.Delay(150);
+                if (_isClosed || ViewModel == null) return;
+
+                await ViewModel.RefreshAllSplitExplorersAsync();
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[FileWatcher] Resume refresh failed: {ex.Message}");
+            }
+            finally
+            {
+                _resumeRefreshInProgress = false;
+            }
         }
 
         /// <summary>
@@ -2664,30 +2756,33 @@ namespace Span
         /// </summary>
         private void UpdateViewModeVisibility()
         {
+            // SetViewModeVisibility → ApplySplitLayout → UpdateViewModeVisibility; block re-entry.
+            if (_isUpdatingViewModeVisibility) return;
+
+            _isUpdatingViewModeVisibility = true;
             _suppressFocusOnViewModeChange = true;
             try
             {
                 var newMode = ViewModel.CurrentViewMode;
-                if (_previousViewMode != newMode)
-                {
-                    _previousViewMode = newMode;
-                    // x:Bind 파이프라인 우회: 직접 Visibility 할당 (PropertyChanged → x:Bind 재평가 제거)
-                    SetViewModeVisibility(newMode);
-                    // IsSingleNonHomeVisible 등 남은 바인딩용 (경량)
-                    ViewModel.NotifyViewModeChanged();
+                // Always re-apply: same ViewMode with a different SplitLayout (Details dual →
+                // Miller quad) used to early-out and leave the previous tab's host visible.
+                bool modeChanged = _previousViewMode != newMode;
+                _previousViewMode = newMode;
+                SetViewModeVisibility(newMode);
+                ViewModel.NotifyViewModeChanged();
 
-                    // Miller 뷰로 전환 시 열려있던 필터 바 자동 닫기 — Miller에서는 필터 미지원.
-                    if (newMode == Models.ViewMode.MillerColumns
-                        && LeftFilterBar != null
-                        && LeftFilterBar.Visibility == Visibility.Visible)
-                    {
-                        CloseFilterBar();
-                    }
+                if (modeChanged
+                    && newMode == Models.ViewMode.MillerColumns
+                    && LeftFilterBar != null
+                    && LeftFilterBar.Visibility == Visibility.Visible)
+                {
+                    CloseFilterBar();
                 }
             }
             finally
             {
                 _suppressFocusOnViewModeChange = false;
+                _isUpdatingViewModeVisibility = false;
             }
         }
 
@@ -4231,14 +4326,28 @@ namespace Span
         }
 
         /// <summary>
+        /// Unified favorites sidebar click: navigate pins, toggle group headers.
+        /// </summary>
+        private void OnFavoritesSidebarItemClick(object sender, ItemClickEventArgs e)
+        {
+            if (e.ClickedItem is FavoriteGroupHeaderRow header)
+            {
+                ViewModel.ToggleFavoriteGroupExpanded(header.GroupId);
+                return;
+            }
+
+            if (e.ClickedItem is FavoriteItemRow row)
+                NavigateToFavorite(row.Item);
+            else if (e.ClickedItem is FavoriteItem fav)
+                NavigateToFavorite(fav);
+        }
+
+        /// <summary>
         /// 즐겨찾기 Flat 목록의 항목 클릭 이벤트.
         /// ItemClick 이벤트를 통해 해당 경로로 탐색한다.
         /// </summary>
         private void OnFavoritesFlatItemClick(object sender, ItemClickEventArgs e)
-        {
-            if (e.ClickedItem is FavoriteItem fav)
-                NavigateToFavorite(fav);
-        }
+            => OnFavoritesSidebarItemClick(sender, e);
 
         /// <summary>
         /// 즐겨찾기 경로로 탐색을 실행한다.
@@ -4296,11 +4405,28 @@ namespace Span
         /// 즐겨찾기 Flat 목록 빈 영역 우클릭 이벤트.
         /// 폴더 추가 컨텍스트 메뉴를 표시한다.
         /// </summary>
-        private void OnFavoritesFlatListRightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
+        private void OnFavoritesSidebarRightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
         {
             if (e.OriginalSource is FrameworkElement fe)
             {
-                var fav = FindParentDataContext<FavoriteItem>(fe);
+                var header = FindParentDataContext<FavoriteGroupHeaderRow>(fe);
+                if (header != null)
+                {
+                    var group = ViewModel.FavoriteGroups.FirstOrDefault(g => g.Id == header.GroupId);
+                    if (group != null)
+                    {
+                        var groupFlyout = _contextMenuService.BuildFavoriteGroupMenu(group, this);
+                        groupFlyout.ShowAt(fe, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
+                        {
+                            Position = e.GetPosition(fe)
+                        });
+                        e.Handled = true;
+                        return;
+                    }
+                }
+
+                var row = FindParentDataContext<FavoriteItemRow>(fe);
+                var fav = row?.Item ?? FindParentDataContext<FavoriteItem>(fe);
                 if (fav != null)
                 {
                     var flyout = _contextMenuService.BuildFavoriteMenu(fav, this);
@@ -4317,6 +4443,9 @@ namespace Span
             e.Handled = true;
         }
 
+        private void OnFavoritesFlatListRightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
+            => OnFavoritesSidebarRightTapped(sender, e);
+
         private void ShowFavoritesSectionMenu(FrameworkElement? target, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
         {
             if (target == null) return;
@@ -4331,7 +4460,7 @@ namespace Span
         {
             while (source != null)
             {
-                if (source is FrameworkElement { Name: "SidebarFavoritesSection" or "FavoritesFlatPanel" or "FavoritesTreeView" or "UngroupedFavoritesList" })
+                if (source is FrameworkElement { Name: "SidebarFavoritesSection" or "FavoritesFlatPanel" or "FavoritesTreeView" or "FavoritesSidebarList" or "UngroupedFavoritesList" })
                     return true;
                 source = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(source);
             }
@@ -4349,20 +4478,17 @@ namespace Span
             return null;
         }
 
-        private void OnUngroupedFavoritesDragCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
+        private void OnFavoritesSidebarDragCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
         {
-            ViewModel.SaveUngroupedFavoriteOrder();
-            Helpers.DebugLogger.Log($"[Favorites] Ungrouped reordered ({ViewModel.UngroupedFavorites.Count} items)");
+            ViewModel.SaveFavoritesSidebarOrder();
+            Helpers.DebugLogger.Log($"[Favorites] Sidebar reordered ({ViewModel.FavoritesSidebarRows.Count} rows)");
         }
 
+        private void OnUngroupedFavoritesDragCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
+            => OnFavoritesSidebarDragCompleted(sender, args);
+
         private void OnGroupFavoritesDragCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
-        {
-            if (sender is ListView listView && listView.Tag is string groupId)
-            {
-                ViewModel.SaveGroupFavoriteOrder(groupId);
-                Helpers.DebugLogger.Log($"[Favorites] Group '{groupId}' reordered");
-            }
-        }
+            => OnFavoritesSidebarDragCompleted(sender, args);
 
         private void OnFavoriteGroupHeaderTapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
         {
@@ -4387,7 +4513,10 @@ namespace Span
 
         private void OnFavoritesSectionRightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
         {
-            if (e.OriginalSource is FrameworkElement fe && FindParentDataContext<FavoriteItem>(fe) != null)
+            if (e.OriginalSource is FrameworkElement fe &&
+                (FindParentDataContext<FavoriteItemRow>(fe) != null ||
+                 FindParentDataContext<FavoriteItem>(fe) != null ||
+                 FindParentDataContext<FavoriteGroupHeaderRow>(fe) != null))
                 return;
 
             ShowFavoritesSectionMenu(sender as FrameworkElement, e);
@@ -4742,7 +4871,9 @@ namespace Span
         {
             // Issue #39 a: 사이드바 즐겨찾기에 desktop.ini 커스텀 아이콘 lazy 로드 트리거.
             // FolderCustomIconsEnabled 설정 ON일 때만 실제 로드 (모델 내부에서 게이트).
-            if (args.Item is FavoriteItem favorite)
+            if (args.Item is FavoriteItemRow row)
+                row.Item.RequestCustomIconLoad();
+            else if (args.Item is FavoriteItem favorite)
                 favorite.RequestCustomIconLoad();
         }
 
@@ -6065,8 +6196,16 @@ namespace Span
 
         private Views.IconModeView? GetActiveIconView()
         {
-            if (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                return IconViewRight;
+            if (ViewModel.IsSplitViewEnabled)
+            {
+                return ViewModel.ActivePane switch
+                {
+                    ActivePane.Right => IconViewRight,
+                    ActivePane.TopRight => IconViewTopRight,
+                    ActivePane.BottomRight => IconViewBottomRight,
+                    _ => null
+                } ?? (_activeIconTabId != null && _tabIconPanels.TryGetValue(_activeIconTabId, out var leftIcon) ? leftIcon : null);
+            }
             if (_activeIconTabId != null && _tabIconPanels.TryGetValue(_activeIconTabId, out var view))
                 return view;
             return null;
@@ -6074,8 +6213,16 @@ namespace Span
 
         private Views.DetailsModeView? GetActiveDetailsView()
         {
-            if (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
-                return DetailsViewRight;
+            if (ViewModel.IsSplitViewEnabled)
+            {
+                return ViewModel.ActivePane switch
+                {
+                    ActivePane.Right => DetailsViewRight,
+                    ActivePane.TopRight => DetailsViewTopRight,
+                    ActivePane.BottomRight => DetailsViewBottomRight,
+                    _ => null
+                } ?? (_activeDetailsTabId != null && _tabDetailsPanels.TryGetValue(_activeDetailsTabId, out var leftDetails) ? leftDetails : null);
+            }
             if (_activeDetailsTabId != null && _tabDetailsPanels.TryGetValue(_activeDetailsTabId, out var view))
                 return view;
             return null;
@@ -6083,7 +6230,16 @@ namespace Span
 
         private Views.ListModeView? GetActiveListView()
         {
-            // List has no right pane variant yet — left pane only
+            if (ViewModel.IsSplitViewEnabled)
+            {
+                return ViewModel.ActivePane switch
+                {
+                    ActivePane.Right => ListViewRight,
+                    ActivePane.TopRight => ListViewTopRight,
+                    ActivePane.BottomRight => ListViewBottomRight,
+                    _ => null
+                } ?? (_activeListTabId != null && _tabListPanels.TryGetValue(_activeListTabId, out var leftList) ? leftList : null);
+            }
             if (_activeListTabId != null && _tabListPanels.TryGetValue(_activeListTabId, out var view))
                 return view;
             return null;
@@ -6409,17 +6565,147 @@ namespace Span
 
         void Services.IContextMenuHost.PerformRename(FileSystemViewModel item)
         {
-            if (Helpers.ArchivePathHelper.IsArchivePath(item.Path)) { ViewModel.ShowToast(_loc.Get("Toast_ArchiveReadOnly")); return; }
+            if (Helpers.ArchivePathHelper.IsArchivePath(item.Path))
+            {
+                ViewModel.ShowToast(_loc.Get("Toast_ArchiveReadOnly"));
+                return;
+            }
+
             try
             {
-            Helpers.DebugLogger.Log($"[Rename] PerformRename START: '{item.Name}'");
+                Helpers.DebugLogger.Log($"[Rename] PerformRename START: '{item.Name}'");
 
+                // Activate the pane that owns this item (Dual/Quad)
+                if (!TryActivatePaneContainingItem(item))
+                {
+                    Helpers.DebugLogger.Log($"[Rename] PerformRename: item not found in any pane: {item.Path}");
+                    return;
+                }
+
+                // Defer until after the context menu finishes tearing down.
+                // Immediate BeginRename + LostFocus from menu close was cancelling/committing with no change.
+                _renamePendingFocus = true;
+                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+                {
+                    if (_isClosed)
+                    {
+                        _renamePendingFocus = false;
+                        return;
+                    }
+                    try
+                    {
+                        StartInlineRenameOnActivePane(item);
+                    }
+                    catch (Exception ex)
+                    {
+                        Helpers.DebugLogger.Log($"[Rename] StartInlineRename failed: {ex.Message}");
+                    }
+                    // Keep pending one more tick so Details/List/Icon focus can land first
+                    DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+                    {
+                        _renamePendingFocus = false;
+                    });
+                });
+            }
+            catch (Exception ex)
+            {
+                _renamePendingFocus = false;
+                Helpers.DebugLogger.Log($"[ContextMenu] PerformRename failed: {ex.Message}");
+            }
+        }
+
+        void Services.IContextMenuHost.PerformRenameByPath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+            var item = FindFileSystemItemByPath(path);
+            if (item != null)
+                ((Services.IContextMenuHost)this).PerformRename(item);
+            else
+                Helpers.DebugLogger.Log($"[Rename] PerformRenameByPath: no VM for {path}");
+        }
+
+        /// <summary>True while context-menu rename is waiting to focus the TextBox (LostFocus must ignore).</summary>
+        internal bool IsRenameFocusPending => _renamePendingFocus;
+
+        private bool TryActivatePaneContainingItem(FileSystemViewModel item)
+        {
+            foreach (var pane in ViewModel.GetSplitLayoutPanes())
+            {
+                var explorer = ViewModel.GetExplorerForPane(pane);
+                if (explorer?.Columns == null) continue;
+                foreach (var col in explorer.Columns)
+                {
+                    if (!col.Children.Contains(item)) continue;
+                    ViewModel.ActivePane = pane;
+                    col.SelectedChild = item;
+                    col.SyncSelectedItems(new List<object> { item });
+                    return true;
+                }
+            }
+
+            // Details/List/Icon: item may only be in CurrentFolder.Children
+            foreach (var pane in ViewModel.GetSplitLayoutPanes())
+            {
+                var explorer = ViewModel.GetExplorerForPane(pane);
+                var folder = explorer?.CurrentFolder;
+                if (folder == null) continue;
+                if (!folder.Children.Contains(item)
+                    && !folder.Children.Any(c => c.Path.Equals(item.Path, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                ViewModel.ActivePane = pane;
+                folder.SelectedChild = item;
+                folder.SyncSelectedItems(new List<object> { item });
+                return true;
+            }
+
+            return false;
+        }
+
+        private FileSystemViewModel? FindFileSystemItemByPath(string path)
+        {
+            foreach (var pane in ViewModel.GetSplitLayoutPanes())
+            {
+                var explorer = ViewModel.GetExplorerForPane(pane);
+                if (explorer?.Columns == null) continue;
+                foreach (var col in explorer.Columns)
+                {
+                    var hit = col.Children.FirstOrDefault(c =>
+                        c.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
+                    if (hit != null) return hit;
+                }
+            }
+            return null;
+        }
+
+        private void StartInlineRenameOnActivePane(FileSystemViewModel item)
+        {
+            var viewMode = GetActivePaneViewMode();
+
+            if (viewMode == Models.ViewMode.Details)
+            {
+                GetActiveDetailsView()?.HandleRename();
+                return;
+            }
+            if (viewMode == Models.ViewMode.List)
+            {
+                GetActiveListView()?.HandleRename();
+                return;
+            }
+            if (Helpers.ViewModeExtensions.IsIconMode(viewMode))
+            {
+                GetActiveIconView()?.HandleRename();
+                return;
+            }
+
+            // Miller Columns
             var columns = ViewModel.ActiveExplorer?.Columns;
             if (columns == null) return;
+
             int targetIndex = -1;
             for (int i = 0; i < columns.Count; i++)
             {
-                if (columns[i].Children.Contains(item))
+                if (columns[i].Children.Contains(item)
+                    || columns[i].Children.Any(c => c.Path.Equals(item.Path, StringComparison.OrdinalIgnoreCase)))
                 {
                     targetIndex = i;
                     columns[i].SelectedChild = item;
@@ -6427,26 +6713,14 @@ namespace Span
                 }
             }
 
-            Helpers.DebugLogger.Log($"[Rename] PerformRename targetIndex={targetIndex}");
-
-            // MenuFlyout 닫힘 → LostFocus → CommitRename 방지
-            _renamePendingFocus = true;
-            item.BeginRename();
-
             if (targetIndex < 0)
                 targetIndex = GetCurrentColumnIndex();
-            if (targetIndex < 0) { _renamePendingFocus = false; return; }
+            if (targetIndex < 0) return;
 
-            int colIdx = targetIndex;
-            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
-            {
-                if (_isClosed) return;
-                Helpers.DebugLogger.Log($"[Rename] PerformRename Low dispatch: clearing pendingFocus, calling FocusRenameTextBox({colIdx})");
-                _renamePendingFocus = false;
-                FocusRenameTextBox(colIdx);
-            });
-            }
-            catch (Exception ex) { Helpers.DebugLogger.Log($"[ContextMenu] PerformRename failed: {ex.Message}"); }
+            item.BeginRename();
+            _renameTargetPath = item.Path;
+            _renameSelectionCycle = 0;
+            FocusRenameTextBox(targetIndex);
         }
 
         void Services.IContextMenuHost.PerformOpen(FileSystemViewModel item)

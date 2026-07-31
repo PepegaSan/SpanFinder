@@ -31,6 +31,8 @@ namespace Span.ViewModels
         public ObservableCollection<FavoriteItem> Favorites { get; } = new();
         public ObservableCollection<FavoriteGroupViewModel> FavoriteGroups { get; } = new();
         public ObservableCollection<FavoriteItem> UngroupedFavorites { get; } = new();
+        /// <summary>Single flat sidebar list: ungrouped items + section headers + group items.</summary>
+        public ObservableCollection<FavoriteSidebarRow> FavoritesSidebarRows { get; } = new();
         public ObservableCollection<FavoriteItem> RecentFolders { get; } = new();
         public ObservableCollection<Models.ConnectionInfo> SavedConnections { get; } = new();
 
@@ -1069,16 +1071,21 @@ namespace Span.ViewModels
             }
         }
 
-        public void AddToFavorites(string path)
+        public void AddToFavorites(string path, string? groupId = null)
         {
             if (Favorites.Any(f => f.Path.Equals(path, StringComparison.OrdinalIgnoreCase)))
+            {
+                // Already pinned: move into the drop-target group when one is provided.
+                if (!string.IsNullOrEmpty(groupId))
+                    MoveFavoriteToGroup(path, groupId);
                 return;
+            }
 
             var updated = _favoritesService.AddFavorite(path, Favorites.ToList());
             ReplaceFavoritesCollection(updated);
-            EnsureFavoriteInLayout(path);
+            EnsureFavoriteInLayout(path, groupId);
             RefreshFavoriteGroups();
-            Helpers.DebugLogger.Log($"[MainViewModel] Added to favorites (Quick Access): {path}");
+            Helpers.DebugLogger.Log($"[MainViewModel] Added to favorites (Quick Access): {path} group={groupId ?? "(ungrouped)"}");
         }
 
         public void RemoveFromFavorites(string path)
@@ -1162,8 +1169,30 @@ namespace Span.ViewModels
                 FavoriteGroups.Add(vm);
             }
 
+            RebuildFavoritesSidebarRows();
+
             OnPropertyChanged(nameof(FavoriteGroups));
             OnPropertyChanged(nameof(UngroupedFavorites));
+            OnPropertyChanged(nameof(FavoritesSidebarRows));
+        }
+
+        /// <summary>
+        /// Build one visual list: ungrouped pins, then each group header (+ items if expanded).
+        /// </summary>
+        private void RebuildFavoritesSidebarRows()
+        {
+            FavoritesSidebarRows.Clear();
+
+            foreach (var fav in UngroupedFavorites)
+                FavoritesSidebarRows.Add(new FavoriteItemRow(fav, groupId: null));
+
+            foreach (var groupVm in FavoriteGroups)
+            {
+                FavoritesSidebarRows.Add(new FavoriteGroupHeaderRow(groupVm.Id, groupVm.Name, groupVm.IsExpanded));
+                if (!groupVm.IsExpanded) continue;
+                foreach (var fav in groupVm.Items)
+                    FavoritesSidebarRows.Add(new FavoriteItemRow(fav, groupVm.Id));
+            }
         }
 
         private void ReplaceFavoritesCollection(IReadOnlyList<FavoriteItem> items)
@@ -1197,16 +1226,61 @@ namespace Span.ViewModels
 
         private void PersistFavoriteLayout()
         {
-            _favoritesLayout.UngroupedPaths = UngroupedFavorites.Select(f => f.Path).ToList();
-            foreach (var groupVm in FavoriteGroups)
+            PersistFavoriteLayoutFromSidebarRows();
+        }
+
+        /// <summary>
+        /// Derive UngroupedPaths + group Paths/Order/IsExpanded from the unified sidebar list.
+        /// Collapsed groups keep their previous Paths (items are not in the list while collapsed).
+        /// </summary>
+        private void PersistFavoriteLayoutFromSidebarRows()
+        {
+            var previousPaths = _favoritesLayout.Groups.ToDictionary(
+                g => g.Id,
+                g => g.Paths.ToList(),
+                StringComparer.Ordinal);
+
+            var newUngrouped = new List<string>();
+            var orderedGroups = new List<FavoriteGroup>();
+            FavoriteGroup? current = null;
+
+            foreach (var row in FavoritesSidebarRows)
             {
-                var group = _favoritesLayout.Groups.FirstOrDefault(g => g.Id == groupVm.Id);
-                if (group == null) continue;
-                group.Name = groupVm.Name;
-                group.IsExpanded = groupVm.IsExpanded;
-                group.Order = groupVm.Order;
-                group.Paths = groupVm.Items.Select(f => f.Path).ToList();
+                if (row is FavoriteGroupHeaderRow header)
+                {
+                    var existing = _favoritesLayout.Groups.FirstOrDefault(g => g.Id == header.GroupId)
+                        ?? new FavoriteGroup { Id = header.GroupId, Name = header.Name };
+                    existing.Name = header.Name;
+                    existing.IsExpanded = header.IsExpanded;
+                    existing.Order = orderedGroups.Count;
+                    existing.Paths = header.IsExpanded
+                        ? new List<string>()
+                        : (previousPaths.TryGetValue(header.GroupId, out var kept) ? kept : new List<string>());
+                    orderedGroups.Add(existing);
+                    current = existing;
+                    continue;
+                }
+
+                if (row is FavoriteItemRow itemRow)
+                {
+                    // Membership is positional (GroupId on the row is stale after drag-reorder).
+                    if (current == null)
+                        newUngrouped.Add(itemRow.Item.Path);
+                    else
+                        current.Paths.Add(itemRow.Item.Path);
+                }
             }
+
+            // Keep any layout groups that somehow vanished from the list (shouldn't happen)
+            foreach (var group in _favoritesLayout.Groups)
+            {
+                if (orderedGroups.Any(g => g.Id == group.Id)) continue;
+                group.Order = orderedGroups.Count;
+                orderedGroups.Add(group);
+            }
+
+            _favoritesLayout.UngroupedPaths = newUngrouped;
+            _favoritesLayout.Groups = orderedGroups;
             SaveFavoriteLayout();
         }
 
@@ -1215,18 +1289,17 @@ namespace Span.ViewModels
             _favoritesLayoutService.Save(_favoritesLayout);
         }
 
-        public void SaveUngroupedFavoriteOrder()
+        /// <summary>After drag-reorder in the unified favorites list.</summary>
+        public void SaveFavoritesSidebarOrder()
         {
-            PersistFavoriteLayout();
-            _favoritesService.SaveFavorites(Favorites.ToList());
-        }
-
-        public void SaveGroupFavoriteOrder(string groupId)
-        {
-            PersistFavoriteLayout();
+            PersistFavoriteLayoutFromSidebarRows();
             RefreshFavoriteGroups();
             _favoritesService.SaveFavorites(Favorites.ToList());
         }
+
+        public void SaveUngroupedFavoriteOrder() => SaveFavoritesSidebarOrder();
+
+        public void SaveGroupFavoriteOrder(string groupId) => SaveFavoritesSidebarOrder();
 
         public FavoriteGroupViewModel CreateFavoriteGroup(string name)
         {
@@ -1249,7 +1322,9 @@ namespace Span.ViewModels
             if (group == null || vm == null) return;
             group.Name = newName;
             vm.Name = newName;
-            PersistFavoriteLayout();
+            SaveFavoriteLayout();
+            RebuildFavoritesSidebarRows();
+            OnPropertyChanged(nameof(FavoritesSidebarRows));
         }
 
         public void DeleteFavoriteGroup(string groupId)
@@ -1278,7 +1353,10 @@ namespace Span.ViewModels
             var vm = FavoriteGroups.FirstOrDefault(g => g.Id == groupId);
             if (group == null || vm == null) return;
             group.IsExpanded = vm.IsExpanded = !vm.IsExpanded;
-            PersistFavoriteLayout();
+            // Persist expand state only (don't rebuild Paths from a half-visible list)
+            SaveFavoriteLayout();
+            RebuildFavoritesSidebarRows();
+            OnPropertyChanged(nameof(FavoritesSidebarRows));
         }
 
         public void MoveFavoriteToGroup(string path, string? groupId)
@@ -1308,15 +1386,30 @@ namespace Span.ViewModels
             RefreshFavoriteGroups();
         }
 
-        private void EnsureFavoriteInLayout(string path)
+        private void EnsureFavoriteInLayout(string path, string? groupId = null)
         {
             var normalized = NormalizeFavoritePath(path);
             var inGroup = _favoritesLayout.Groups.Any(g =>
                 g.Paths.Any(p => NormalizeFavoritePath(p).Equals(normalized, StringComparison.OrdinalIgnoreCase)));
             var inUngrouped = _favoritesLayout.UngroupedPaths.Any(p =>
                 NormalizeFavoritePath(p).Equals(normalized, StringComparison.OrdinalIgnoreCase));
-            if (!inGroup && !inUngrouped)
-                _favoritesLayout.UngroupedPaths.Add(path);
+            if (inGroup || inUngrouped)
+                return;
+
+            if (!string.IsNullOrEmpty(groupId))
+            {
+                var group = _favoritesLayout.Groups.FirstOrDefault(g => g.Id == groupId);
+                if (group != null)
+                {
+                    group.Paths.Add(path);
+                    group.IsExpanded = true;
+                    SaveFavoriteLayout();
+                    return;
+                }
+            }
+
+            _favoritesLayout.UngroupedPaths.Add(path);
+            SaveFavoriteLayout();
         }
 
         private void RemoveFavoriteFromLayout(string path)

@@ -560,6 +560,9 @@ namespace Span
                     ViewModel.SwitchToTab(index);
                     // LeftExplorer 변경 후 수동으로 필요한 것만 갱신 (PropertyChanged 미발생이므로)
                     ResubscribeLeftExplorer();
+                    // Force host refresh even when ViewMode equals the previous tab's mode
+                    // (split layout / per-tab panels still need SetViewModeVisibility).
+                    _previousViewMode = (ViewMode)(-1);
                     UpdateViewModeVisibility();
                     UpdateToolbarButtonStates();
                     FocusActiveView();

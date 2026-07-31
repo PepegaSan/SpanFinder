@@ -2409,6 +2409,7 @@ namespace Span
             }
             ViewModel.SwitchToTab(index);
             ResubscribeLeftExplorer();
+            _previousViewMode = (ViewMode)(-1);
             UpdateViewModeVisibility();
             UpdateToolbarButtonStates();
             FocusActiveView();

@@ -442,6 +442,8 @@ namespace Span.Services
             ("Tooltip_Rename", "Rename (F2)", "이름 바꾸기 (F2)", "名前の変更 (F2)", "重命名 (F2)", "重新命名 (F2)", "Umbenennen (F2)", "Cambiar nombre (F2)", "Renommer (F2)", "Renomear (F2)"),
             ("Tooltip_NewFolder", "New Folder (Ctrl+Shift+N)", "새 폴더 (Ctrl+Shift+N)", "新しいフォルダー (Ctrl+Shift+N)", "新建文件夹 (Ctrl+Shift+N)", "新增資料夾 (Ctrl+Shift+N)", "Neuer Ordner (Strg+Umschalt+N)", "Nueva carpeta (Ctrl+Mayús+N)", "Nouveau dossier (Ctrl+Maj+N)", "Nova pasta (Ctrl+Shift+N)"),
             ("Tooltip_NewFile", "New File", "새 파일", "新しいファイル", "新建文件", "新增檔案", "Neue Datei", "Nuevo archivo", "Nouveau fichier", "Novo arquivo"),
+            ("Tooltip_New", "New…", "새로 만들기…", "新規作成…", "新建…", "新增…", "Neu…", "Nuevo…", "Nouveau…", "Novo…"),
+            ("Toast_CannotCreateHere", "Cannot create items here", "여기에 만들 수 없습니다", "ここには作成できません", "无法在此处创建", "無法在此處建立", "Hier können keine Elemente erstellt werden", "No se puede crear aquí", "Impossible de créer ici", "Não é possível criar aqui"),
             ("Tooltip_Sort", "Sort", "정렬", "並べ替え", "排序", "排序", "Sortieren", "Ordenar", "Trier", "Classificar"),
             ("Tooltip_Preview", "Preview Panel (Ctrl+P)", "미리보기 패널 (Ctrl+P)", "プレビューパネル (Ctrl+P)", "预览面板 (Ctrl+P)", "預覽面板 (Ctrl+P)", "Vorschaubereich (Strg+P)", "Panel de vista previa (Ctrl+P)", "Volet de visualisation (Ctrl+P)", "Painel de visualização (Ctrl+P)"),
             ("Tooltip_SplitView", "Split View (Ctrl+Shift+S)", "분할 뷰 (Ctrl+Shift+S)", "分割ビュー (Ctrl+Shift+S)", "拆分视图 (Ctrl+Shift+S)", "分割檢視 (Ctrl+Shift+S)", "Geteilte Ansicht (Strg+Umschalt+S)", "Vista dividida (Ctrl+Mayús+S)", "Vue fractionnée (Ctrl+Maj+S)", "Exibição dividida (Ctrl+Shift+S)"),

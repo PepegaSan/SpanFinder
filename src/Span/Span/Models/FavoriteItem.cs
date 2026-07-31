@@ -154,4 +154,47 @@ namespace Span.Models
         public List<FavoriteGroup> Groups { get; set; } = new();
         public List<string> UngroupedPaths { get; set; } = new();
     }
+
+    /// <summary>Unified favorites sidebar row (section header or pinned folder).</summary>
+    public abstract class FavoriteSidebarRow : ObservableObject
+    {
+        public abstract bool IsHeader { get; }
+    }
+
+    /// <summary>Collapsible group header in the favorites sidebar.</summary>
+    public partial class FavoriteGroupHeaderRow : FavoriteSidebarRow
+    {
+        public FavoriteGroupHeaderRow(string groupId, string name, bool isExpanded)
+        {
+            GroupId = groupId;
+            _name = name;
+            _isExpanded = isExpanded;
+        }
+
+        public override bool IsHeader => true;
+        public string GroupId { get; }
+
+        [ObservableProperty]
+        private string _name;
+
+        [ObservableProperty]
+        private bool _isExpanded;
+    }
+
+    /// <summary>Pinned folder row in the favorites sidebar.</summary>
+    public partial class FavoriteItemRow : FavoriteSidebarRow
+    {
+        public FavoriteItemRow(FavoriteItem item, string? groupId)
+        {
+            Item = item;
+            GroupId = groupId;
+        }
+
+        public override bool IsHeader => false;
+
+        /// <summary>Null = ungrouped (above the first section header).</summary>
+        public string? GroupId { get; }
+
+        public FavoriteItem Item { get; }
+    }
 }

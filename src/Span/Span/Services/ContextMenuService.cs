@@ -145,6 +145,7 @@ namespace Span.Services
             {
                 Copy = () => host.PerformCopy(target.Path),
                 Cut = () => host.PerformCut(target.Path),
+                Rename = () => host.PerformRename(target),
             };
             var shown = paths.Count > 1
                 ? ShellContextMenu.ShowForPathsWithFooter(OwnerHwnd, paths, footer, standardVerbs)
@@ -164,6 +165,7 @@ namespace Span.Services
             {
                 Copy = () => host.PerformCopy(path),
                 Cut = () => host.PerformCut(path),
+                Rename = () => host.PerformRenameByPath(path),
             };
             var shown = paths.Count > 1
                 ? ShellContextMenu.ShowForPathsWithFooter(OwnerHwnd, paths, footer, standardVerbs)

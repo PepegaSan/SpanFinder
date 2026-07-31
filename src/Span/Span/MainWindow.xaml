@@ -328,6 +328,11 @@
                             Visibility="{x:Bind IsNotSpecialMode(ViewModel.CurrentViewMode), Mode=OneWay}">
                         <FontIcon x:Name="SplitOrientationIcon" FontFamily="{StaticResource RemixIcons}" Glyph="{StaticResource Icon_SplitOrientationStacked}" FontSize="16"/>
                     </Button>
+                    <Button x:Name="QuadSplitButton" AutomationProperties.AutomationId="Button_QuadSplit" Style="{StaticResource UnifiedButtonStyle}"
+                            ToolTipService.ToolTip="Vier Fenster (2×2)" Click="OnQuadSplitClick"
+                            Visibility="{x:Bind IsNotSpecialMode(ViewModel.CurrentViewMode), Mode=OneWay}">
+                        <FontIcon x:Name="QuadSplitIcon" FontFamily="{StaticResource RemixIcons}" Glyph="{StaticResource Icon_SplitOrientationQuad}" FontSize="16"/>
+                    </Button>
                 </StackPanel>
 
                 <!-- ═══ RecycleBin Commands (icon-only, shown in RecycleBin mode) ═══ -->
@@ -416,24 +421,89 @@
                                    Margin="16,0,16,8"
                                    RightTapped="OnFavoritesSectionRightTapped"/>
 
-                        <!-- Flat Favorites (grouped, default) -->
+                        <!-- Flat Favorites: one list (ungrouped + section headers + group items) -->
                         <StackPanel x:Name="FavoritesFlatPanel"
                                     RightTapped="OnFavoritesSectionRightTapped">
-                        <ListView x:Name="UngroupedFavoritesList"
-                                  ItemsSource="{x:Bind ViewModel.UngroupedFavorites, Mode=OneWay}"
+                        <ListView x:Name="FavoritesSidebarList"
+                                  ItemsSource="{x:Bind ViewModel.FavoritesSidebarRows, Mode=OneWay}"
                                   SelectionMode="None"
                                   IsItemClickEnabled="True"
-                                  ItemClick="OnFavoritesFlatItemClick"
+                                  ItemClick="OnFavoritesSidebarItemClick"
                                   CanDragItems="True"
                                   CanReorderItems="True"
                                   AllowDrop="True"
-                                  DragItemsCompleted="OnUngroupedFavoritesDragCompleted"
-                                  RightTapped="OnFavoritesFlatListRightTapped"
+                                  DragOver="OnFavoritesDragOver"
+                                  Drop="OnFavoritesDrop"
+                                  DragItemsCompleted="OnFavoritesSidebarDragCompleted"
+                                  RightTapped="OnFavoritesSidebarRightTapped"
                                   ContainerContentChanging="OnSidebarContainerContentChanging">
                             <ListView.Resources>
                                 <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent"/>
                                 <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent"/>
                             </ListView.Resources>
+                            <ListView.ItemTemplateSelector>
+                                <helpers:FavoriteSidebarTemplateSelector>
+                                    <helpers:FavoriteSidebarTemplateSelector.HeaderTemplate>
+                                        <DataTemplate x:DataType="models:FavoriteGroupHeaderRow">
+                                            <Grid Height="24" Padding="12,0" Background="Transparent"
+                                                  Tag="{x:Bind GroupId}"
+                                                  PointerEntered="OnSidebarItemPointerEntered"
+                                                  PointerExited="OnSidebarItemPointerExited">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <FontIcon Glyph="&#xE70D;" FontSize="10" Margin="0,0,6,0"
+                                                          VerticalAlignment="Center"
+                                                          RenderTransformOrigin="0.5,0.5">
+                                                    <FontIcon.RenderTransform>
+                                                        <RotateTransform Angle="{x:Bind helpers:ConverterHelpers.ChevronAngle(IsExpanded), Mode=OneWay}"/>
+                                                    </FontIcon.RenderTransform>
+                                                </FontIcon>
+                                                <TextBlock Grid.Column="1" Text="{x:Bind Name, Mode=OneWay}"
+                                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                                           Foreground="{ThemeResource SpanTextTertiaryBrush}"
+                                                           FontWeight="SemiBold"
+                                                           VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </helpers:FavoriteSidebarTemplateSelector.HeaderTemplate>
+                                    <helpers:FavoriteSidebarTemplateSelector.ItemTemplate>
+                                        <DataTemplate x:DataType="models:FavoriteItemRow">
+                                            <Grid Height="26" Padding="12,0,8,0"
+                                                  Background="Transparent"
+                                                  ToolTipService.ToolTip="{x:Bind Item.Path}"
+                                                  PointerEntered="OnSidebarItemPointerEntered"
+                                                  PointerExited="OnSidebarItemPointerExited">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Image Grid.Column="0"
+                                                       Source="{x:Bind Item.CustomIcon, Mode=OneWay}"
+                                                       Visibility="{x:Bind Item.CustomIconVisibility, Mode=OneWay}"
+                                                       Width="16" Height="16"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,12,0"/>
+                                                <TextBlock Grid.Column="0"
+                                                           Text="{x:Bind Item.IconGlyph}"
+                                                           FontFamily="{StaticResource RemixIcons}"
+                                                           FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}"
+                                                           Foreground="{x:Bind Item.IconBrush}"
+                                                           Visibility="{x:Bind Item.GlyphVisibility, Mode=OneWay}"
+                                                           VerticalAlignment="Center"
+                                                           Margin="0,0,12,0"/>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="{x:Bind Item.Name}"
+                                                           FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
+                                                           VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </helpers:FavoriteSidebarTemplateSelector.ItemTemplate>
+                                </helpers:FavoriteSidebarTemplateSelector>
+                            </ListView.ItemTemplateSelector>
                             <ListView.ItemContainerStyle>
                                 <Style TargetType="ListViewItem">
                                     <Setter Property="Padding" Value="0"/>
@@ -442,131 +512,7 @@
                                     <Setter Property="helpers:CursorHelper.IsHandCursor" Value="True"/>
                                 </Style>
                             </ListView.ItemContainerStyle>
-                            <ListView.ItemTemplate>
-                                <DataTemplate x:DataType="models:FavoriteItem">
-                                    <Grid Height="26" Padding="12,0,8,0"
-                                          Background="Transparent"
-                                          ToolTipService.ToolTip="{x:Bind Path}"
-                                          PointerEntered="OnSidebarItemPointerEntered"
-                                          PointerExited="OnSidebarItemPointerExited">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <!-- desktop.ini 커스텀 아이콘 (있을 때만, Issue #39 a) -->
-                                        <Image Grid.Column="0"
-                                               Source="{x:Bind CustomIcon, Mode=OneWay}"
-                                               Visibility="{x:Bind CustomIconVisibility, Mode=OneWay}"
-                                               Width="16" Height="16"
-                                               VerticalAlignment="Center"
-                                               Margin="0,0,12,0"/>
-                                        <!-- 기본 글리프 (CustomIcon 없을 때) -->
-                                        <TextBlock Grid.Column="0"
-                                                   Text="{x:Bind IconGlyph}"
-                                                   FontFamily="{StaticResource RemixIcons}"
-                                                   FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}"
-                                                   Foreground="{x:Bind IconBrush}"
-                                                   Visibility="{x:Bind GlyphVisibility, Mode=OneWay}"
-                                                   VerticalAlignment="Center"
-                                                   Margin="0,0,12,0"/>
-                                        <TextBlock Grid.Column="1"
-                                                   Text="{x:Bind Name}"
-                                                   FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
-                                                   VerticalAlignment="Center"
-                                                   TextTrimming="CharacterEllipsis"/>
-                                    </Grid>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
                         </ListView>
-
-                        <ItemsControl ItemsSource="{x:Bind ViewModel.FavoriteGroups, Mode=OneWay}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="viewmodels:FavoriteGroupViewModel">
-                                    <StackPanel>
-                                        <Grid Height="24" Padding="12,0" Background="Transparent"
-                                              Tapped="OnFavoriteGroupHeaderTapped"
-                                              RightTapped="OnFavoriteGroupHeaderRightTapped"
-                                              Tag="{x:Bind Id}"
-                                              PointerEntered="OnSidebarItemPointerEntered"
-                                              PointerExited="OnSidebarItemPointerExited">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <FontIcon Glyph="&#xE70D;" FontSize="10" Margin="0,0,6,0"
-                                                      VerticalAlignment="Center"
-                                                      RenderTransformOrigin="0.5,0.5">
-                                                <FontIcon.RenderTransform>
-                                                    <RotateTransform Angle="{x:Bind helpers:ConverterHelpers.ChevronAngle(IsExpanded), Mode=OneWay}"/>
-                                                </FontIcon.RenderTransform>
-                                            </FontIcon>
-                                            <TextBlock Grid.Column="1" Text="{x:Bind Name}"
-                                                       Style="{StaticResource CaptionTextBlockStyle}"
-                                                       Foreground="{ThemeResource SpanTextTertiaryBrush}"
-                                                       FontWeight="SemiBold"
-                                                       VerticalAlignment="Center"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                        </Grid>
-                                        <ListView ItemsSource="{x:Bind Items, Mode=OneWay}"
-                                                  Tag="{x:Bind Id}"
-                                                  SelectionMode="None"
-                                                  IsItemClickEnabled="True"
-                                                  ItemClick="OnFavoritesFlatItemClick"
-                                                  CanDragItems="True"
-                                                  CanReorderItems="True"
-                                                  AllowDrop="True"
-                                                  DragItemsCompleted="OnGroupFavoritesDragCompleted"
-                                                  RightTapped="OnFavoritesFlatListRightTapped"
-                                                  ContainerContentChanging="OnSidebarContainerContentChanging"
-                                                  Visibility="{x:Bind helpers:ConverterHelpers.BoolToVisibility(IsExpanded), Mode=OneWay}">
-                                            <ListView.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <ItemsStackPanel/>
-                                                </ItemsPanelTemplate>
-                                            </ListView.ItemsPanel>
-                                            <ListView.Resources>
-                                                <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent"/>
-                                                <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent"/>
-                                            </ListView.Resources>
-                                            <ListView.ItemContainerStyle>
-                                                <Style TargetType="ListViewItem">
-                                                    <Setter Property="Padding" Value="0"/>
-                                                    <Setter Property="MinHeight" Value="0"/>
-                                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                                    <Setter Property="helpers:CursorHelper.IsHandCursor" Value="True"/>
-                                                </Style>
-                                            </ListView.ItemContainerStyle>
-                                            <ListView.ItemTemplate>
-                                                <DataTemplate x:DataType="models:FavoriteItem">
-                                                    <Grid Height="26" Padding="12,0,8,0"
-                                                          Background="Transparent"
-                                                          ToolTipService.ToolTip="{x:Bind Path}"
-                                                          PointerEntered="OnSidebarItemPointerEntered"
-                                                          PointerExited="OnSidebarItemPointerExited">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="Auto"/>
-                                                            <ColumnDefinition Width="*"/>
-                                                        </Grid.ColumnDefinitions>
-                                                        <TextBlock Grid.Column="0"
-                                                                   Text="{x:Bind IconGlyph}"
-                                                                   FontFamily="{StaticResource RemixIcons}"
-                                                                   FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}"
-                                                                   Foreground="{x:Bind IconBrush}"
-                                                                   VerticalAlignment="Center"
-                                                                   Margin="0,0,12,0"/>
-                                                        <TextBlock Grid.Column="1"
-                                                                   Text="{x:Bind Name}"
-                                                                   FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
-                                                                   VerticalAlignment="Center"
-                                                                   TextTrimming="CharacterEllipsis"/>
-                                                    </Grid>
-                                                </DataTemplate>
-                                            </ListView.ItemTemplate>
-                                        </ListView>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
                         </StackPanel>
 
                         <!-- Favorites Tree (expandable sidebar tree with lazy-loaded subfolders) -->
@@ -915,6 +861,11 @@
                                     Tag="Left" Click="OnPaneNavigateUpClick"
                                     Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26">
                                 <FontIcon Glyph="&#xE74A;" FontSize="11"/>
+                            </Button>
+                            <Button x:Name="LeftNewButton" Style="{StaticResource UnifiedButtonStyle}" ToolTipService.ToolTip="Neu"
+                                    Tag="Left" Click="OnPaneNewItemClick"
+                                    Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26">
+                                <FontIcon FontFamily="{StaticResource RemixIcons}" Glyph="{StaticResource Icon_NewFolder}" FontSize="11"/>
                             </Button>
                         </StackPanel>
                         <!-- Breadcrumb + Edit mode -->
@@ -1398,6 +1349,11 @@
                                     Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26">
                                 <FontIcon Glyph="&#xE74A;" FontSize="11"/>
                             </Button>
+                            <Button x:Name="RightNewButton" Style="{StaticResource UnifiedButtonStyle}" ToolTipService.ToolTip="Neu"
+                                    Tag="Right" Click="OnPaneNewItemClick"
+                                    Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26">
+                                <FontIcon FontFamily="{StaticResource RemixIcons}" Glyph="{StaticResource Icon_NewFolder}" FontSize="11"/>
+                            </Button>
                         </StackPanel>
                         <!-- Breadcrumb + Edit mode -->
                         <appcontrols:AddressBarControl x:Name="RightAddressBar" Grid.Column="1"
@@ -1809,6 +1765,11 @@
                             <Button Style="{StaticResource UnifiedButtonStyle}" Tag="TopRight" Click="OnPaneNavigateUpClick" Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26">
                                 <FontIcon Glyph="&#xE74A;" FontSize="11"/>
                             </Button>
+                            <Button x:Name="TopRightNewButton" Style="{StaticResource UnifiedButtonStyle}" ToolTipService.ToolTip="Neu"
+                                    Tag="TopRight" Click="OnPaneNewItemClick"
+                                    Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26">
+                                <FontIcon FontFamily="{StaticResource RemixIcons}" Glyph="{StaticResource Icon_NewFolder}" FontSize="11"/>
+                            </Button>
                         </StackPanel>
                         <appcontrols:AddressBarControl x:Name="TopRightAddressBar" Grid.Column="1"
                             RecentFolders="{x:Bind ViewModel.RecentFolders, Mode=OneWay}"
@@ -1872,6 +1833,11 @@
                             </Button>
                             <Button Style="{StaticResource UnifiedButtonStyle}" Tag="BottomRight" Click="OnPaneNavigateUpClick" Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26">
                                 <FontIcon Glyph="&#xE74A;" FontSize="11"/>
+                            </Button>
+                            <Button x:Name="BottomRightNewButton" Style="{StaticResource UnifiedButtonStyle}" ToolTipService.ToolTip="Neu"
+                                    Tag="BottomRight" Click="OnPaneNewItemClick"
+                                    Padding="4" MinWidth="0" MinHeight="0" Width="26" Height="26">
+                                <FontIcon FontFamily="{StaticResource RemixIcons}" Glyph="{StaticResource Icon_NewFolder}" FontSize="11"/>
                             </Button>
                         </StackPanel>
                         <appcontrols:AddressBarControl x:Name="BottomRightAddressBar" Grid.Column="1"

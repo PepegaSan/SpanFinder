@@ -351,6 +351,11 @@ namespace Span
             ToolTipService.SetToolTip(CopyPathButton, _loc.Get("Tooltip_CopyPath"));
             ToolTipService.SetToolTip(NewFolderButton, _loc.Get("Tooltip_NewFolder"));
             ToolTipService.SetToolTip(NewItemDropdown, _loc.Get("Tooltip_NewFile"));
+            var newTip = _loc.Get("Tooltip_New");
+            ToolTipService.SetToolTip(LeftNewButton, newTip);
+            ToolTipService.SetToolTip(RightNewButton, newTip);
+            ToolTipService.SetToolTip(TopRightNewButton, newTip);
+            ToolTipService.SetToolTip(BottomRightNewButton, newTip);
             ToolTipService.SetToolTip(ToolbarCutButton, _loc.Get("Tooltip_Cut"));
             ToolTipService.SetToolTip(ToolbarCopyButton, _loc.Get("Tooltip_Copy"));
             ToolTipService.SetToolTip(ToolbarPasteButton, _loc.Get("Tooltip_Paste"));
@@ -359,6 +364,8 @@ namespace Span
             ToolTipService.SetToolTip(SortButton, _loc.Get("Tooltip_Sort"));
             ToolTipService.SetToolTip(SplitViewButton, _loc.Get("Tooltip_SplitView"));
             UpdateSplitOrientationTooltip();
+            if (QuadSplitButton != null)
+                ToolTipService.SetToolTip(QuadSplitButton, _loc.Get("Tooltip_SplitOrientationQuad"));
             ToolTipService.SetToolTip(PreviewToggleButton, _loc.Get("Tooltip_Preview"));
 
             // RecycleBin mode toolbar tooltips (Issue #28)
@@ -521,6 +528,7 @@ namespace Span
             ToggleSplitView();
             UpdateSplitViewButtonState();
             UpdateSplitOrientationButtonState();
+            UpdateQuadSplitButtonState();
         }
 
         private void OnSplitOrientationToggleClick(object sender, RoutedEventArgs e)
@@ -541,6 +549,59 @@ namespace Span
             if (next == SplitLayoutMode.Quad)
                 _ = InitializeQuadPanesAsync();
             UpdateSplitOrientationButtonState();
+            UpdateQuadSplitButtonState();
+        }
+
+        /// <summary>
+        /// One-click 2×2 quad layout. Click again while already in Quad to leave split view.
+        /// </summary>
+        private void OnQuadSplitClick(object sender, RoutedEventArgs e)
+        {
+            if (ViewModel.IsRecycleBinTab) return;
+
+            if (ViewModel.IsQuadSplit)
+            {
+                // Already 2×2 → exit split entirely
+                ViewModel.SetSplitLayoutMode(SplitLayoutMode.Single);
+                ApplySplitLayout();
+                UnsubscribeRightExplorerForAddressBar();
+                UnsubscribeQuadPaneAddressBars();
+                ViewModel.ActivePane = ActivePane.Left;
+                UpdateSplitViewButtonState();
+                UpdateSplitOrientationButtonState();
+                UpdateQuadSplitButtonState();
+                UpdateViewModeVisibility();
+                Helpers.DebugLogger.Log("[MainWindow] Quad split disabled via toolbar button");
+                return;
+            }
+
+            ViewModel.SetSplitLayoutMode(SplitLayoutMode.Quad);
+            ApplySplitLayout();
+            _ = InitializeQuadPanesAsync();
+
+            // Match ToggleSplitView: close side previews for space
+            ViewModel.IsLeftPreviewEnabled = false;
+            LeftPreviewSplitterCol.Width = new GridLength(0);
+            LeftPreviewCol.Width = new GridLength(0);
+            LeftPreviewPanel.StopMedia();
+            ViewModel.IsRightPreviewEnabled = false;
+            RightPreviewSplitterCol.Width = new GridLength(0);
+            RightPreviewCol.Width = new GridLength(0);
+            RightPreviewPanel.StopMedia();
+            UpdatePreviewButtonState();
+
+            if (ViewModel.Explorer?.PathSegments != null)
+            {
+                LeftAddressBar.PathSegments = ViewModel.Explorer.PathSegments;
+                LeftAddressBar.CurrentPath = ViewModel.Explorer.CurrentPath;
+            }
+
+            ViewModel.NotifySplitViewChanged();
+            UpdateSplitViewButtonState();
+            UpdateSplitOrientationButtonState();
+            UpdateQuadSplitButtonState();
+            UpdateViewModeVisibility();
+            Helpers.DebugLogger.Log("[MainWindow] Quad split enabled via toolbar button");
         }
 
         /// <summary>
@@ -994,16 +1055,19 @@ namespace Span
         private void ApplyQuadSharedViewVisibility()
         {
             var mode = ViewModel.CurrentViewMode;
-            // Special modes are left-only; keep explorer panes on last usable mode
+            // Special modes are left-only; keep explorer panes on last usable mode.
+            // Do NOT assign CurrentViewMode here — mutating it during tab switch / layout
+            // would overwrite the active tab's saved ViewMode and bleed into other tabs.
             if (mode is Models.ViewMode.Home or Models.ViewMode.Settings
                 or Models.ViewMode.ActionLog or Models.ViewMode.RecycleBin)
             {
                 mode = Models.ViewMode.MillerColumns;
-                ViewModel.CurrentViewMode = mode;
             }
 
-            ViewModel.LeftViewMode = mode;
-            ViewModel.RightViewMode = mode;
+            if (ViewModel.LeftViewMode != mode)
+                ViewModel.LeftViewMode = mode;
+            if (ViewModel.RightViewMode != mode)
+                ViewModel.RightViewMode = mode;
             ViewModel.SyncExplorerAutoNavigationForLayout();
 
             bool miller = mode == Models.ViewMode.MillerColumns;
@@ -1388,6 +1452,54 @@ namespace Span
                     ViewModel.ShowToast(_loc.Get("Toast_PathCopied"), 2000);
                 }
             }
+        }
+
+        /// <summary>
+        /// Per-pane New menu (folder + Shell New types), like OneCommander — works without
+        /// needing an empty-area right-click target.
+        /// </summary>
+        private void OnPaneNewItemClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement fe) return;
+
+            var tag = (fe as Button)?.Tag as string ?? fe.Tag as string;
+            ViewModel.ActivePane = tag switch
+            {
+                "Left" => ActivePane.Left,
+                "Right" => ActivePane.Right,
+                "TopRight" => ActivePane.TopRight,
+                "BottomRight" => ActivePane.BottomRight,
+                _ => ViewModel.ActivePane
+            };
+
+            var explorer = GetExplorerForPaneTag(tag);
+            var folderPath = GetColumnPathForExplorer(explorer);
+            if (string.IsNullOrEmpty(folderPath) || folderPath == "PC")
+            {
+                ViewModel.ShowToast(_loc.Get("Toast_CannotCreateHere"), 2000);
+                return;
+            }
+
+            var menu = _contextMenuService.BuildNewItemMenu(folderPath, this);
+            menu.ShowAt(fe, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
+            {
+                Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedLeft
+            });
+        }
+
+        /// <summary>
+        /// Target folder for New in a pane: active Miller column, else last column / CurrentPath.
+        /// </summary>
+        private string? GetColumnPathForExplorer(ExplorerViewModel explorer)
+        {
+            if (explorer?.Columns == null || explorer.Columns.Count == 0)
+                return explorer?.CurrentPath;
+
+            var active = explorer.Columns.FirstOrDefault(c => c.IsActive);
+            if (active != null && !string.IsNullOrEmpty(active.Path))
+                return active.Path;
+
+            return explorer.Columns[^1].Path;
         }
 
         #endregion
@@ -1892,6 +2004,7 @@ namespace Span
                 };
 
                 UpdateSplitOrientationTooltip();
+                UpdateQuadSplitButtonState();
             }
             catch (Exception ex)
             {
@@ -1912,6 +2025,23 @@ namespace Span
                 _ => "Tooltip_SplitOrientationStacked",
             };
             ToolTipService.SetToolTip(SplitOrientationButton, _loc.Get(key));
+        }
+
+        internal void UpdateQuadSplitButtonState()
+        {
+            try
+            {
+                if (QuadSplitIcon == null) return;
+                var accentBrush = GetThemeBrush("SpanAccentBrush");
+                var defaultBrush = GetThemeBrush("SpanTextSecondaryBrush");
+                QuadSplitIcon.Foreground = ViewModel.IsQuadSplit ? accentBrush : defaultBrush;
+                if (QuadSplitButton != null)
+                    ToolTipService.SetToolTip(QuadSplitButton, _loc.Get("Tooltip_SplitOrientationQuad"));
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[MainWindow] UpdateQuadSplitButtonState error: {ex.Message}");
+            }
         }
 
         /// <summary>
