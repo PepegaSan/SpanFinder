@@ -39,6 +39,7 @@ namespace Span.Helpers
         {
             get
             {
+#if !SPAN_TESTS
                 // 런타임: Application.Current.Resources 에서 가져옴.
                 // {StaticResource FontScale} 와 정확히 같은 객체를 보장.
                 try
@@ -56,6 +57,7 @@ namespace Span.Helpers
                 {
                     // Application.Current.Resources 접근 실패 시 fallback 으로 내려감
                 }
+#endif
 
                 // 테스트 / 초기 부팅 fallback
                 return _fallback ??= new FontScaleService();

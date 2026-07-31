@@ -74,6 +74,12 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 - **Tab view-mode bleed fix:** switching tabs no longer leaves the wrong host visible or overwrites another tab’s saved view mode when Dual/Quad layouts differ.
 - **Resume refresh:** after the window was backgrounded for a few seconds, returning to the foreground **reaffirms file-system watchers** and refreshes visible panes so external changes are not missed.
 
+### Merged from upstream v1.6.4 / v1.6.5 (July 2026)
+
+- **Polish localization** (language option + strings).
+- **Column View scroll** when opening a new column (Issue #53) and when reselecting a previous column (Issue #57) — kept fork Dual/Quad left-pane scroll targeting.
+- **Thumbnails / preview** for image-editor formats: `.clip`, `.psd`, `.jfif` (Issue #56).
+
 ---
 
 ## Notes
