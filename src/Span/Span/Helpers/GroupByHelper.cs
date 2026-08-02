@@ -123,20 +123,22 @@ namespace Span.Helpers
     }
 
     /// <summary>
-    /// Compact relative age labels for Miller columns (One Commander style).
+    /// Compact relative age labels for Miller columns (One Commander style):
+    /// pastel badge background + dark text (not colored glyphs).
     /// </summary>
     internal static class RelativeAgeHelper
     {
-        private static readonly SolidColorBrush FreshBrush =
-            new(Windows.UI.Color.FromArgb(255, 115, 201, 145));
+        // Soft badge fills (OC-like); pair with dark foreground in XAML.
+        private static readonly SolidColorBrush HoursBrush =
+            new(Windows.UI.Color.FromArgb(255, 232, 210, 150)); // peach / pale yellow
         private static readonly SolidColorBrush DaysBrush =
-            new(Windows.UI.Color.FromArgb(255, 226, 165, 46));
+            new(Windows.UI.Color.FromArgb(255, 140, 210, 205)); // aqua / cyan
         private static readonly SolidColorBrush WeeksBrush =
-            new(Windows.UI.Color.FromArgb(255, 232, 148, 74));
+            new(Windows.UI.Color.FromArgb(255, 230, 175, 120)); // soft orange
         private static readonly SolidColorBrush MonthsBrush =
-            new(Windows.UI.Color.FromArgb(255, 160, 160, 170));
-        private static readonly SolidColorBrush OldBrush =
-            new(Windows.UI.Color.FromArgb(255, 120, 120, 130));
+            new(Windows.UI.Color.FromArgb(255, 170, 175, 185)); // muted gray-blue
+        private static readonly SolidColorBrush YearsBrush =
+            new(Windows.UI.Color.FromArgb(255, 140, 145, 155)); // darker muted
 
         public readonly record struct RelativeAge(string Text, Brush Brush);
 
@@ -154,7 +156,7 @@ namespace Span.Helpers
                 var mins = Math.Max(1, (int)age.TotalMinutes);
                 return new RelativeAge(
                     string.Format(LocalizationService.L("Age_Minutes"), mins),
-                    FreshBrush);
+                    HoursBrush);
             }
 
             if (age.TotalDays < 1)
@@ -162,7 +164,7 @@ namespace Span.Helpers
                 var hours = Math.Max(1, (int)age.TotalHours);
                 return new RelativeAge(
                     string.Format(LocalizationService.L("Age_Hours"), hours),
-                    FreshBrush);
+                    HoursBrush);
             }
 
             if (age.TotalDays < 7)
@@ -192,7 +194,7 @@ namespace Span.Helpers
             var years = Math.Max(1, (int)(age.TotalDays / 365));
             return new RelativeAge(
                 string.Format(LocalizationService.L("Age_Years"), years),
-                OldBrush);
+                YearsBrush);
         }
     }
 }

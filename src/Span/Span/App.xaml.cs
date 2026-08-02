@@ -542,6 +542,8 @@ namespace Span
             services.AddSingleton<Services.WorkspaceService>();
             services.AddSingleton<Services.ShelfService>();
             services.AddSingleton<Services.TrayIconService>();
+            services.AddSingleton<Services.ItemAnnotationService>();
+            services.AddSingleton<Services.EverythingSearchService>();
 
             // Interface registrations (for testability — resolve to same singleton)
             services.AddSingleton<Services.IFileSystemService>(sp => sp.GetRequiredService<Services.FileSystemService>());

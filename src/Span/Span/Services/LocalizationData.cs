@@ -24,6 +24,21 @@ namespace Span.Services
             ("Properties", "Properties", "속성", "プロパティ", "属性", "內容", "Eigenschaften", "Propiedades", "Propriétés", "Propriedades"),
             ("AddToFavorites", "Add to favorites", "즐겨찾기에 추가", "お気に入りに追加", "添加到收藏夹", "新增到我的最愛", "Zu Favoriten hinzufügen", "Agregar a favoritos", "Ajouter aux favoris", "Adicionar aos favoritos"),
             ("RemoveFromFavorites", "Remove from favorites", "즐겨찾기에서 제거", "お気に入りから削除", "从收藏夹中删除", "從我的最愛中移除", "Aus Favoriten entfernen", "Quitar de favoritos", "Supprimer des favoris", "Remover dos favoritos"),
+            ("ColorTag", "Color tag", "색 태그", "カラータグ", "颜色标签", "色彩標籤", "Farb-Tag", "Etiqueta de color", "Étiquette couleur", "Marcador de cor"),
+            ("ColorTag_None", "None", "없음", "なし", "无", "無", "Keine", "Ninguno", "Aucune", "Nenhum"),
+            ("ColorTag_Red", "Red", "빨강", "赤", "红色", "紅色", "Rot", "Rojo", "Rouge", "Vermelho"),
+            ("ColorTag_Orange", "Orange", "주황", "オレンジ", "橙色", "橙色", "Orange", "Naranja", "Orange", "Laranja"),
+            ("ColorTag_Yellow", "Yellow", "노랑", "黄", "黄色", "黃色", "Gelb", "Amarillo", "Jaune", "Amarelo"),
+            ("ColorTag_Green", "Green", "초록", "緑", "绿色", "綠色", "Grün", "Verde", "Vert", "Verde"),
+            ("ColorTag_Blue", "Blue", "파랑", "青", "蓝色", "藍色", "Blau", "Azul", "Bleu", "Azul"),
+            ("ColorTag_Purple", "Purple", "보라", "紫", "紫色", "紫色", "Lila", "Morado", "Violet", "Roxo"),
+            ("ColorTag_Gray", "Gray", "회색", "グレー", "灰色", "灰色", "Grau", "Gris", "Gris", "Cinza"),
+            ("FolderNote_Placeholder", "Folder note…", "폴더 메모…", "フォルダーメモ…", "文件夹备注…", "資料夾備註…", "Ordnernotiz…", "Nota de carpeta…", "Note du dossier…", "Nota da pasta…"),
+            ("FolderNote_Label", "Note", "메모", "メモ", "备注", "備註", "Notiz", "Nota", "Note", "Nota"),
+            ("FolderNote_Edit", "Folder note…", "폴더 메모…", "フォルダーメモ…", "文件夹备注…", "資料夾備註…", "Ordnernotiz…", "Nota de carpeta…", "Note du dossier…", "Nota da pasta…"),
+            ("FolderNote_DialogTitle", "Folder note", "폴더 메모", "フォルダーメモ", "文件夹备注", "資料夾備註", "Ordnernotiz", "Nota de carpeta", "Note du dossier", "Nota da pasta"),
+            ("FolderNote_Save", "Save", "저장", "保存", "保存", "儲存", "Speichern", "Guardar", "Enregistrer", "Salvar"),
+            ("FolderNote_Cancel", "Cancel", "취소", "キャンセル", "取消", "取消", "Abbrechen", "Cancelar", "Annuler", "Cancelar"),
             ("NewFolder", "New folder", "새 폴더", "新しいフォルダー", "新建文件夹", "新增資料夾", "Neuer Ordner", "Nueva carpeta", "Nouveau dossier", "Nova pasta"),
 
             // ── View submenu ────────────────────────────────────────────────
@@ -748,6 +763,7 @@ namespace Span.Services
             ("FileOp_ZipNotExist", "ZIP file does not exist", "ZIP 파일이 존재하지 않습니다", "ZIPファイルが存在しません", "ZIP文件不存在", "ZIP檔案不存在", "ZIP-Datei existiert nicht", "El archivo ZIP no existe", "Le fichier ZIP n'existe pas", "O arquivo ZIP não existe"),
 
             // ── Search status ───────────────────────────────────────────────
+            ("Search_SearchingEverything", "Searching with Everything...", "Everything으로 검색 중...", "Everythingで検索中...", "正在使用 Everything 搜索...", "正在使用 Everything 搜尋...", "Suche mit Everything...", "Buscando con Everything...", "Recherche avec Everything...", "Pesquisando com Everything..."),
             ("Search_Searching", "Searching...", "검색 중...", "検索中...", "搜索中...", "搜尋中...", "Suche...", "Buscando...", "Recherche...", "Pesquisando..."),
             ("Search_Progress", "Searching... {0} found ({1} folders)", "검색 중... {0}개 발견 ({1}개 폴더)", "検索中... {0}件発見 ({1}フォルダー)", "搜索中... 找到{0}个 ({1}个文件夹)", "搜尋中... 找到{0}個 ({1}個資料夾)", "Suche... {0} gefunden ({1} Ordner)", "Buscando... {0} encontrados ({1} carpetas)", "Recherche... {0} trouvés ({1} dossiers)", "Pesquisando... {0} encontrados ({1} pastas)"),
             ("Search_CompleteLimited", "Search complete: {0} found (limit: max {1})", "검색 완료: {0}개 발견 (결과 제한: 최대 {1}개)", "検索完了: {0}件発見 (上限: {1}件)", "搜索完成: 找到{0}个 (限制: 最多{1}个)", "搜尋完成: 找到{0}個 (限制: 最多{1}個)", "Suche abgeschlossen: {0} gefunden (Limit: max. {1})", "Búsqueda completada: {0} encontrados (límite: máx. {1})", "Recherche terminée: {0} trouvés (limite: max {1})", "Pesquisa concluída: {0} encontrados (limite: máx. {1})"),
@@ -1067,6 +1083,8 @@ namespace Span.Services
             ("Settings_EnableQuickLook", "Enable Quick Look", "Quick Look 활성화", "Quick Lookを有効化", "启用快速预览", "啟用快速預覽", "Quick Look aktivieren", "Habilitar Vista rápida", "Activer Aperçu rapide", "Ativar Visualização rápida"),
             ("Settings_EnableWasdNavigation", "WASD navigation", "WASD 탐색", "WASDナビゲーション", "WASD 导航", "WASD 導覽", "WASD-Navigation", "Navegación WASD", "Navigation WASD", "Navegação WASD"),
             ("Settings_ConfirmDelete", "Confirm before delete", "삭제 전 확인", "削除前に確認", "删除前确认", "刪除前確認", "Vor dem Löschen bestätigen", "Confirmar antes de eliminar", "Confirmer avant suppression", "Confirmar antes de excluir"),
+            ("Settings_UseEverythingSearch", "Use Everything for search", "검색에 Everything 사용", "検索に Everything を使用", "使用 Everything 搜索", "使用 Everything 搜尋", "Everything für Suche nutzen", "Usar Everything para buscar", "Utiliser Everything pour la recherche", "Usar Everything para pesquisa"),
+            ("Settings_UseEverythingSearchDesc", "When Voidtools Everything is running, recursive search uses its index (es.exe). Falls back to folder walk if unavailable.", "Voidtools Everything이 실행 중이면 재귀 검색에 인덱스를 사용합니다(es.exe). 없으면 폴더 탐색으로 대체합니다.", "Voidtools Everything が実行中の場合、再帰検索にインデックスを使います（es.exe）。利用できない場合はフォルダー走査にフォールバックします。", "当 Voidtools Everything 运行时，递归搜索使用其索引（es.exe）。不可用时回退为文件夹遍历。", "當 Voidtools Everything 執行時，遞迴搜尋使用其索引（es.exe）。無法使用時改為資料夾掃描。", "Wenn Voidtools Everything läuft, nutzt die Rekursionssuche dessen Index (es.exe). Sonst Ordnerdurchlauf.", "Si Voidtools Everything está en ejecución, la búsqueda recursiva usa su índice (es.exe). Si no, recorre carpetas.", "Si Voidtools Everything est en cours d'exécution, la recherche récursive utilise son index (es.exe). Sinon parcours des dossiers.", "Se o Voidtools Everything estiver em execução, a pesquisa recursiva usa o índice (es.exe). Caso contrário, percorre pastas."),
             ("Settings_PreviewFolderInfo", "Show folder info in preview", "미리보기에 폴더 정보 표시", "プレビューにフォルダー情報を表示", "在预览中显示文件夹信息", "在預覽中顯示資料夾資訊", "Ordnerinfo in Vorschau anzeigen", "Mostrar info de carpeta en vista previa", "Afficher infos dossier dans l'aperçu", "Mostrar info da pasta na visualização"),
             // Settings_DefaultPreview / Settings_ShelfEnabled / Settings_ShelfSave 는 위쪽 블록(라인 ~307~)에 이미 정의되어 있어 중복 제거됨 (2026-04-10)
             ("Settings_ShowFavoritesTree", "Show favorites tree", "즐겨찾기 트리 표시", "お気に入りツリーを表示", "显示收藏树", "顯示我的最愛樹狀檢視", "Favoritenbaum anzeigen", "Mostrar árbol de favoritos", "Afficher arbre des favoris", "Mostrar árvore de favoritos"),

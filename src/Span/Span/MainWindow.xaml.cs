@@ -5181,6 +5181,8 @@ namespace Span
                     catch (Exception ex) { Helpers.DebugLogger.Log($"[OnMillerCCC] InjectCloud failed: {ex.Message}"); }
                     try { folderVm.InjectGitStateIfNeeded(fsVm); }
                     catch (Exception ex) { Helpers.DebugLogger.Log($"[OnMillerCCC] InjectGit failed: {ex.Message}"); }
+                    try { folderVm.InjectColorTagIfNeeded(fsVm); }
+                    catch (Exception ex) { Helpers.DebugLogger.Log($"[OnMillerCCC] InjectColorTag failed: {ex.Message}"); }
                 }
             }
             catch (Exception ex)
@@ -7383,6 +7385,84 @@ namespace Span
             ViewModel.RemoveFromFavorites(path);
         }
 
+        void Services.IContextMenuHost.SetColorTag(string path, Models.ItemColorTag tag)
+            => ((Services.IContextMenuHost)this).SetColorTag(new[] { path }, tag);
+
+        void Services.IContextMenuHost.SetColorTag(IReadOnlyList<string> paths, Models.ItemColorTag tag)
+        {
+            if (paths == null || paths.Count == 0) return;
+            var annotations = App.Current.Services.GetService<Services.ItemAnnotationService>();
+            if (annotations == null) return;
+
+            foreach (var path in paths)
+            {
+                if (!Services.ItemAnnotationService.IsAnnotatable(path)) continue;
+                _ = annotations.SetColorTagAsync(path, tag);
+                ApplyColorTagToVisibleItems(path, tag);
+            }
+        }
+
+        private void ApplyColorTagToVisibleItems(string path, Models.ItemColorTag tag)
+        {
+            try
+            {
+                ApplyColorTagInExplorer(ViewModel.LeftExplorer, path, tag);
+                ApplyColorTagInExplorer(ViewModel.RightExplorer, path, tag);
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[ColorTag] Apply visible update failed: {ex.Message}");
+            }
+        }
+
+        private static void ApplyColorTagInExplorer(ViewModels.ExplorerViewModel? explorer, string path, Models.ItemColorTag tag)
+        {
+            if (explorer?.Columns == null) return;
+            foreach (var column in explorer.Columns)
+                column.ApplyColorTagToChild(path, tag);
+        }
+
+        async void Services.IContextMenuHost.EditFolderNote(string path)
+        {
+            try
+            {
+                if (!Services.ItemAnnotationService.IsAnnotatable(path) || !System.IO.Directory.Exists(path))
+                    return;
+
+                var annotations = App.Current.Services.GetRequiredService<Services.ItemAnnotationService>();
+                await annotations.EnsureLoadedAsync();
+                var existing = annotations.GetFolderNote(path);
+
+                var box = new TextBox
+                {
+                    Text = existing,
+                    AcceptsReturn = true,
+                    TextWrapping = TextWrapping.Wrap,
+                    MinHeight = 140,
+                    MaxHeight = 280,
+                    PlaceholderText = _loc.Get("FolderNote_Placeholder"),
+                };
+
+                var dialog = new ContentDialog
+                {
+                    Title = $"{_loc.Get("FolderNote_DialogTitle")}: {System.IO.Path.GetFileName(path)}",
+                    Content = box,
+                    PrimaryButtonText = _loc.Get("FolderNote_Save"),
+                    CloseButtonText = _loc.Get("FolderNote_Cancel"),
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = Content.XamlRoot,
+                };
+
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary)
+                    await annotations.SetFolderNoteAsync(path, box.Text);
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[FolderNote] Edit dialog failed: {ex.Message}");
+            }
+        }
+
         void Services.IContextMenuHost.CreateFavoriteGroup() => CreateFavoriteGroup();
 
         void Services.IContextMenuHost.RenameFavoriteGroup(string groupId) => RenameFavoriteGroup(groupId);
@@ -7725,17 +7805,7 @@ namespace Span
                 return;
             }
 
-            // Miller Column 뷰에서는 필터가 의미 없음 — 각 컬럼의 Children을 숨기면
-            // 경로 하이라이트/SelectedChild 상태가 깨져 빈 컬럼 유령 UI 발생.
-            // Details/List/Icon 같은 평면 목록 뷰에서만 필터 허용.
-            var activeMode = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == Models.ActivePane.Right)
-                ? ViewModel.RightViewMode : ViewModel.LeftViewMode;
-            if (activeMode == Models.ViewMode.MillerColumns)
-            {
-                ViewModel.ShowToast(_loc.Get("Filter_NotAvailableInMiller"), 2500, isError: false);
-                return;
-            }
-
+            // Miller: filter applies to the leaf column only (see ExplorerViewModel.PropagateLeafFilter).
             LeftFilterBar.Visibility = Visibility.Visible;
             LeftFilterTextBox.Focus(FocusState.Keyboard);
             UpdateFilterCount();
@@ -7799,26 +7869,12 @@ namespace Span
                 return;
             }
 
-            // 모든 컬럼의 필터 카운트 합산 (Miller Columns에서 여러 컬럼에 필터 적용됨)
-            int filteredTotal = 0;
-            int allTotal = 0;
-            foreach (var col in explorer.Columns)
-            {
-                if (!string.IsNullOrEmpty(col.CurrentFilterText))
-                {
-                    filteredTotal += col.Children.Count;
-                    allTotal += col.TotalChildCount;
-                }
-            }
-
-            if (allTotal > 0)
-            {
-                LeftFilterCountText.Text = $"{filteredTotal}/{allTotal}";
-            }
+            // Leaf column only (Miller parents stay unfiltered).
+            var leaf = explorer.Columns.LastOrDefault();
+            if (leaf != null && !string.IsNullOrEmpty(leaf.CurrentFilterText) && leaf.TotalChildCount > 0)
+                LeftFilterCountText.Text = $"{leaf.Children.Count}/{leaf.TotalChildCount}";
             else
-            {
                 LeftFilterCountText.Text = string.Empty;
-            }
         }
 
     }

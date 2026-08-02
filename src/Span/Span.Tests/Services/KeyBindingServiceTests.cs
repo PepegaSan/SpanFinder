@@ -39,12 +39,11 @@ public class KeyBindingServiceTests
     }
 
     [TestMethod]
-    public void Defaults_DoNotIncludeHiddenCommandPalette()
+    public void Defaults_IncludeCommandPalette_CtrlK()
     {
-        // 2026-04-10: Command Palette는 숨김 처리되어 기본 단축키 매핑이 없어야 함
         var defaults = _service.GetDefaultBindings();
-        Assert.IsFalse(defaults.ContainsKey(ShortcutCommands.OpenCommandPalette),
-            "OpenCommandPalette는 기본 매핑에서 제외되어야 한다 (숨김 처리)");
+        Assert.IsTrue(defaults.ContainsKey(ShortcutCommands.OpenCommandPalette));
+        CollectionAssert.Contains(defaults[ShortcutCommands.OpenCommandPalette], "Ctrl+K");
     }
 
     [TestMethod]

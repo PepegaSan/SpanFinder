@@ -33,6 +33,9 @@ namespace Span.Services
         void AddToFavorites(string path);
         void RemoveFromFavorites(string path);
         bool IsFavorite(string path);
+        void SetColorTag(string path, ItemColorTag tag);
+        void SetColorTag(IReadOnlyList<string> paths, ItemColorTag tag);
+        void EditFolderNote(string path);
         void RemoveRemoteConnection(string connectionId);
         void EditRemoteConnection(string connectionId);
         void PerformEjectDrive(DriveItem drive);

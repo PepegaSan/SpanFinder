@@ -66,6 +66,8 @@ Navigieren Sie tiefe Ordnerhierarchien, ohne den Kontext zu verlieren. Jede Spal
 - Ziehbare Spaltentrennlinien zur Breitenanpassung
 - Spalten gleichmaessig verteilen (Strg+Umschalt+=) oder an Inhalt anpassen (Strg+Umschalt+-)
 - Sanftes horizontales Scrollen, damit die aktive Spalte immer sichtbar bleibt
+- Kompakte **Groesse**- und **Alters**-Badges pro Zeile (One-Commander-Stil) — praktisch im Dual-Panel
+- **Filter** (Strg+Umschalt+F) greift auf die letzte Spalte, ohne den Pfad zu zerlegen
 
 ### Vier Ansichtsmodi
 
@@ -109,7 +111,8 @@ Navigieren Sie tiefe Ordnerhierarchien, ohne den Kontext zu verlieren. Jede Spal
 - **PDF**: Vorschau der ersten Seite
 - **Schriften**: Glyphen-Beispiele + Metadaten
 - **Hex-Binaer**: Roh-Byte-Ansicht fuer Entwickler
-- **Ordner**: Groesse, Elementanzahl, Erstellungsdatum
+- **Ordner**: Groesse, Elementanzahl, Erstellungsdatum; optionale Ordnernotizen in der Vorschau
+- **Farb-Tags**: Rot / Gruen / Blau an Dateien und Ordnern (Kontextmenue)
 - **Datei-Hash**: SHA256-Pruefsumme anzeigen + Ein-Klick-Kopie (in Einstellungen aktivierbar)
 
 ### Tastatur-First-Design
@@ -121,8 +124,9 @@ Ueber 30 Shortcuts fuer Nutzer, die die Haende nicht von der Tastatur nehmen:
 | Pfeiltasten | Spalten- und Elementnavigation |
 | Eingabe | Ordner oeffnen oder Datei ausfuehren |
 | Leertaste | Vorschau-Panel umschalten |
+| Strg+K | Befehls-Palette |
 | Strg+L / Alt+D | Adressleiste bearbeiten |
-| Strg+F | Suchen |
+| Strg+F | Suchen (rekursiv; nutzt Everything wenn verfuegbar) |
 | Strg+C / X / V | Kopieren / Ausschneiden / Einfuegen |
 | Strg+Z / Y | Rueckgaengig / Wiederholen |
 | Strg+Umschalt+N | Neuer Ordner |
@@ -267,6 +271,12 @@ SPAN Finder verwendet [Sentry](https://sentry.io) **ausschliesslich fuer Absturz
 - Der Quellcode ist offen — ueberpruefen Sie es selbst in [`CrashReportingService.cs`](../src/Span/Span/Services/CrashReportingService.cs)
 
 Weitere Details finden Sie in der [Datenschutzerklaerung](../PRIVACY.md).
+
+---
+
+## Fork-Changelog
+
+Fork-spezifische Aenderungen (natives Shell-Menue, Favoritengruppen, Paper-Theme, Everything-Bruecke, Miller-Alters-Badges u. a.) stehen in [CHANGELOG.md](../CHANGELOG.md).
 
 ---
 

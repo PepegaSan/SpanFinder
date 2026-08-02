@@ -1576,6 +1576,17 @@ namespace Span.ViewModels
                 var connectionService = App.Current.Services.GetRequiredService<Services.ConnectionManagerService>();
                 await connectionService.LoadConnectionsAsync();
 
+                try
+                {
+                    var annotations = App.Current.Services.GetService<Services.ItemAnnotationService>();
+                    if (annotations != null)
+                        await annotations.EnsureLoadedAsync();
+                }
+                catch (Exception ex)
+                {
+                    Helpers.DebugLogger.Log($"[MainViewModel] Annotation load failed: {ex.Message}");
+                }
+
                 SavedConnections.Clear();
                 foreach (var conn in connectionService.SavedConnections)
                     SavedConnections.Add(conn);

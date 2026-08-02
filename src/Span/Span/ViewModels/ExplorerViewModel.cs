@@ -90,7 +90,8 @@ namespace Span.ViewModels
             CurrentFolder?.Children ?? new ObservableCollection<FileSystemViewModel>();
 
         /// <summary>
-        /// 필터 바 텍스트. 설정 시 모든 컬럼에 ApplyFilter 전파.
+        /// Filter bar text. Applied only to the leaf (last) Miller column so parent
+        /// path columns stay intact — avoids empty "ghost" columns when filtering in Miller.
         /// </summary>
         private string _filterText = string.Empty;
         public string FilterText
@@ -100,23 +101,32 @@ namespace Span.ViewModels
             {
                 if (SetProperty(ref _filterText, value ?? string.Empty))
                 {
-                    // 필터 적용 중 Children 교체 → SelectedChild 변경 → Columns 수정 연쇄를 방지
-                    // 1) Columns 스냅샷으로 순회 (ConcurrentModificationException 방지)
-                    // 2) AutoNavigation 억제 — 내부 카운터로 관리 (EnableAutoNavigation 건드리지 않음)
-                    //    NavigateTo/NavigateToPath가 awaiting 중에 FilterText가 실행되어도
-                    //    전역 상태 오염 없이 안전하게 억제 중첩 가능.
-                    Interlocked.Increment(ref _autoNavSuppressCount);
-                    try
-                    {
-                        foreach (var col in Columns.ToList())
-                            col.ApplyFilter(_filterText);
-                    }
-                    finally
-                    {
-                        Interlocked.Decrement(ref _autoNavSuppressCount);
-                    }
+                    PropagateLeafFilter();
                     OnPropertyChanged(nameof(IsFilterActive));
                 }
+            }
+        }
+
+        /// <summary>
+        /// Apply <see cref="FilterText"/> to the last column only; clear filters on parents.
+        /// Suppresses auto-navigation while Children collections are swapped.
+        /// </summary>
+        private void PropagateLeafFilter()
+        {
+            Interlocked.Increment(ref _autoNavSuppressCount);
+            try
+            {
+                var cols = Columns.ToList();
+                for (int i = 0; i < cols.Count; i++)
+                {
+                    var target = (i == cols.Count - 1) ? _filterText : string.Empty;
+                    if (cols[i].CurrentFilterText != target)
+                        cols[i].ApplyFilter(target);
+                }
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _autoNavSuppressCount);
             }
         }
 
@@ -1128,6 +1138,10 @@ namespace Span.ViewModels
             folderVm.PropertyChanged += FolderVm_PropertyChanged;
             folderVm.LoadError += OnColumnLoadError;
             Columns.Add(folderVm);
+
+            // Drill-down: former leaf becomes a parent — clear its filter; new leaf gets it.
+            if (!string.IsNullOrEmpty(_filterText))
+                PropagateLeafFilter();
         }
 
         private void OnColumnLoadError(string message) => NavigationError?.Invoke(message);
@@ -1213,6 +1227,9 @@ namespace Span.ViewModels
             }
 
             Helpers.DebugLogger.Log($"[RemoveColumnsFrom] Columns after removal: {string.Join(" > ", Columns.Select(c => c.Name))}");
+
+            if (!string.IsNullOrEmpty(_filterText))
+                PropagateLeafFilter();
         }
 
         /// <summary>
@@ -1246,7 +1263,9 @@ namespace Span.ViewModels
                     // CurrentItems 통지는 항상 허용 — Details/List/Icon 뷰 바인딩에 필수
                     var isBulk = sender is FolderViewModel fvm && (fvm.IsSorting || fvm.IsBulkUpdating);
 
+                    // Re-apply only on the leaf column after reload/populate.
                     if (!isBulk && !string.IsNullOrEmpty(_filterText) && sender is FolderViewModel folderVm
+                        && ReferenceEquals(folderVm, Columns.LastOrDefault())
                         && folderVm.CurrentFilterText != _filterText)
                     {
                         folderVm.ApplyFilter(_filterText);
@@ -1710,14 +1729,35 @@ namespace Span.ViewModels
             _searchCts = new CancellationTokenSource();
             var ct = _searchCts.Token;
 
-            var searchService = new RecursiveSearchService(_fileService);
             var progress = new Progress<RecursiveSearchService.SearchProgress>(p =>
             {
                 SearchStatusText = string.Format(LocalizationService.L("Search_Progress"), p.FilesFound, p.FoldersScanned);
             });
 
-            // Channel 기반: 백그라운드에서 검색, UI 스레드에서 배치 수신
-            var reader = searchService.SearchInBackground(rootPath, query, showHidden, progress, ct);
+            // Prefer Everything (es.exe) for local folders; fall back to BFS walk.
+            ChannelReader<List<FileSystemViewModel>> reader;
+            int maxResults = RecursiveSearchService.MaxResults;
+            try
+            {
+                var everything = App.Current.Services.GetService<EverythingSearchService>();
+                if (everything != null && everything.CanUse(rootPath, out var esPath) && esPath != null)
+                {
+                    SearchStatusText = LocalizationService.L("Search_SearchingEverything");
+                    reader = everything.SearchInBackground(esPath, rootPath, query, showHidden, progress, ct);
+                    maxResults = EverythingSearchService.MaxResults;
+                }
+                else
+                {
+                    var searchService = new RecursiveSearchService(_fileService);
+                    reader = searchService.SearchInBackground(rootPath, query, showHidden, progress, ct);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[Search] Everything unavailable, using BFS: {ex.Message}");
+                var searchService = new RecursiveSearchService(_fileService);
+                reader = searchService.SearchInBackground(rootPath, query, showHidden, progress, ct);
+            }
 
             int count = 0;
             bool limitReached = false;
@@ -1732,7 +1772,7 @@ namespace Span.ViewModels
                     // 배치 단위로 추가 — 개별 Add보다 UI 갱신 빈도가 낮아짐
                     foreach (var item in batch)
                     {
-                        if (count >= RecursiveSearchService.MaxResults)
+                        if (count >= maxResults)
                         {
                             limitReached = true;
                             break;
@@ -1753,7 +1793,7 @@ namespace Span.ViewModels
             if (!ct.IsCancellationRequested)
             {
                 if (limitReached)
-                    SearchStatusText = string.Format(LocalizationService.L("Search_CompleteLimited"), count, RecursiveSearchService.MaxResults);
+                    SearchStatusText = string.Format(LocalizationService.L("Search_CompleteLimited"), count, maxResults);
                 else
                     SearchStatusText = count > 0
                         ? string.Format(LocalizationService.L("Search_Complete"), count)

@@ -356,6 +356,7 @@ namespace Span.Views
                         if (_gitColumnVisible)
                             currentFolder?.InjectGitStateIfNeeded(fsVm);
                         currentFolder?.InjectCloudStateIfNeeded(fsVm);
+                        currentFolder?.InjectColorTagIfNeeded(fsVm);
                     }
                     catch (Exception ex) { Helpers.DebugLogger.Log($"[Details.CCC] Inject failed: {ex.Message}"); }
                 }

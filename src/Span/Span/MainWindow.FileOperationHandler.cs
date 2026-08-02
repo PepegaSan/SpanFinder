@@ -2480,19 +2480,7 @@ namespace Span
         /// but this ensures the \\?\ prefix is applied for paths exceeding MAX_PATH (260).
         /// </summary>
         private static string NormalizeLongPath(string path)
-        {
-            if (string.IsNullOrEmpty(path)) return path;
-            // Already has long path prefix or is a UNC path with prefix
-            if (path.StartsWith(@"\\?\") || path.StartsWith(@"\\.\")) return path;
-            // Only apply prefix for paths that exceed MAX_PATH
-            if (path.Length >= 260)
-            {
-                if (path.StartsWith(@"\\"))
-                    return @"\\?\UNC\" + path.Substring(2); // UNC path
-                return @"\\?\" + path;
-            }
-            return path;
-        }
+            => Helpers.LongPathHelper.ForIo(path);
 
         // =================================================================
         //  P1 #18: Alt+Enter — Show Windows Properties dialog

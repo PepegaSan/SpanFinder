@@ -219,13 +219,9 @@ public class ShortcutCommandsTests
         Assert.IsFalse(ShortcutCommands.IsRemappable("span.no.such"));
     }
 
-    // ── 숨김 처리된 Command Palette 보호 ────────────
-
     [TestMethod]
-    public void OpenCommandPalette_StillRegisteredEvenThoughHidden()
+    public void OpenCommandPalette_IsRegistered()
     {
-        // 2026-04-10: Command Palette UI는 숨김 처리되었지만, 상수와 카테고리는 유지되어야 함
-        // (사용자가 Settings에서 키 재할당 시 즉시 동작)
         Assert.IsTrue(ShortcutCommands.GetAllCommands().Contains(ShortcutCommands.OpenCommandPalette));
         Assert.AreEqual("CommandPalette",
             ShortcutCommands.GetCategory(ShortcutCommands.OpenCommandPalette));

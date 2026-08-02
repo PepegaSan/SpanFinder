@@ -724,7 +724,11 @@ namespace Span.Views
 
                 if (args.Item is ViewModels.FileSystemViewModel fsVm)
                 {
-                    try { _viewModel?.CurrentFolder?.InjectCloudStateIfNeeded(fsVm); }
+                    try
+                    {
+                        _viewModel?.CurrentFolder?.InjectCloudStateIfNeeded(fsVm);
+                        _viewModel?.CurrentFolder?.InjectColorTagIfNeeded(fsVm);
+                    }
                     catch (Exception ex) { Helpers.DebugLogger.Log($"[Icon.CCC] InjectCloud failed: {ex.Message}"); }
                 }
             }

@@ -587,7 +587,7 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="models:DriveItem">
                                     <Grid Height="26" Padding="12,0,8,0" Background="Transparent"
-                                          ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneWay}"
+                                          ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneTime}"
                                           Tapped="OnDriveItemTapped" RightTapped="OnSidebarDriveRightTapped"
                                           PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited">
                                         <Grid.ColumnDefinitions>
@@ -635,7 +635,7 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="models:DriveItem">
                                         <Grid Height="26" Padding="12,0,8,0" Background="Transparent"
-                                              ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneWay}"
+                                              ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneTime}"
                                               Tapped="OnDriveItemTapped" RightTapped="OnSidebarDriveRightTapped"
                                               PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited">
                                             <Grid.ColumnDefinitions>
@@ -682,7 +682,7 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="models:DriveItem">
                                         <Grid Height="26" Padding="12,0,8,0" Background="Transparent"
-                                              ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneWay}"
+                                              ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneTime}"
                                               Tapped="OnDriveItemTapped" RightTapped="OnSidebarDriveRightTapped"
                                               PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited">
                                             <Grid.ColumnDefinitions>
@@ -1057,8 +1057,7 @@
                                                                                         <ColumnDefinition Width="Auto"/>
                                                                                         <ColumnDefinition Width="Auto"/>
                                                                                     </Grid.ColumnDefinitions>
-                                                                                    <!-- Col0: reserved for layout alignment (indicator handled by floating overlay) -->
-                                                                                    <Grid Grid.Column="1" Margin="0,0,12,0" VerticalAlignment="Center">
+<Grid Grid.Column="1" Margin="0,0,12,0" VerticalAlignment="Center">
                                                                                         <Image Source="{x:Bind CustomIcon, Mode=OneWay}" Stretch="Uniform"
                                                                                                Width="{Binding IconFontSize, Source={StaticResource FontScale}}"
                                                                                                Height="{Binding IconFontSize, Source={StaticResource FontScale}}"
@@ -1067,6 +1066,12 @@
                                                                                         <FontIcon FontFamily="{StaticResource RemixIcons}" Glyph="{StaticResource Icon_Folder}" FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}" Foreground="{x:Bind IconBrush}"
                                                                                                   Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfFalse(HasCustomIcon), Mode=OneWay}"
                                                                                                   IsHitTestVisible="False"/>
+                                                                                        <!-- Color tag -->
+                                                                                        <Border Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrue(HasColorTag), Mode=OneWay}"
+                                                                                                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-3,-3,0,0"
+                                                                                                Width="8" Height="8" CornerRadius="4"
+                                                                                                Background="{x:Bind ColorTagBrush, Mode=OneWay}"
+                                                                                                IsHitTestVisible="False"/>
                                                                                     </Grid>
                                                                                     <TextBlock Grid.Column="2" Text="{x:Bind TruncatedDisplayName, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
                                                                                                Visibility="{x:Bind viewmodels:FileSystemViewModel.NotRenaming(IsRenaming), Mode=OneWay}"/>
@@ -1074,10 +1079,20 @@
                                                                                              Visibility="{x:Bind IsRenaming, Mode=OneWay}"
                                                                                              VerticalAlignment="Center" Padding="2" MinHeight="0" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
                                                                                              LostFocus="OnRenameTextBoxLostFocus" KeyDown="OnRenameTextBoxKeyDown"/>
-                                                                                    <!-- Item count badge -->
-                                                                                    <TextBlock Grid.Column="3" Text="{x:Bind ChildCountText, Mode=OneWay}" VerticalAlignment="Center"
-                                                                                               FontSize="10" Foreground="{ThemeResource SpanTextTertiaryBrush}" Margin="4,0,4,0"
-                                                                                               Visibility="{x:Bind viewmodels:FileSystemViewModel.NotRenaming(IsRenaming), Mode=OneWay}"/>
+                                                                                    <!-- Item count + relative age -->
+                                                                                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" Margin="4,0,4,0"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Visibility="{x:Bind viewmodels:FileSystemViewModel.NotRenaming(IsRenaming), Mode=OneWay}">
+                                                                                        <TextBlock Text="{x:Bind ChildCountText, Mode=OneWay}" FontSize="10"
+                                                                                                   Foreground="{ThemeResource SpanTextTertiaryBrush}"
+                                                                                                   VerticalAlignment="Center"/>
+                                                                                        <Border Background="{x:Bind RelativeAgeBrush, Mode=OneWay}"
+                                                                                                CornerRadius="2" Padding="4,1" VerticalAlignment="Center"
+                                                                                                Visibility="{x:Bind viewmodels:FileSystemViewModel.ShowIfTrue(HasRelativeAge), Mode=OneWay}">
+                                                                                            <TextBlock Text="{x:Bind RelativeAgeText, Mode=OneWay}" FontSize="10" FontWeight="SemiBold"
+                                                                                                       Foreground="#FF1A1A1A" VerticalAlignment="Center"/>
+                                                                                        </Border>
+                                                                                    </StackPanel>
                                                                                     <FontIcon Grid.Column="4" FontFamily="{StaticResource RemixIcons}" Glyph="{StaticResource Icon_ChevronRight}" FontSize="10" Foreground="{ThemeResource SpanTextTertiaryBrush}" Opacity="0.5"
                                                                                              Visibility="{x:Bind viewmodels:FileSystemViewModel.ShowIfTrue(HasChildren), Mode=OneWay}"/>
                                                                                 </Grid>
@@ -1095,9 +1110,7 @@
                                                                                         <ColumnDefinition Width="Auto"/>
                                                                                         <ColumnDefinition Width="Auto"/>
                                                                                     </Grid.ColumnDefinitions>
-                                                                                    <!-- Col0: path indicator placeholder (matches FolderTemplate column structure) -->
-                                                                                    <Border Grid.Column="0" Width="1" CornerRadius="0.5" Margin="-8,2,0,2" Visibility="Collapsed"/>
-                                                                                    <Grid Grid.Column="1" Width="{Binding IconFontSize, Source={StaticResource FontScale}}" Height="{Binding IconFontSize, Source={StaticResource FontScale}}" Margin="0,0,12,0" VerticalAlignment="Center">
+<Grid Grid.Column="1" Width="{Binding IconFontSize, Source={StaticResource FontScale}}" Height="{Binding IconFontSize, Source={StaticResource FontScale}}" Margin="0,0,12,0" VerticalAlignment="Center">
                                                                                         <!-- Opacity 전환: Visibility→Opacity로 레이아웃 패스 없이 렌더링만 전환 (14K 스크롤 지터 방지) -->
                                                                                         <Image Source="{x:Bind ThumbnailSource, Mode=OneWay}" Stretch="UniformToFill"
                                                                                                Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrue(HasThumbnail), Mode=OneWay}"
@@ -1127,6 +1140,12 @@
                                                                                                        Foreground="{x:Bind GitBadgeTextBrush, Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                                                                        Margin="0,-1,0,0"/>
                                                                                         </Border>
+                                                                                        <!-- Color tag -->
+                                                                                        <Border Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrue(HasColorTag), Mode=OneWay}"
+                                                                                                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-3,-3,0,0"
+                                                                                                Width="8" Height="8" CornerRadius="4"
+                                                                                                Background="{x:Bind ColorTagBrush, Mode=OneWay}"
+                                                                                                IsHitTestVisible="False"/>
                                                                                     </Grid>
                                                                                     <TextBlock Grid.Column="2" Text="{x:Bind TruncatedDisplayName, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
                                                                                                Visibility="{x:Bind viewmodels:FileSystemViewModel.NotRenaming(IsRenaming), Mode=OneWay}"/>
@@ -1134,10 +1153,20 @@
                                                                                              Visibility="{x:Bind IsRenaming, Mode=OneWay}"
                                                                                              VerticalAlignment="Center" Padding="2" MinHeight="0" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
                                                                                              LostFocus="OnRenameTextBoxLostFocus" KeyDown="OnRenameTextBoxKeyDown"/>
-                                                                                    <!-- Relative file age (One Commander style) -->
-                                                                                    <TextBlock Grid.Column="3" Text="{x:Bind RelativeAgeText, Mode=OneWay}" VerticalAlignment="Center"
-                                                                                               FontSize="10" Foreground="{x:Bind RelativeAgeBrush, Mode=OneWay}" Margin="4,0,4,0"
-                                                                                               Visibility="{x:Bind viewmodels:FileSystemViewModel.NotRenaming(IsRenaming), Mode=OneWay}"/>
+                                                                                    <!-- Size + relative age (Details-like meta in Miller) -->
+                                                                                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" Margin="4,0,4,0"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Visibility="{x:Bind viewmodels:FileSystemViewModel.NotRenaming(IsRenaming), Mode=OneWay}">
+                                                                                        <TextBlock Text="{x:Bind Size, Mode=OneWay}" FontSize="10"
+                                                                                                   Foreground="{ThemeResource SpanTextTertiaryBrush}"
+                                                                                                   VerticalAlignment="Center"/>
+                                                                                        <Border Background="{x:Bind RelativeAgeBrush, Mode=OneWay}"
+                                                                                                CornerRadius="2" Padding="4,1" VerticalAlignment="Center"
+                                                                                                Visibility="{x:Bind viewmodels:FileSystemViewModel.ShowIfTrue(HasRelativeAge), Mode=OneWay}">
+                                                                                            <TextBlock Text="{x:Bind RelativeAgeText, Mode=OneWay}" FontSize="10" FontWeight="SemiBold"
+                                                                                                       Foreground="#FF1A1A1A" VerticalAlignment="Center"/>
+                                                                                        </Border>
+                                                                                    </StackPanel>
                                                                                     <!-- Col4 spacer aligns file rows with folder chevron column -->
                                                                                     <Border Grid.Column="4" Width="10" Visibility="Collapsed"/>
                                                                                 </Grid>
@@ -1509,8 +1538,7 @@
                                                                                         <ColumnDefinition Width="Auto"/>
                                                                                         <ColumnDefinition Width="Auto"/>
                                                                                     </Grid.ColumnDefinitions>
-                                                                                    <!-- Col0: reserved for layout alignment (indicator handled by floating overlay) -->
-                                                                                    <Grid Grid.Column="1" Margin="0,0,12,0" VerticalAlignment="Center">
+<Grid Grid.Column="1" Margin="0,0,12,0" VerticalAlignment="Center">
                                                                                         <Image Source="{x:Bind CustomIcon, Mode=OneWay}" Stretch="Uniform"
                                                                                                Width="{Binding IconFontSize, Source={StaticResource FontScale}}"
                                                                                                Height="{Binding IconFontSize, Source={StaticResource FontScale}}"
@@ -1519,6 +1547,12 @@
                                                                                         <FontIcon FontFamily="{StaticResource RemixIcons}" Glyph="{StaticResource Icon_Folder}" FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}" Foreground="{x:Bind IconBrush}"
                                                                                                   Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfFalse(HasCustomIcon), Mode=OneWay}"
                                                                                                   IsHitTestVisible="False"/>
+                                                                                        <!-- Color tag -->
+                                                                                        <Border Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrue(HasColorTag), Mode=OneWay}"
+                                                                                                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-3,-3,0,0"
+                                                                                                Width="8" Height="8" CornerRadius="4"
+                                                                                                Background="{x:Bind ColorTagBrush, Mode=OneWay}"
+                                                                                                IsHitTestVisible="False"/>
                                                                                     </Grid>
                                                                                     <TextBlock Grid.Column="2" Text="{x:Bind TruncatedDisplayName, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
                                                                                                Visibility="{x:Bind viewmodels:FileSystemViewModel.NotRenaming(IsRenaming), Mode=OneWay}"/>
@@ -1526,10 +1560,20 @@
                                                                                              Visibility="{x:Bind IsRenaming, Mode=OneWay}"
                                                                                              VerticalAlignment="Center" Padding="2" MinHeight="0" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
                                                                                              LostFocus="OnRenameTextBoxLostFocus" KeyDown="OnRenameTextBoxKeyDown"/>
-                                                                                    <!-- Item count badge -->
-                                                                                    <TextBlock Grid.Column="3" Text="{x:Bind ChildCountText, Mode=OneWay}" VerticalAlignment="Center"
-                                                                                               FontSize="10" Foreground="{ThemeResource SpanTextTertiaryBrush}" Margin="4,0,4,0"
-                                                                                               Visibility="{x:Bind viewmodels:FileSystemViewModel.NotRenaming(IsRenaming), Mode=OneWay}"/>
+                                                                                    <!-- Item count + relative age -->
+                                                                                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" Margin="4,0,4,0"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Visibility="{x:Bind viewmodels:FileSystemViewModel.NotRenaming(IsRenaming), Mode=OneWay}">
+                                                                                        <TextBlock Text="{x:Bind ChildCountText, Mode=OneWay}" FontSize="10"
+                                                                                                   Foreground="{ThemeResource SpanTextTertiaryBrush}"
+                                                                                                   VerticalAlignment="Center"/>
+                                                                                        <Border Background="{x:Bind RelativeAgeBrush, Mode=OneWay}"
+                                                                                                CornerRadius="2" Padding="4,1" VerticalAlignment="Center"
+                                                                                                Visibility="{x:Bind viewmodels:FileSystemViewModel.ShowIfTrue(HasRelativeAge), Mode=OneWay}">
+                                                                                            <TextBlock Text="{x:Bind RelativeAgeText, Mode=OneWay}" FontSize="10" FontWeight="SemiBold"
+                                                                                                       Foreground="#FF1A1A1A" VerticalAlignment="Center"/>
+                                                                                        </Border>
+                                                                                    </StackPanel>
                                                                                     <FontIcon Grid.Column="4" FontFamily="{StaticResource RemixIcons}" Glyph="{StaticResource Icon_ChevronRight}" FontSize="10" Foreground="{ThemeResource SpanTextTertiaryBrush}" Opacity="0.5"
                                                                                              Visibility="{x:Bind viewmodels:FileSystemViewModel.ShowIfTrue(HasChildren), Mode=OneWay}"/>
                                                                                 </Grid>
@@ -1547,9 +1591,7 @@
                                                                                         <ColumnDefinition Width="Auto"/>
                                                                                         <ColumnDefinition Width="Auto"/>
                                                                                     </Grid.ColumnDefinitions>
-                                                                                    <!-- Col0: path indicator placeholder (matches FolderTemplate column structure) -->
-                                                                                    <Border Grid.Column="0" Width="1" CornerRadius="0.5" Margin="-8,2,0,2" Visibility="Collapsed"/>
-                                                                                    <Grid Grid.Column="1" Width="{Binding IconFontSize, Source={StaticResource FontScale}}" Height="{Binding IconFontSize, Source={StaticResource FontScale}}" Margin="0,0,12,0" VerticalAlignment="Center">
+<Grid Grid.Column="1" Width="{Binding IconFontSize, Source={StaticResource FontScale}}" Height="{Binding IconFontSize, Source={StaticResource FontScale}}" Margin="0,0,12,0" VerticalAlignment="Center">
                                                                                         <!-- Opacity 전환: Visibility→Opacity로 레이아웃 패스 없이 렌더링만 전환 (14K 스크롤 지터 방지) -->
                                                                                         <Image Source="{x:Bind ThumbnailSource, Mode=OneWay}" Stretch="UniformToFill"
                                                                                                Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrue(HasThumbnail), Mode=OneWay}"
@@ -1579,6 +1621,12 @@
                                                                                                        Foreground="{x:Bind GitBadgeTextBrush, Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                                                                        Margin="0,-1,0,0"/>
                                                                                         </Border>
+                                                                                        <!-- Color tag -->
+                                                                                        <Border Opacity="{x:Bind viewmodels:FileSystemViewModel.OpacityIfTrue(HasColorTag), Mode=OneWay}"
+                                                                                                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-3,-3,0,0"
+                                                                                                Width="8" Height="8" CornerRadius="4"
+                                                                                                Background="{x:Bind ColorTagBrush, Mode=OneWay}"
+                                                                                                IsHitTestVisible="False"/>
                                                                                     </Grid>
                                                                                     <TextBlock Grid.Column="2" Text="{x:Bind TruncatedDisplayName, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
                                                                                                Visibility="{x:Bind viewmodels:FileSystemViewModel.NotRenaming(IsRenaming), Mode=OneWay}"/>
@@ -1586,10 +1634,20 @@
                                                                                              Visibility="{x:Bind IsRenaming, Mode=OneWay}"
                                                                                              VerticalAlignment="Center" Padding="2" MinHeight="0" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
                                                                                              LostFocus="OnRenameTextBoxLostFocus" KeyDown="OnRenameTextBoxKeyDown"/>
-                                                                                    <!-- Relative file age (One Commander style) -->
-                                                                                    <TextBlock Grid.Column="3" Text="{x:Bind RelativeAgeText, Mode=OneWay}" VerticalAlignment="Center"
-                                                                                               FontSize="10" Foreground="{x:Bind RelativeAgeBrush, Mode=OneWay}" Margin="4,0,4,0"
-                                                                                               Visibility="{x:Bind viewmodels:FileSystemViewModel.NotRenaming(IsRenaming), Mode=OneWay}"/>
+                                                                                    <!-- Size + relative age (Details-like meta in Miller) -->
+                                                                                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" Margin="4,0,4,0"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Visibility="{x:Bind viewmodels:FileSystemViewModel.NotRenaming(IsRenaming), Mode=OneWay}">
+                                                                                        <TextBlock Text="{x:Bind Size, Mode=OneWay}" FontSize="10"
+                                                                                                   Foreground="{ThemeResource SpanTextTertiaryBrush}"
+                                                                                                   VerticalAlignment="Center"/>
+                                                                                        <Border Background="{x:Bind RelativeAgeBrush, Mode=OneWay}"
+                                                                                                CornerRadius="2" Padding="4,1" VerticalAlignment="Center"
+                                                                                                Visibility="{x:Bind viewmodels:FileSystemViewModel.ShowIfTrue(HasRelativeAge), Mode=OneWay}">
+                                                                                            <TextBlock Text="{x:Bind RelativeAgeText, Mode=OneWay}" FontSize="10" FontWeight="SemiBold"
+                                                                                                       Foreground="#FF1A1A1A" VerticalAlignment="Center"/>
+                                                                                        </Border>
+                                                                                    </StackPanel>
                                                                                     <!-- Col4 spacer aligns file rows with folder chevron column -->
                                                                                     <Border Grid.Column="4" Width="10" Visibility="Collapsed"/>
                                                                                 </Grid>

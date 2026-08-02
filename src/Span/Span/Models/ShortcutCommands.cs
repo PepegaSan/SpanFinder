@@ -79,10 +79,7 @@ namespace Span.Models
         public const string ShelfCopyHere = "span.shelf.copyHere";
         public const string ShelfClear = "span.shelf.clear";
 
-        // ── Command Palette (HIDDEN) ────────────────────────────
-        // 2026-04-10: 파일 탐색기 워크플로우와 부합하지 않아 숨김 처리됨.
-        // 상수와 카테고리 등록은 모두 유지 (사용자가 키 재할당 시 즉시 동작).
-        // 자세한 사유는 MainWindow.CommandPaletteHandler.cs 상단 주석 참조.
+        // ── Command Palette ─────────────────────────────────────
         public const string OpenCommandPalette = "span.commandPalette.open";
 
         // ── Settings: Toggle (즉시 적용 boolean) ────────────────

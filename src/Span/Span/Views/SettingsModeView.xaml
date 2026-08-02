@@ -1563,8 +1563,8 @@
                                 </Grid>
                             </Border>
 
-                            <!-- Preview: Show Folder Info (숨김 — 향후 시나리오 안정화 후 공개) -->
-                            <Border Style="{StaticResource SettingsCardBorder}" Visibility="Collapsed">
+                            <!-- Preview: Show Folder Info -->
+                            <Border Style="{StaticResource SettingsCardBorder}">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -1578,11 +1578,30 @@
                                         <TextBlock x:Name="PreviewFolderInfoLabel" Text="미리보기에 폴더 정보 표시" Style="{StaticResource SettingsCardLabel}" />
                                         <TextBlock x:Name="PreviewFolderInfoDesc" Text="폴더 선택 시 미리보기 패널에 폴더 아이콘과 항목 수를 표시합니다" Style="{StaticResource SettingsCardDesc}" />
                                     </StackPanel>
-                                    <ToggleSwitch x:Name="PreviewFolderInfoToggle" Grid.Column="2" VerticalAlignment="Center" IsOn="False" OnContent="" OffContent="" />
+                                    <ToggleSwitch x:Name="PreviewFolderInfoToggle" Grid.Column="2" VerticalAlignment="Center" IsOn="True" OnContent="" OffContent="" />
                                 </Grid>
                             </Border>
 
-                            <!-- Delete Confirmation -->
+                                                        <!-- Use Everything for recursive search -->
+                            <Border Style="{StaticResource SettingsCardBorder}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0" Style="{StaticResource CardIconContainer}">
+                                        <FontIcon Glyph="&#xE721;" Style="{StaticResource CardIconStyle}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock x:Name="UseEverythingLabel" Text="Use Everything for search" Style="{StaticResource SettingsCardLabel}" />
+                                        <TextBlock x:Name="UseEverythingDesc" Text="When Everything is running, recursive search uses its index" Style="{StaticResource SettingsCardDesc}" />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="UseEverythingToggle" Grid.Column="2" VerticalAlignment="Center" IsOn="True" OnContent="" OffContent="" />
+                                </Grid>
+                            </Border>
+
+<!-- Delete Confirmation -->
                             <Border Style="{StaticResource SettingsCardBorder}">
                                 <Grid>
                                     <Grid.ColumnDefinitions>

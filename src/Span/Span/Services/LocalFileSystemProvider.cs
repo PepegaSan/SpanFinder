@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Span.Helpers;
 using Span.Models;
 
 namespace Span.Services
@@ -31,7 +32,7 @@ namespace Span.Services
         {
             if (string.IsNullOrEmpty(path))
                 throw new ArgumentException("Path cannot be null or empty.", nameof(path));
-            return Path.GetFullPath(path);
+            return LongPathHelper.ForIo(Path.GetFullPath(LongPathHelper.StripPrefix(path)));
         }
 
         public Task<IReadOnlyList<IFileSystemItem>> GetItemsAsync(string path, CancellationToken ct = default)
@@ -39,13 +40,14 @@ namespace Span.Services
             return Task.Run(() =>
             {
                 var items = new List<IFileSystemItem>();
+                var ioPath = LongPathHelper.ForIo(path);
 
-                if (string.IsNullOrEmpty(path) || !Directory.Exists(path))
+                if (string.IsNullOrEmpty(path) || !Directory.Exists(ioPath))
                     return (IReadOnlyList<IFileSystemItem>)items;
 
                 try
                 {
-                    var dirInfo = new DirectoryInfo(path);
+                    var dirInfo = new DirectoryInfo(ioPath);
 
                     foreach (var d in dirInfo.EnumerateDirectories())
                     {
@@ -56,13 +58,13 @@ namespace Span.Services
 
                         // 셰브론 표시용 경량 체크 (단일 FindFirstFile 호출)
                         bool hasChild;
-                        try { hasChild = Directory.EnumerateFileSystemEntries(d.FullName).Any(); }
+                        try { hasChild = Directory.EnumerateFileSystemEntries(LongPathHelper.ForIo(d.FullName)).Any(); }
                         catch { hasChild = true; } // 접근 불가 시 기본 표시
 
                         items.Add(new FolderItem
                         {
                             Name = d.Name,
-                            Path = d.FullName,
+                            Path = LongPathHelper.StripPrefix(d.FullName),
                             DateModified = d.LastWriteTime,
                             IsHidden = isHidden,
                             HasChildEntries = hasChild
@@ -79,7 +81,7 @@ namespace Span.Services
                         items.Add(new FileItem
                         {
                             Name = f.Name,
-                            Path = f.FullName,
+                            Path = LongPathHelper.StripPrefix(f.FullName),
                             Size = f.Length,
                             DateModified = f.LastWriteTime,
                             FileType = f.Extension,
@@ -103,17 +105,17 @@ namespace Span.Services
 
         public Task<bool> ExistsAsync(string path, CancellationToken ct = default)
         {
-            return Task.Run(() => Directory.Exists(path) || File.Exists(path), ct);
+            return Task.Run(() => LongPathHelper.Exists(path), ct);
         }
 
         public Task<bool> IsDirectoryAsync(string path, CancellationToken ct = default)
         {
-            return Task.Run(() => Directory.Exists(path), ct);
+            return Task.Run(() => LongPathHelper.DirectoryExists(path), ct);
         }
 
         public Task CreateDirectoryAsync(string path, CancellationToken ct = default)
         {
-            return Task.Run(() => Directory.CreateDirectory(path), ct);
+            return Task.Run(() => Directory.CreateDirectory(SanitizePath(path)), ct);
         }
 
         public Task DeleteAsync(string path, bool recursive, CancellationToken ct = default)
@@ -169,14 +171,16 @@ namespace Span.Services
 
         public Task<Stream> OpenReadAsync(string path, CancellationToken ct = default)
         {
-            return Task.Run<Stream>(() => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read), ct);
+            var safe = SanitizePath(path);
+            return Task.Run<Stream>(() => new FileStream(safe, FileMode.Open, FileAccess.Read, FileShare.Read), ct);
         }
 
         public Task WriteAsync(string path, Stream content, CancellationToken ct = default)
         {
+            var safe = SanitizePath(path);
             return Task.Run(async () =>
             {
-                using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+                using var fs = new FileStream(safe, FileMode.Create, FileAccess.Write, FileShare.None);
                 await content.CopyToAsync(fs, ct);
             }, ct);
         }
@@ -196,6 +200,7 @@ namespace Span.Services
             foreach (var file in Directory.GetFiles(sourceDir))
             {
                 ct.ThrowIfCancellationRequested();
+                // Do not recurse into reparse points (junctions/symlinks)
                 var destFile = Path.Combine(destDir, Path.GetFileName(file));
                 File.Copy(file, destFile, overwrite: true);
             }
@@ -203,6 +208,13 @@ namespace Span.Services
             foreach (var subDir in Directory.GetDirectories(sourceDir))
             {
                 ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var attrs = File.GetAttributes(subDir);
+                    if ((attrs & FileAttributes.ReparsePoint) != 0)
+                        continue;
+                }
+                catch { /* best effort */ }
                 var destSubDir = Path.Combine(destDir, new DirectoryInfo(subDir).Name);
                 CopyDirectoryRecursive(subDir, destSubDir, ct);
             }

@@ -167,6 +167,7 @@ public sealed partial class SettingsModeView : UserControl
 
             // Preview: show folder info
             PreviewFolderInfoToggle.IsOn = _settings.PreviewShowFolderInfo;
+            UseEverythingToggle.IsOn = _settings.UseEverythingSearch;
 
             FavoritesTreeToggle.IsOn = _settings.ShowFavoritesTree;
             SystemTrayToggle.IsOn = _settings.MinimizeToTray;
@@ -367,6 +368,7 @@ public sealed partial class SettingsModeView : UserControl
 
         // Preview: show folder info
         PreviewFolderInfoToggle.Toggled += (s, e) => { if (!_isLoading) _settings.PreviewShowFolderInfo = PreviewFolderInfoToggle.IsOn; };
+        UseEverythingToggle.Toggled += (s, e) => { if (!_isLoading) _settings.UseEverythingSearch = UseEverythingToggle.IsOn; };
 
         // v1.5.2 (Discussion #30): 온보딩 표시 안 함 토글
         // 보강 A: 토글 ON 시 OnboardingCompleted도 동시에 true → 두 플래그 중 하나가 손실돼도
@@ -517,7 +519,7 @@ public sealed partial class SettingsModeView : UserControl
             ShellExtrasToggle, ShellExtensionsToggle, GitIntegrationToggle,
             HexPreviewToggle, FileHashToggle, CopilotMenuToggle, ContextMenuToggle, CrashReportToggle,
             IsolatedThumbsToggle, WasdNavToggle,
-            DefaultFileManagerToggle, DefaultPreviewToggle, PreviewFolderInfoToggle, ShelfSaveToggle, ShelfEnabledToggle })
+            DefaultFileManagerToggle, DefaultPreviewToggle, PreviewFolderInfoToggle, UseEverythingToggle, ShelfSaveToggle, ShelfEnabledToggle })
             Helpers.CursorHelper.SetHandCursor(toggle);
 
         Helpers.CursorHelper.SetHandCursor(IconPackCombo);
@@ -881,6 +883,8 @@ public sealed partial class SettingsModeView : UserControl
             // Browsing — Preview folder info (라벨/설명)
             PreviewFolderInfoLabel.Text = _loc.Get("Settings_PreviewFolderInfo");
             PreviewFolderInfoDesc.Text = _loc.Get("Settings_PreviewFolderInfoDesc");
+            UseEverythingLabel.Text = _loc.Get("Settings_UseEverythingSearch");
+            UseEverythingDesc.Text = _loc.Get("Settings_UseEverythingSearchDesc");
 
             // Tools — 로그 폴더 / 썸네일 격리 / 온보딩 다시보기
             OpenLogsLabel.Text = _loc.Get("Settings_OpenLogs");

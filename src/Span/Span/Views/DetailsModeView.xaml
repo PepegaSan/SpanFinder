@@ -219,7 +219,7 @@
                     <Grid Height="24" RightTapped="OnItemRightTapped"
                           ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneWay}"
                           Opacity="{x:Bind ItemOpacity, Mode=OneWay}">
-                        <!-- 데이터 셀: splitter 간격은 각 셀의 Margin.Left에 포함.
+<!-- 데이터 셀: splitter 간격은 각 셀의 Margin.Left에 포함.
                              ApplyCellWidths에서 Border.Width + Margin 설정. -->
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="40"/>
@@ -252,6 +252,11 @@
                                           Foreground="{ThemeResource SpanTextSecondaryBrush}"
                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
+                            <!-- Color tag -->
+                            <Border Visibility="{x:Bind vm:FileSystemViewModel.ShowIfTrue(HasColorTag), Mode=OneWay}"
+                                    HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-3,-3,0,0"
+                                    Width="8" Height="8" CornerRadius="4"
+                                    Background="{x:Bind ColorTagBrush, Mode=OneWay}"/>
                         </Grid>
 
                         <!-- Name (display) -->

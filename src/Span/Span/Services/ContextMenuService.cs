@@ -129,9 +129,71 @@ namespace Span.Services
                     items.Add(new(_loc.Get("RemoveFromFavorites"), () => host.RemoveFromFavorites(path)));
                 else
                     items.Add(new(_loc.Get("AddToFavorites"), () => host.AddToFavorites(path)));
+
+                if (ItemAnnotationService.IsAnnotatable(path))
+                {
+                    var targets = host.GetSelectedPathsForContextMenu(path);
+                    foreach (var (tag, labelKey) in ColorTagMenuEntries)
+                    {
+                        var captured = tag;
+                        items.Add(new($"{_loc.Get("ColorTag")}: {_loc.Get(labelKey)}",
+                            () => host.SetColorTag(targets, captured)));
+                    }
+
+                    if (Directory.Exists(path))
+                        items.Add(new(_loc.Get("FolderNote_Edit"), () => host.EditFolderNote(path)));
+                }
             }
 
             return items;
+        }
+
+        private static readonly (ItemColorTag Tag, string LabelKey)[] ColorTagMenuEntries =
+        {
+            (ItemColorTag.None, "ColorTag_None"),
+            (ItemColorTag.Red, "ColorTag_Red"),
+            (ItemColorTag.Green, "ColorTag_Green"),
+            (ItemColorTag.Blue, "ColorTag_Blue"),
+        };
+
+        private MenuFlyoutSubItem BuildColorTagSubmenu(string path, IContextMenuHost host)
+        {
+            var sub = new MenuFlyoutSubItem { Text = _loc.Get("ColorTag") };
+            ApplyCompact(sub);
+            var targets = host.GetSelectedPathsForContextMenu(path);
+            foreach (var (tag, labelKey) in ColorTagMenuEntries)
+            {
+                var captured = tag;
+                var item = CreateItem(_loc.Get(labelKey), null, () => host.SetColorTag(targets, captured));
+                if (tag != ItemColorTag.None)
+                {
+                    item.Icon = new FontIcon
+                    {
+                        Glyph = "\uE91F",
+                        FontSize = 12,
+                        Foreground = ColorTagBrush(tag),
+                    };
+                }
+                sub.Items.Add(item);
+            }
+            return sub;
+        }
+
+        private static Microsoft.UI.Xaml.Media.Brush ColorTagBrush(ItemColorTag tag)
+        {
+            // Match FileSystemViewModel tag colors
+            Windows.UI.Color c = tag switch
+            {
+                ItemColorTag.Red => Windows.UI.Color.FromArgb(255, 232, 17, 35),
+                ItemColorTag.Orange => Windows.UI.Color.FromArgb(255, 247, 99, 12),
+                ItemColorTag.Yellow => Windows.UI.Color.FromArgb(255, 255, 185, 0),
+                ItemColorTag.Green => Windows.UI.Color.FromArgb(255, 16, 124, 16),
+                ItemColorTag.Blue => Windows.UI.Color.FromArgb(255, 0, 120, 212),
+                ItemColorTag.Purple => Windows.UI.Color.FromArgb(255, 136, 23, 152),
+                ItemColorTag.Gray => Windows.UI.Color.FromArgb(255, 96, 94, 92),
+                _ => Windows.UI.Color.FromArgb(255, 128, 128, 128),
+            };
+            return new Microsoft.UI.Xaml.Media.SolidColorBrush(c);
         }
 
         public bool TryShowNativeContextMenu(FileSystemViewModel target, IContextMenuHost host)
@@ -508,6 +570,12 @@ namespace Span.Services
                     menu.Items.Add(CreateItem(_loc.Get("OpenInExplorer"), "\uED25", () => _shellService.OpenInExplorer(file.Path), "L"));
                 }
 
+                if (!isArchive && ItemAnnotationService.IsAnnotatable(file.Path))
+                {
+                    menu.Items.Add(new MenuFlyoutSeparator());
+                    menu.Items.Add(BuildColorTagSubmenu(file.Path, host));
+                }
+
                 menu.Items.Add(new MenuFlyoutSeparator());
                 menu.Items.Add(CreateItem(_loc.Get("Properties"), "\uE946", () => ShowProperties(file), "R"));
 
@@ -580,6 +648,13 @@ namespace Span.Services
             if (!isRemote && !isArchive)
             {
                 menu.Items.Add(CreateItem(_loc.Get("OpenInExplorer"), "\uED25", () => _shellService.OpenInExplorer(folder.Path), "L"));
+            }
+
+            if (!isRemote && !isArchive && ItemAnnotationService.IsAnnotatable(folder.Path))
+            {
+                menu.Items.Add(new MenuFlyoutSeparator());
+                menu.Items.Add(BuildColorTagSubmenu(folder.Path, host));
+                menu.Items.Add(CreateItem(_loc.Get("FolderNote_Edit"), "\uE70F", () => host.EditFolderNote(folder.Path)));
             }
 
             menu.Items.Add(new MenuFlyoutSeparator());

@@ -38,7 +38,12 @@
                                   Foreground="{ThemeResource SpanTextSecondaryBrush}"
                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
-                </Grid>
+                    <!-- Color tag -->
+                    <Border Visibility="{x:Bind vm:FileSystemViewModel.ShowIfTrue(HasColorTag), Mode=OneWay}"
+                            HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-2,-2,0,0"
+                            Width="8" Height="8" CornerRadius="4"
+                            Background="{x:Bind ColorTagBrush, Mode=OneWay}"/>
+</Grid>
 
                 <TextBlock Grid.Column="1"
                            Text="{x:Bind TruncatedDisplayName, Mode=OneWay}"
@@ -87,7 +92,12 @@
                                   Foreground="{ThemeResource SpanTextSecondaryBrush}"
                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
-                </Grid>
+                    <!-- Color tag -->
+                    <Border Visibility="{x:Bind vm:FileSystemViewModel.ShowIfTrue(HasColorTag), Mode=OneWay}"
+                            HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-2,-2,0,0"
+                            Width="8" Height="8" CornerRadius="4"
+                            Background="{x:Bind ColorTagBrush, Mode=OneWay}"/>
+</Grid>
 
                 <TextBlock Grid.Column="1"
                            Text="{x:Bind TruncatedDisplayName, Mode=OneWay}"
@@ -138,7 +148,12 @@
                                   Foreground="{ThemeResource SpanTextSecondaryBrush}"
                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
-                </Grid>
+                    <!-- Color tag -->
+                    <Border Visibility="{x:Bind vm:FileSystemViewModel.ShowIfTrue(HasColorTag), Mode=OneWay}"
+                            HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-2,-2,0,0"
+                            Width="8" Height="8" CornerRadius="4"
+                            Background="{x:Bind ColorTagBrush, Mode=OneWay}"/>
+</Grid>
 
                 <TextBlock Grid.Row="1"
                            Text="{x:Bind TruncatedDisplayName, Mode=OneWay}"
@@ -194,7 +209,12 @@
                                   Foreground="{ThemeResource SpanTextSecondaryBrush}"
                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
-                </Grid>
+                    <!-- Color tag -->
+                    <Border Visibility="{x:Bind vm:FileSystemViewModel.ShowIfTrue(HasColorTag), Mode=OneWay}"
+                            HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-2,-2,0,0"
+                            Width="8" Height="8" CornerRadius="4"
+                            Background="{x:Bind ColorTagBrush, Mode=OneWay}"/>
+</Grid>
 
                 <TextBlock Grid.Row="1"
                            Text="{x:Bind TruncatedDisplayName, Mode=OneWay}"

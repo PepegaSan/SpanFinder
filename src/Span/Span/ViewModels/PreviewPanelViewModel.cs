@@ -52,8 +52,13 @@ namespace Span.ViewModels
         [ObservableProperty] private string _dimensions = "";
         [ObservableProperty] private string _duration = "";
         [ObservableProperty] private string _folderItemCount = "";
+        [ObservableProperty] private string _folderNoteText = "";
+        [ObservableProperty] private bool _isFolderNoteEditorVisible;
         [ObservableProperty] private string _artist = "";
         [ObservableProperty] private string _album = "";
+
+        private string? _folderNotePath;
+        private ItemAnnotationService? _annotationService;
 
         // --- Preview content ---
 
@@ -118,6 +123,7 @@ namespace Span.ViewModels
 
             // Archive reader (optional)
             _archiveReader = App.Current.Services.GetService<ArchiveReaderService>();
+            _annotationService = App.Current.Services.GetService<ItemAnnotationService>();
 
             // Git 서비스 (optional — ShowGitIntegration이 꺼져 있으면 null)
             try
@@ -133,6 +139,21 @@ namespace Span.ViewModels
             catch
             {
                 _settings = null!;
+            }
+        }
+
+        /// <summary>Persist folder note for the currently previewed folder path.</summary>
+        public async Task SaveFolderNoteAsync()
+        {
+            if (_annotationService == null || string.IsNullOrEmpty(_folderNotePath)) return;
+            if (!ItemAnnotationService.IsAnnotatable(_folderNotePath)) return;
+            try
+            {
+                await _annotationService.SetFolderNoteAsync(_folderNotePath, FolderNoteText);
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[PreviewPanel] Save folder note failed: {ex.Message}");
             }
         }
 
@@ -505,6 +526,29 @@ namespace Span.ViewModels
 
             var loc = App.Current.Services.GetRequiredService<Services.LocalizationService>();
             FolderItemCount = string.Format(loc.Get("FolderItemCount"), count);
+
+            if (_annotationService != null && ItemAnnotationService.IsAnnotatable(path))
+            {
+                await _annotationService.EnsureLoadedAsync().ConfigureAwait(false);
+                if (ct.IsCancellationRequested) return;
+                var note = _annotationService.GetFolderNote(path);
+                _dispatcherQueue.TryEnqueue(() =>
+                {
+                    if (ct.IsCancellationRequested) return;
+                    _folderNotePath = path;
+                    FolderNoteText = note;
+                    IsFolderNoteEditorVisible = true;
+                });
+            }
+            else
+            {
+                _dispatcherQueue.TryEnqueue(() =>
+                {
+                    _folderNotePath = null;
+                    FolderNoteText = "";
+                    IsFolderNoteEditorVisible = false;
+                });
+            }
         }
 
         private async Task LoadArchiveInfoAsync(string path, CancellationToken ct)
@@ -594,6 +638,9 @@ namespace Span.ViewModels
             Dimensions = "";
             Duration = "";
             FolderItemCount = "";
+            FolderNoteText = "";
+            IsFolderNoteEditorVisible = false;
+            _folderNotePath = null;
             Artist = "";
             Album = "";
 

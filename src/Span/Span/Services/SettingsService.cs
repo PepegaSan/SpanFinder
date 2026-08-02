@@ -507,7 +507,7 @@ public class SettingsService : ISettingsService
     /// </summary>
     public bool PreviewShowFolderInfo
     {
-        get => Get("PreviewShowFolderInfo", false);
+        get => Get("PreviewShowFolderInfo", true);
         set => Set("PreviewShowFolderInfo", value);
     }
 
@@ -515,6 +515,18 @@ public class SettingsService : ISettingsService
     {
         get => Get("UndoHistorySize", 50);
         set => Set("UndoHistorySize", value);
+    }
+
+    public bool UseEverythingSearch
+    {
+        get => Get("UseEverythingSearch", true);
+        set => Set("UseEverythingSearch", value);
+    }
+
+    public string EverythingEsPath
+    {
+        get => Get("EverythingEsPath", string.Empty);
+        set => Set("EverythingEsPath", value ?? string.Empty);
     }
 
     // ── Tools ──

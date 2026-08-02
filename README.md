@@ -73,6 +73,8 @@ Navigate deep folder hierarchies without losing context. Each column represents 
 - Draggable column separators for custom widths
 - Auto-equalize columns (Ctrl+Shift+=) or auto-fit to content (Ctrl+Shift+-)
 - Smooth horizontal scrolling to keep the active column visible
+- Compact **size** and **relative age** badges per row (One Commander–style) — handy in Dual pane
+- **Filter** (`Ctrl+Shift+F`) applies to the leaf column without breaking the path
 
 ### Four View Modes
 
@@ -115,7 +117,8 @@ Press **Space** for Quick Look (macOS Finder style):
 - **PDF**: First page preview
 - **Fonts**: Glyph samples with metadata
 - **Hex Binary**: Raw byte view for developers
-- **Folders**: Size, item count, creation date
+- **Folders**: Size, item count, creation date; optional folder notes in preview
+- **Color tags**: Red / Green / Blue markers on files and folders (context menu)
 - **File hash**: SHA256 checksum display with one-click copy (opt-in via Settings)
 
 ### Keyboard-First Design
@@ -127,8 +130,9 @@ Press **Space** for Quick Look (macOS Finder style):
 | Arrow Keys | Navigate columns and items |
 | Enter | Open folder or execute file |
 | Space | Toggle preview panel |
+| Ctrl+K | Command palette |
 | Ctrl+L / Alt+D | Edit address bar |
-| Ctrl+F | Search |
+| Ctrl+F | Search (recursive; uses Everything when available) |
 | Ctrl+C / X / V | Copy / Cut / Paste |
 | Ctrl+Z / Y | Undo / Redo |
 | Ctrl+Shift+N | New folder |
@@ -292,6 +296,12 @@ SPAN Finder uses [Sentry](https://sentry.io) for **crash reporting only** — an
 - Source code is open — verify yourself in [`CrashReportingService.cs`](src/Span/Span/Services/CrashReportingService.cs)
 
 See [Privacy Policy](PRIVACY.md) for full details.
+
+---
+
+## Fork changelog
+
+Personal / fork-specific changes (native shell menu, favorite groups, Paper theme, Everything bridge, Miller age badges, and more) are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

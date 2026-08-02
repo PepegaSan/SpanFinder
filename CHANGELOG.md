@@ -80,6 +80,17 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 - **Column View scroll** when opening a new column (Issue #53) and when reselecting a previous column (Issue #57) — kept fork Dual/Quad left-pane scroll targeting.
 - **Thumbnails / preview** for image-editor formats: `.clip`, `.psd`, `.jfif` (Issue #56).
 
+### Productivity & Miller polish (August 2026)
+
+- **Command Palette** (`Ctrl+K`) enabled by default for quick commands and setting toggles.
+- **Preview folder info:** when a folder is selected, the preview panel can show icon, item count, and notes (Settings → Browsing).
+- **Color tags:** Red / Green / Blue tags on files and folders via context menu; badges in Miller, Details, List, and Icons.
+- **Folder notes:** per-folder text notes (context menu **Folder note…** and preview panel); stored under `%LOCALAPPDATA%\Span\item-annotations.json`.
+- **Long-path support:** local I/O uses Windows long-path prefixes so deep trees beyond ~260 characters work more reliably.
+- **Everything search bridge:** recursive search (toolbar Enter) uses Voidtools **Everything** via `es.exe` when it is running; otherwise falls back to the built-in folder walk. Toggle in Settings → Browsing.
+- **Miller meta columns:** each row shows **size** (files) / **child count** (folders) plus a compact **relative age** badge (One Commander–style pastel background, dark text) — useful when comparing folders in Dual pane.
+- **Filter in Miller:** `Ctrl+Shift+F` works in Miller Columns; the filter applies only to the **last (leaf) column** so the path hierarchy stays intact.
+
 ---
 
 ## Notes

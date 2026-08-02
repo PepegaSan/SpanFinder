@@ -81,11 +81,49 @@ namespace Span.ViewModels
         }
 
         /// <summary>
-        /// ContainerContentChanging에서 Cloud/Git 상태 주입 완료 플래그.
+        /// ContainerContentChanging에서 Cloud/Git/ColorTag 상태 주입 완료 플래그.
         /// 스크롤 중 동일 아이템 재주입을 방지하여 PropertyChanged 폭포를 줄인다.
         /// </summary>
         internal bool CloudStateInjected;
         internal bool GitStateInjected;
+        internal bool ColorTagInjected;
+
+        /// <summary>
+        /// User color tag (OneCommander-style). None = no strip.
+        /// </summary>
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(HasColorTag))]
+        [NotifyPropertyChangedFor(nameof(ColorTagBrush))]
+        private Models.ItemColorTag _colorTag = Models.ItemColorTag.None;
+
+        public bool HasColorTag => ColorTag != Models.ItemColorTag.None;
+
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush _tagRedBrush
+            = new(Windows.UI.Color.FromArgb(255, 232, 17, 35));
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush _tagOrangeBrush
+            = new(Windows.UI.Color.FromArgb(255, 247, 99, 12));
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush _tagYellowBrush
+            = new(Windows.UI.Color.FromArgb(255, 255, 185, 0));
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush _tagGreenBrush
+            = new(Windows.UI.Color.FromArgb(255, 16, 124, 16));
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush _tagBlueBrush
+            = new(Windows.UI.Color.FromArgb(255, 0, 120, 212));
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush _tagPurpleBrush
+            = new(Windows.UI.Color.FromArgb(255, 136, 23, 152));
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush _tagGrayBrush
+            = new(Windows.UI.Color.FromArgb(255, 96, 94, 92));
+
+        public Microsoft.UI.Xaml.Media.Brush ColorTagBrush => ColorTag switch
+        {
+            Models.ItemColorTag.Red => _tagRedBrush,
+            Models.ItemColorTag.Orange => _tagOrangeBrush,
+            Models.ItemColorTag.Yellow => _tagYellowBrush,
+            Models.ItemColorTag.Green => _tagGreenBrush,
+            Models.ItemColorTag.Blue => _tagBlueBrush,
+            Models.ItemColorTag.Purple => _tagPurpleBrush,
+            Models.ItemColorTag.Gray => _tagGrayBrush,
+            _ => TransparentBrush,
+        };
 
         /// <summary>
         /// 클라우드 동기화 상태 글리프 (OneDrive 등).
@@ -302,6 +340,7 @@ namespace Span.ViewModels
             OnPropertyChanged(nameof(ItemOpacity));
             OnPropertyChanged(nameof(RelativeAgeText));
             OnPropertyChanged(nameof(RelativeAgeBrush));
+            OnPropertyChanged(nameof(HasRelativeAge));
             OnPropertyChanged(nameof(TooltipText));
             if (this is FileViewModel)
                 OnPropertyChanged(nameof(IconBrush));
@@ -478,27 +517,19 @@ namespace Span.ViewModels
             }
         }
 
-        /// <summary>Compact relative age for Miller file rows (e.g. "5 Min", "3 T"). Empty for folders.</summary>
+        /// <summary>Compact relative age for Miller rows (e.g. "5 Min", "3 T").</summary>
         public virtual string RelativeAgeText
         {
-            get
-            {
-                if (_model is not FileItem)
-                    return string.Empty;
-                return RelativeAgeHelper.Format(DateModifiedValue).Text;
-            }
+            get => RelativeAgeHelper.Format(DateModifiedValue).Text;
         }
 
-        /// <summary>Accent color for <see cref="RelativeAgeText"/> by age tier.</summary>
+        /// <summary>Pastel badge fill for <see cref="RelativeAgeText"/> (One Commander style).</summary>
         public virtual Microsoft.UI.Xaml.Media.Brush RelativeAgeBrush
         {
-            get
-            {
-                if (_model is not FileItem)
-                    return RelativeAgeHelper.Format(DateTime.MinValue).Brush;
-                return RelativeAgeHelper.Format(DateModifiedValue).Brush;
-            }
+            get => RelativeAgeHelper.Format(DateModifiedValue).Brush;
         }
+
+        public bool HasRelativeAge => !string.IsNullOrEmpty(RelativeAgeText);
 
         private static readonly string[] SizeUnits = { "B", "KB", "MB", "GB", "TB" };
 

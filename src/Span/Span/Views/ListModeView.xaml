@@ -61,7 +61,7 @@
                           ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneWay}"
                           Opacity="{x:Bind ItemOpacity, Mode=OneWay}"
                           Padding="4,0">
-                        <Grid.ColumnDefinitions>
+<Grid.ColumnDefinitions>
                             <ColumnDefinition Width="20"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
@@ -88,6 +88,11 @@
                                           Foreground="{ThemeResource SpanTextSecondaryBrush}"
                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
+                            <!-- Color tag -->
+                            <Border Visibility="{x:Bind vm:FileSystemViewModel.ShowIfTrue(HasColorTag), Mode=OneWay}"
+                                    HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-3,-3,0,0"
+                                    Width="8" Height="8" CornerRadius="4"
+                                    Background="{x:Bind ColorTagBrush, Mode=OneWay}"/>
                         </Grid>
 
                         <!-- Name (hidden during rename) -->

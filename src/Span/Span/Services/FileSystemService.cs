@@ -14,7 +14,9 @@ namespace Span.Services
     /// </summary>
     public class FileSystemService : IFileSystemService
     {
-        private const int DriveLoadTimeoutMs = 500; // 500ms timeout per drive
+        // Portable/USB disks often sleep; IsReady/VolumeLabel can exceed a short timeout.
+        // Prefer showing a stub letter over dropping the drive from the sidebar entirely.
+        private const int DriveLoadTimeoutMs = 2500;
         private readonly SettingsService _settings;
 
         public FileSystemService(SettingsService settings)
@@ -61,13 +63,53 @@ namespace Span.Services
                     return await driveTask; // propagate result or exception
                 }
 
-                // Timeout — drive took too long (stale network share, etc.)
-                System.Diagnostics.Debug.WriteLine($"[FileSystemService] Drive {drive.Name} timed out after {DriveLoadTimeoutMs}ms");
-                return null;
+                // Timeout — still show Fixed/Removable/CDRom by letter so the sidebar
+                // does not hide portable disks that were sleeping (e.g. USB HDD as Fixed).
+                System.Diagnostics.Debug.WriteLine($"[FileSystemService] Drive {drive.Name} timed out after {DriveLoadTimeoutMs}ms — using stub");
+                return CreateDriveStub(drive);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[FileSystemService] Error loading drive {drive.Name}: {ex.Message}");
+                return CreateDriveStub(drive);
+            }
+        }
+
+        /// <summary>
+        /// Minimal sidebar entry when DriveInfo property access hangs or fails.
+        /// </summary>
+        private static DriveItem? CreateDriveStub(DriveInfo drive)
+        {
+            try
+            {
+                var type = drive.DriveType;
+                if (type != DriveType.Fixed && type != DriveType.Removable &&
+                    type != DriveType.Network && type != DriveType.CDRom)
+                    return null;
+
+                var letter = drive.Name.TrimEnd('\\');
+                var defaultLabel = type switch
+                {
+                    DriveType.Fixed => LocalizationService.L("Drive_LocalDisk"),
+                    DriveType.Removable => LocalizationService.L("Drive_USB"),
+                    DriveType.CDRom => LocalizationService.L("Drive_CDDVD"),
+                    DriveType.Network => LocalizationService.L("Drive_Network"),
+                    _ => LocalizationService.L("Drive_Default")
+                };
+
+                return new DriveItem
+                {
+                    Path = drive.Name,
+                    DriveType = type.ToString(),
+                    Label = string.Empty,
+                    Name = $"{defaultLabel} ({letter})",
+                    IconGlyph = IconService.Current?.GetDriveGlyph(type.ToString()) ?? "\uEDFA",
+                    TotalSize = 0,
+                    AvailableFreeSpace = 0
+                };
+            }
+            catch
+            {
                 return null;
             }
         }

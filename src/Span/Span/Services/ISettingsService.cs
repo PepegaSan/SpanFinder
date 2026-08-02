@@ -48,6 +48,12 @@ namespace Span.Services
         /// <summary>NativeShell (default) or WinUIFlyout</summary>
         string ContextMenuStyle { get; set; }
 
+        /// <summary>Use Voidtools Everything (es.exe) for recursive search when available.</summary>
+        bool UseEverythingSearch { get; set; }
+
+        /// <summary>Optional full path to es.exe. Empty = auto-detect.</summary>
+        string EverythingEsPath { get; set; }
+
         // Sidebar section visibility
         bool SidebarShowHome { get; set; }
         bool SidebarShowFavorites { get; set; }

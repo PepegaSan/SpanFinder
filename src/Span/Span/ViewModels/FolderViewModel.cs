@@ -37,6 +37,8 @@ namespace Span.ViewModels
         private bool _isGitFolder;
         private GitStatusService? _gitSvc;
 
+        private ItemAnnotationService? _annotationSvc;
+
         /// <summary>
         /// 다운로드 폴더 여부. 뷰에서 자동 그룹핑 적용 판단용.
         /// </summary>
@@ -734,7 +736,8 @@ namespace Span.ViewModels
                 if (string.IsNullOrEmpty(folderPath))
                     return (result, folders, files, (string?)null, (string?)null);
 
-                if (!System.IO.Directory.Exists(folderPath))
+                var ioFolderPath = Helpers.LongPathHelper.ForIo(folderPath);
+                if (!System.IO.Directory.Exists(ioFolderPath))
                 {
                     // UNC 경로는 네트워크 문제와 경로 미존재를 구분
                     if (folderPath.StartsWith(@"\\"))
@@ -745,7 +748,7 @@ namespace Span.ViewModels
 
                 try
                 {
-                    var dirInfo = new System.IO.DirectoryInfo(folderPath);
+                    var dirInfo = new System.IO.DirectoryInfo(ioFolderPath);
 
                     foreach (var d in dirInfo.EnumerateDirectories())
                     {
@@ -761,7 +764,7 @@ namespace Span.ViewModels
                         try { hasChild = System.IO.Directory.EnumerateFileSystemEntries(d.FullName).Any(); }
                         catch { hasChild = true; }
 
-                        var folderItem = new FolderItem { Name = d.Name, Path = d.FullName, DateModified = d.LastWriteTime, IsHidden = (attrs & System.IO.FileAttributes.Hidden) != 0, MaybeHasCustomIcon = (attrs & (System.IO.FileAttributes.ReadOnly | System.IO.FileAttributes.System)) != 0, HasChildEntries = hasChild };
+                        var folderItem = new FolderItem { Name = d.Name, Path = Helpers.LongPathHelper.StripPrefix(d.FullName), DateModified = d.LastWriteTime, IsHidden = (attrs & System.IO.FileAttributes.Hidden) != 0, MaybeHasCustomIcon = (attrs & (System.IO.FileAttributes.ReadOnly | System.IO.FileAttributes.System)) != 0, HasChildEntries = hasChild };
                         folders.Add(folderItem);
                         result.Add(new FolderViewModel(folderItem, _fileService));
                     }
@@ -776,7 +779,7 @@ namespace Span.ViewModels
                         // 표시와 동일하게, 숨김 표시 옵션에 통합.
                         if (!showHidden && (attrs & (System.IO.FileAttributes.Hidden | System.IO.FileAttributes.System)) != 0) continue;
 
-                        var fileItem = new FileItem { Name = f.Name, Path = f.FullName, Size = f.Length, DateModified = f.LastWriteTime, FileType = f.Extension, IsHidden = (attrs & System.IO.FileAttributes.Hidden) != 0 };
+                        var fileItem = new FileItem { Name = f.Name, Path = Helpers.LongPathHelper.StripPrefix(f.FullName), Size = f.Length, DateModified = f.LastWriteTime, FileType = f.Extension, IsHidden = (attrs & System.IO.FileAttributes.Hidden) != 0 };
                         files.Add(fileItem);
                         result.Add(new FileViewModel(fileItem));
                     }
@@ -1168,6 +1171,38 @@ namespace Span.ViewModels
             if (state.HasValue)
                 item.GitState = state.Value;
             item.GitStateInjected = true;
+        }
+
+        /// <summary>
+        /// On-demand: color tag injection for visible items (ContainerContentChanging).
+        /// </summary>
+        public void InjectColorTagIfNeeded(FileSystemViewModel item)
+        {
+            if (item.ColorTagInjected) return;
+            _annotationSvc ??= App.Current.Services.GetService<ItemAnnotationService>();
+            if (_annotationSvc == null || !ItemAnnotationService.IsAnnotatable(item.Path))
+            {
+                item.ColorTagInjected = true;
+                return;
+            }
+
+            item.ColorTag = _annotationSvc.GetColorTag(item.Path);
+            item.ColorTagInjected = true;
+        }
+
+        /// <summary>
+        /// Apply a color tag to a child item already in this folder (live UI update).
+        /// </summary>
+        public void ApplyColorTagToChild(string path, ItemColorTag tag)
+        {
+            foreach (var child in Children)
+            {
+                if (!string.Equals(child.Path, path, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                child.ColorTag = tag;
+                child.ColorTagInjected = true;
+                break;
+            }
         }
 
         /// <summary>

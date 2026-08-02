@@ -56,6 +56,9 @@ public class SettingsServiceStub : ISettingsService
     public bool ShowWindowsShellExtras { get; set; } = true;
     public bool ShowShellExtensions { get; set; }
     public bool ShowCopilotMenu { get; set; }
+    public string ContextMenuStyle { get; set; } = "NativeShell";
+    public bool UseEverythingSearch { get; set; } = true;
+    public string EverythingEsPath { get; set; } = string.Empty;
     public bool SidebarShowHome { get; set; } = true;
     public bool SidebarShowFavorites { get; set; } = true;
     public bool SidebarShowLocalDrives { get; set; } = true;
@@ -80,6 +83,7 @@ public class SettingsServiceStub : ISettingsService
     public bool ListShowSize { get; set; } = true;
     public bool ListShowDate { get; set; } = true;
     public int ListColumnWidth { get; set; } = 200;
+    public int MillerColumnWidth { get; set; } = 220;
 
     public int Tab1StartupBehavior { get; set; }
     public int Tab2StartupBehavior { get; set; }

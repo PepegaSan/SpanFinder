@@ -1,66 +1,12 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-//  Command Palette (Ctrl+K) — 현재 숨김 처리 상태 (2026-04-10)
+//  Command Palette (Ctrl+K)
 // ═══════════════════════════════════════════════════════════════════════════════
 //
-//  ▣ 현재 상태
-//    - 코드는 전부 살아 있고 컴파일됨 (90+ 명령, 한글 초성 검색, 컨텍스트 활성화 등)
-//    - Services/KeyBindingService.cs 에서 기본 단축키 매핑(Ctrl+K)을 주석 처리해
-//      사용자에게 노출되지 않음
-//    - MainWindow.xaml 의 CommandPaletteOverlay 는 그대로 유지(Visibility=Collapsed)
-//    - 어떤 UI 진입점도 없으므로 일반 사용자는 이 기능의 존재를 알 수 없음
+//  Default binding: Ctrl+K (KeyBindingService). Overlay starts Collapsed until opened.
+//  Future idea: reframe toward Quick Open (folder jump + "> " command mode).
 //
-//  ▣ 왜 숨겼나? (2026-04-10 의사결정)
-//    Span 같은 파일 탐색기에서 IDE 스타일 Command Palette 가 가치를 더하는지
-//    팀 분석을 진행한 결과, 다음 결론에 도달함:
-//
-//    1. 시장 증거 — 11개 주요 파일 탐색기 (Files App, Directory Opus, Total Commander,
-//       XYplorer, Far Manager, Multi Commander, Q-Dir, Explorer++, Finder, Nautilus,
-//       Dolphin) 중 정식 채택은 Files App 1개뿐. 30년된 파워유저 제품(Directory Opus,
-//       XYplorer)은 요청을 받고도 거절함.
-//
-//    2. IDE 성공 조건 5개 중 파일 탐색기에 성립하는 것이 사실상 0개:
-//       - 수천 개 명령 ✗ (Span 90개)
-//       - 키보드 100% 워크플로우 ✗ (드래그/더블클릭 위주)
-//       - 동작 중심 명령 ✗ ("어디로 이동"이 더 빈번)
-//       - 깊은 메뉴 구조 ✗ (얕고 컨텍스트 메뉴가 충분)
-//       - 텍스트가 1차 객체 ✗ (공간/시각적 객체가 1차)
-//
-//    3. 중복도 65~75% — 90개 명령 중 50개(Settings 토글/선택/섹션)가 SettingsModeView
-//       와 100% 중복. 나머지는 단축키와 컨텍스트 메뉴로 이미 접근 가능.
-//
-//    4. Nielsen 6번째 휴리스틱(Recognition over Recall) 위반 — Command Palette 는
-//       회상 패턴이고, 파일 탐색기 일반 사용자에게는 부적합.
-//
-//    5. 제작자 본인의 사용성 직감: "있어도 잘 안 쓸 것 같고 편할 것 같지 않다"
-//
-//    삭제하지 않고 숨김 처리만 한 이유: 한글 초성 검색, 컨텍스트 활성화, 토스트
-//    피드백, 다국어 로컬라이즈 등 재사용 가치가 있는 자산이 많고, 향후 "Quick Open"
-//    (Sublime/Files App Omnibar 패턴 — 폴더 이동 중심) 으로 재설계할 가능성을 열어둠.
-//
-//  ▣ 다시 활성화하려면 (개발자용)
-//    1. Services/KeyBindingService.cs 에서
-//         // [ShortcutCommands.OpenCommandPalette] = ["Ctrl+K"],
-//       라인의 주석을 해제
-//    2. 빌드 후 Ctrl+K 로 즉시 사용 가능 (앱 재시작 시 키 바인딩 재로드)
-//    3. 사용자 설정에 이미 키가 저장되어 있으면 Settings → Shortcuts 에서 리셋 필요
-//
-//  ▣ 향후 재설계 방향 (아이디어)
-//    Command Palette → Quick Open 으로 리프레이밍:
-//      - 기본 모드  : 폴더로 이동 (최근/즐겨찾기/Known Folders/탭/드라이브)
-//      - "> " 접두어: 명령 모드 (현재 90개 → 40개로 축소)
-//      - "? " 접두어: 설정 검색
-//      - "/ " 접두어: 현재 폴더에서 파일 검색
-//    Files App Omnibar 패턴 + Sublime "Go To Anything" + 한글 초성 검색의 결합.
-//    재설계 시 이 파일과 BuildCommandCatalog() 를 출발점으로 삼을 것.
-//
-//  ▣ 관련 파일
-//    - Models/ShortcutCommands.cs                : OpenCommandPalette 등 90+ 상수
-//    - Models/CommandPaletteItem.cs              : 데이터 모델
-//    - Helpers/HangulSearchHelper.cs             : 한글 초성 검색 (재사용 가치 높음)
-//    - MainWindow.xaml (1827~1901행)             : Overlay UI (숨김 상태)
-//    - MainWindow.KeyboardHandler.cs             : ExecuteCommand의 case 분기
-//    - Services/KeyBindingService.cs             : 단축키 기본 매핑 (현재 비활성)
-//    - Services/LocalizationData.cs              : Cmd_*, CommandPalette_* 키 90+
+//  Related: ShortcutCommands, CommandPaletteItem, HangulSearchHelper,
+//  MainWindow.xaml overlay, KeyboardHandler ExecuteCommand, LocalizationData.
 //
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -79,7 +25,6 @@ namespace Span
 {
     /// <summary>
     /// Command Palette (Ctrl+K) 관련 이벤트 핸들러.
-    /// **현재 숨김 처리됨** — 파일 상단의 큰 주석 블록 참조.
     /// 한글 검색, 컨텍스트 기반 비활성화, Settings 통합, 카테고리 그룹화, 최근 사용 추적 지원.
     /// </summary>
     public partial class MainWindow

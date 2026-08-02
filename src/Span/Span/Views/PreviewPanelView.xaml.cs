@@ -158,6 +158,7 @@ namespace Span.Views
         {
             if (e.PropertyName == nameof(PreviewPanelViewModel.TextPreview))
                 _ = ApplySyntaxHighlightingAsync();
+
         }
 
         // 구문 강조 최대 길이 — 이 이상은 단색 표시 (XAML RichTextBlock Inline 과다 생성 방지)
@@ -479,6 +480,24 @@ namespace Span.Views
             HashCalcText.Text = _loc.Get("Preview_HashCalculating") ?? "계산 중...";
             LabelCompressed.Text = _loc.Get("Preview_Compressed");
             LabelOriginal.Text = _loc.Get("Preview_Original");
+            if (LabelFolderNote != null)
+                LabelFolderNote.Text = _loc.Get("FolderNote_Label");
+            if (FolderNoteBox != null)
+                FolderNoteBox.PlaceholderText = _loc.Get("FolderNote_Placeholder");
+        }
+
+        private async void OnFolderNoteLostFocus(object sender, RoutedEventArgs e)
+        {
+            if (ViewModel == null) return;
+            try
+            {
+                ViewModel.FolderNoteText = FolderNoteBox.Text ?? "";
+                await ViewModel.SaveFolderNoteAsync();
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[PreviewPanel] Folder note save error: {ex.Message}");
+            }
         }
 
         public void Cleanup()

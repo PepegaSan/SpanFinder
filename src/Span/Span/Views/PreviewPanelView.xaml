@@ -239,6 +239,21 @@
                     <TextBlock x:Name="ValFolderCount" Text="{Binding FolderItemCount}"
                                HorizontalAlignment="Center" FontSize="14"
                                Foreground="{ThemeResource SpanTextSecondaryBrush}"/>
+                    <StackPanel x:Name="FolderNotePanel"
+                                Visibility="{Binding IsFolderNoteEditorVisible, Converter={StaticResource VisConv}}"
+                                Spacing="4" Margin="0,8,0,0" HorizontalAlignment="Stretch">
+                        <TextBlock x:Name="LabelFolderNote" Text="Notiz" FontSize="12"
+                                   Foreground="{ThemeResource SpanTextTertiaryBrush}"
+                                   HorizontalAlignment="Left"/>
+                        <TextBox x:Name="FolderNoteBox"
+                                 Text="{Binding FolderNoteText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 MinHeight="88"
+                                 MaxHeight="180"
+                                 PlaceholderText="Ordnernotiz…"
+                                 LostFocus="OnFolderNoteLostFocus"/>
+                    </StackPanel>
                 </StackPanel>
 
                 <!-- Separator -->
