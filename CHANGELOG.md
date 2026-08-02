@@ -104,6 +104,7 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 | Commit   | Topic |
 |----------|--------|
+| 59a7efe  | Tags, folder notes, Everything search, long paths, Miller age badges |
 | 4a65185  | Favorite groups, Paper theme, Miller column width, dev scripts |
 | cfbf070  | install-local.bat, .gitattributes for batch files |
 | 952dbc5  | Native shell context menu, this changelog |
