@@ -203,8 +203,11 @@ namespace Span
                 // Alt 키 조합(Alt+Left/Right 등)은 허용
             }
 
-            // RecycleBin 모드: 전용 키보드 핸들러로 위임, 공용 단축키만 fall through
-            if (ViewModel.CurrentViewMode == ViewMode.RecycleBin)
+            // RecycleBin is left-only in split/quad — only intercept keys when that pane is active.
+            // Otherwise Ctrl+C (Easy Tagger) and explorer shortcuts must reach the focused pane.
+            bool recycleBinKeysActive = ViewModel.CurrentViewMode == ViewMode.RecycleBin
+                && (!ViewModel.IsSplitViewEnabled || ViewModel.ActivePane == ActivePane.Left);
+            if (recycleBinKeysActive)
             {
                 try
                 {
@@ -273,36 +276,27 @@ namespace Span
             // 사용자 커스텀 바인딩 + 기본 바인딩에서 키 매칭 → ExecuteCommand 실행
             if (_keyBindingService != null)
             {
-                // TextBox 포커스 시 Ctrl+C/X/V/A는 네이티브 텍스트 편집으로 위임
-                // 또한 수식키 없는 단독 기능키(F1 등)는 텍스트 입력 중이면 차단
-                bool isTextBoxFocused = false;
-                if (!ctrl && !shift && !alt)
-                {
-                    // 단독 키(F1 등)는 이름 변경/주소창/검색창 입력 중이면 차단
-                    if (e.Key == Windows.System.VirtualKey.F1)
-                    {
-                        var focused = FocusManager.GetFocusedElement(this.Content.XamlRoot);
-                        if (focused is TextBox or RichEditBox or PasswordBox or AutoSuggestBox)
-                            isTextBoxFocused = true;
-                    }
-                }
-                else if (ctrl && !shift && !alt)
-                {
-                    var focused = FocusManager.GetFocusedElement(this.Content.XamlRoot);
-                    if (focused is TextBox || focused is RichEditBox || focused is PasswordBox)
-                    {
-                        if (e.Key is Windows.System.VirtualKey.C or Windows.System.VirtualKey.X
-                            or Windows.System.VirtualKey.V or Windows.System.VirtualKey.A)
-                            isTextBoxFocused = true;
-                    }
-                }
+                // While typing in SearchBox / rename / address bar, never run file commands
+                // (especially Delete) — global handler uses handledEventsToo=true.
+                var focused = FocusManager.GetFocusedElement(this.Content.XamlRoot);
+                bool isTextInputFocused = focused is TextBox or RichEditBox or PasswordBox or AutoSuggestBox;
+                bool deferToTextInput = isTextInputFocused && (
+                    (!ctrl && !alt && e.Key is Windows.System.VirtualKey.Delete
+                        or Windows.System.VirtualKey.Back or Windows.System.VirtualKey.F1 or Windows.System.VirtualKey.F2)
+                    || (ctrl && !shift && !alt && e.Key is Windows.System.VirtualKey.C
+                        or Windows.System.VirtualKey.X or Windows.System.VirtualKey.V or Windows.System.VirtualKey.A)
+                    || (shift && !ctrl && !alt && e.Key == Windows.System.VirtualKey.Delete));
 
-                if (!isTextBoxFocused)
+                if (!deferToTextInput)
                 {
                     var commandId = _keyBindingService.ResolveCommand(e.Key, ctrl, shift, alt, e.KeyStatus.ScanCode);
                     // QuickLook은 뷰별 핸들러(Miller/Details/List/Icon)에서 독립 처리.
                     // 글로벌 핸들러(handledEventsToo=true)에서 중복 실행 시 Open→즉시Close → AV 크래시.
                     if (commandId == ShortcutCommands.QuickLook) commandId = null;
+                    // Extra safety: never delete files while a text box has focus
+                    if (isTextInputFocused && (commandId == ShortcutCommands.Delete
+                        || commandId == ShortcutCommands.PermanentDelete))
+                        commandId = null;
                     if (commandId != null && ExecuteCommand(commandId))
                     {
                         e.Handled = true;
@@ -771,8 +765,15 @@ namespace Span
                         break;
 
                     case Windows.System.VirtualKey.Delete:
-                        HandleDelete(); // Send to Recycle Bin
-                        e.Handled = true;
+                        // SearchBox / rename TextBox must receive Delete for text editing
+                        {
+                            var focusedEl = FocusManager.GetFocusedElement(this.Content.XamlRoot);
+                            if (focusedEl is not (TextBox or RichEditBox or PasswordBox or AutoSuggestBox))
+                            {
+                                HandleDelete(); // Send to Recycle Bin
+                                e.Handled = true;
+                            }
+                        }
                         break;
 
                     // ── 단독 화살표 키: 포커스가 탐색기 밖에 있으면 자동 이동 ──

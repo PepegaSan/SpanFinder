@@ -5377,8 +5377,12 @@ namespace Span
             if (e.OriginalSource is not TextBox)
                 CancelAnyActiveRename();
 
-            // Clear any active search filter when user focuses a different column
-            if (_isSearchFiltered)
+            // Clear live search filter only when focus moves to a different column.
+            // Clicking a result in the same filtered column must keep the filter.
+            if (_isSearchFiltered
+                && sender is FrameworkElement focusedFe
+                && focusedFe.DataContext is FolderViewModel focusedFolder
+                && !ReferenceEquals(focusedFolder, _searchFilteredColumn))
             {
                 RestoreSearchFilter();
             }

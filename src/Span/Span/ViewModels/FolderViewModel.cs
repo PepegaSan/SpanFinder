@@ -199,7 +199,11 @@ namespace Span.ViewModels
         /// true일 때 ExplorerViewModel.FolderVm_PropertyChanged가 Children 변경을 무시.
         /// </summary>
         private bool _isBulkUpdating;
-        internal bool IsBulkUpdating => _isBulkUpdating;
+        internal bool IsBulkUpdating
+        {
+            get => _isBulkUpdating;
+            set => _isBulkUpdating = value;
+        }
 
         /// <summary>
         /// 현재 적용 중인 필터 텍스트 (ExplorerViewModel에서 전파 확인용).

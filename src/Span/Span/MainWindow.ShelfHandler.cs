@@ -99,6 +99,7 @@ namespace Span
                 val => _shelfSyncingSelection = val,
                 syncCallback: _ => { },
                 afterSyncCallback: null);
+
         }
 
         private void OnShelfItemsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -629,20 +630,14 @@ namespace Span
             var items = e.Items.OfType<ShelfItem>().ToList();
             if (items.Count == 0) { e.Cancel = true; return; }
 
-            BeginOutboundFileDrag();
-
             var paths = items.Select(i => i.Path).ToList();
             e.Data.SetText(string.Join("\n", paths));
             e.Data.Properties["SourcePaths"] = paths;
             e.Data.Properties["SourcePane"] = "Shelf";
             e.Data.RequestedOperation = DataPackageOperation.Copy | DataPackageOperation.Move;
+            Helpers.OutboundFileDragHelper.Populate(e.Data, paths, skipArchivePaths: true);
 
-            var capturedPaths = new List<string>(paths);
-            e.Data.SetDataProvider(StandardDataFormats.StorageItems, request =>
-            {
-                var deferral = request.GetDeferral();
-                _ = ProvideStorageItemsAsync(request, capturedPaths, deferral);
-            });
+            BeginOutboundFileDrag();
         }
 
         private void OnShelfDragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
@@ -656,7 +651,6 @@ namespace Span
                     ViewModel.ShelfItems.Remove(item);
             }
 
-            // 드래그 완료 후 마우스가 이미 Shelf 밖 → 축소 타이머 시작
             if (ViewModel.ShelfItems.Count > 0 && !_shelfIsCollapsed && !_shelfAnimating)
                 StartCollapseTimer();
             else if (ViewModel.ShelfItems.Count == 0)
@@ -725,7 +719,8 @@ namespace Span
             _isDragOverShelf = true;
 
             if (e.DataView.Contains(StandardDataFormats.Text) ||
-                e.DataView.Contains(StandardDataFormats.StorageItems))
+                e.DataView.Contains(StandardDataFormats.StorageItems) ||
+                Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out _))
             {
                 e.AcceptedOperation = DataPackageOperation.Copy;
                 ShelfPanel.BorderBrush = GetThemeBrush("SpanAccentBrush");
@@ -742,7 +737,7 @@ namespace Span
             {
                 List<string>? paths = null;
 
-                if (e.DataView.Properties.TryGetValue("SourcePaths", out var srcObj) && srcObj is List<string> srcPaths)
+                if (Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out var srcPaths))
                     paths = srcPaths;
                 else if (e.DataView.Contains(StandardDataFormats.Text))
                 {

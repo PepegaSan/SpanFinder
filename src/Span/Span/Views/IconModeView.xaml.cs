@@ -623,6 +623,7 @@ namespace Span.Views
                 val => _isSyncingSelection = val,
                 items => ViewModel?.CurrentFolder?.SyncSelectedItems(items),
                 () => (ContextMenuHost as MainWindow)?.ViewModel?.UpdateStatusBar());
+
         }
 
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)

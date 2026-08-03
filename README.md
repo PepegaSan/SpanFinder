@@ -97,6 +97,7 @@ Navigate deep folder hierarchies without losing context. Each column represents 
 - **Dual pane**: side-by-side or stacked, with independent navigation per pane
 - **Quad (2×2)**: four panes for parallel browsing
 - **Shared view mode**: all visible panes use the same Miller / Details / List / Icons mode (switch once, apply everywhere)
+- Left-only special modes (Home, Settings, Recycle Bin, Action Log) do not push into secondary panes
 - Separate preview panels in dual layout
 - Drag files between panes for copy/move operations
 
@@ -180,12 +181,14 @@ Press **Space** for Quick Look (macOS Finder style):
 - **Structured queries**: `type:image`, `size:>100MB`, `date:today`, `ext:.pdf`
 - **Type-ahead**: Start typing in any column to filter instantly
 - **Background processing**: Search never freezes the UI
+- Clicking a live-filter result keeps the filter; Delete/Backspace in the search box edit text only (no accidental file delete)
 
 ### Recycle Bin Integration *(v1.1.1.0)*
 
 - Dedicated Recycle Bin tab — browse, restore, or permanently delete items
 - **Empty Recycle Bin** button in toolbar
 - Full Miller / Details / List / Icon view support for binned items
+- In Dual/Quad split, Recycle Bin stays in the left pane without overlaying other explorers; Esc leaves the bin when the search box is empty
 
 ### Power User Enhancements *(v1.1.2.0)*
 
@@ -301,7 +304,7 @@ See [Privacy Policy](PRIVACY.md) for full details.
 
 ## Fork changelog
 
-Personal / fork-specific changes (native shell menu, favorite groups, Paper theme, Everything bridge, Miller age badges, and more) are listed in [CHANGELOG.md](CHANGELOG.md).
+Personal / fork-specific changes (native shell menu, favorite groups, Paper theme, Everything bridge, Miller age badges, search/Recycle Bin Quad fixes, clipboard/`CF_HDROP` for tools like Easy Tagger, and more) are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

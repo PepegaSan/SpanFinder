@@ -81,10 +81,30 @@ namespace Span
         }
 
         /// <summary>
-        /// View mode for file operations (copy, delete, paste, selection).
-        /// Dual/Quad share one explorer view mode; CurrentViewMode is the source of truth.
+        /// View mode for the pane the user is interacting with.
+        /// Left-only special modes (RecycleBin/Home/…) keep CurrentViewMode, but secondary
+        /// split/quad panes still show a normal explorer — use RightViewMode there so
+        /// selection/clipboard (Easy Tagger Ctrl+C) target the focused pane.
         /// </summary>
-        private ViewMode GetActivePaneViewMode() => ViewModel.CurrentViewMode;
+        private ViewMode GetActivePaneViewMode()
+        {
+            var current = ViewModel.CurrentViewMode;
+            bool leftOnlySpecial = current is ViewMode.Home or ViewMode.Settings
+                or ViewMode.ActionLog or ViewMode.RecycleBin;
+
+            if (leftOnlySpecial
+                && ViewModel.IsSplitViewEnabled
+                && ViewModel.ActivePane != ActivePane.Left)
+            {
+                var secondary = ViewModel.RightViewMode;
+                if (secondary is ViewMode.MillerColumns or ViewMode.Details or ViewMode.List
+                    || Helpers.ViewModeExtensions.IsIconMode(secondary))
+                    return secondary;
+                return ViewMode.MillerColumns;
+            }
+
+            return current;
+        }
 
         /// <summary>
         /// Map an explorer instance to its Miller ItemsControl (independent of ActivePane).
@@ -679,11 +699,22 @@ namespace Span
                 BottomRightPaneContainer.Margin = new Thickness(0, 1, 0, 0);
 
                 SetQuadPanesVisible(true);
-                // Keep shared mode: sync Right to Current before applying visibility
-                if (ViewModel.RightViewMode != ViewModel.CurrentViewMode)
-                    ViewModel.RightViewMode = ViewModel.CurrentViewMode;
-                if (ViewModel.LeftViewMode != ViewModel.CurrentViewMode)
-                    ViewModel.LeftViewMode = ViewModel.CurrentViewMode;
+                // Keep shared explorer mode across panes — never push left-only special
+                // modes (Home/RecycleBin/Settings/ActionLog) into the secondary panes.
+                var current = ViewModel.CurrentViewMode;
+                bool leftOnlySpecial = current is Models.ViewMode.Home or Models.ViewMode.Settings
+                    or Models.ViewMode.ActionLog or Models.ViewMode.RecycleBin;
+                if (!leftOnlySpecial)
+                {
+                    if (ViewModel.RightViewMode != current)
+                        ViewModel.RightViewMode = current;
+                    if (ViewModel.LeftViewMode != current)
+                        ViewModel.LeftViewMode = current;
+                }
+                else if (ViewModel.LeftViewMode != current)
+                {
+                    ViewModel.LeftViewMode = current;
+                }
                 ApplyQuadSharedViewVisibility();
                 SyncRightAddressBar();
                 SubscribeRightExplorerForAddressBar();
@@ -1051,35 +1082,70 @@ namespace Span
 
         /// <summary>
         /// Quad: all 4 panes show the same explorer view mode (Miller/Details/List/Icon).
+        /// Left-only special modes (Home/RecycleBin/Settings/ActionLog) keep their host
+        /// in the top-left pane; secondary panes stay on the last usable explorer mode.
         /// </summary>
         private void ApplyQuadSharedViewVisibility()
         {
-            var mode = ViewModel.CurrentViewMode;
-            // Special modes are left-only; keep explorer panes on last usable mode.
+            var currentMode = ViewModel.CurrentViewMode;
+            bool leftOnlySpecial = currentMode is Models.ViewMode.Home or Models.ViewMode.Settings
+                or Models.ViewMode.ActionLog or Models.ViewMode.RecycleBin;
+
+            // Explorer mode used by secondary panes (and left when not in a special mode).
             // Do NOT assign CurrentViewMode here — mutating it during tab switch / layout
             // would overwrite the active tab's saved ViewMode and bleed into other tabs.
-            if (mode is Models.ViewMode.Home or Models.ViewMode.Settings
-                or Models.ViewMode.ActionLog or Models.ViewMode.RecycleBin)
+            Models.ViewMode explorerMode;
+            if (leftOnlySpecial)
             {
-                mode = Models.ViewMode.MillerColumns;
+                var right = ViewModel.RightViewMode;
+                // Prefer last secondary explorer mode; fall back to Miller.
+                explorerMode = (right is Models.ViewMode.MillerColumns or Models.ViewMode.Details
+                    or Models.ViewMode.List) || Helpers.ViewModeExtensions.IsIconMode(right)
+                    ? right
+                    : Models.ViewMode.MillerColumns;
+            }
+            else
+            {
+                explorerMode = currentMode;
+                if (explorerMode is not (Models.ViewMode.MillerColumns or Models.ViewMode.Details or Models.ViewMode.List)
+                    && !Helpers.ViewModeExtensions.IsIconMode(explorerMode))
+                    explorerMode = Models.ViewMode.MillerColumns;
             }
 
-            if (ViewModel.LeftViewMode != mode)
-                ViewModel.LeftViewMode = mode;
-            if (ViewModel.RightViewMode != mode)
-                ViewModel.RightViewMode = mode;
+            if (!leftOnlySpecial && ViewModel.LeftViewMode != explorerMode)
+                ViewModel.LeftViewMode = explorerMode;
+            if (ViewModel.RightViewMode != explorerMode)
+                ViewModel.RightViewMode = explorerMode;
             ViewModel.SyncExplorerAutoNavigationForLayout();
 
-            bool miller = mode == Models.ViewMode.MillerColumns;
-            bool details = mode == Models.ViewMode.Details;
-            bool list = mode == Models.ViewMode.List;
-            bool icon = Helpers.ViewModeExtensions.IsIconMode(mode);
+            bool miller = explorerMode == Models.ViewMode.MillerColumns;
+            bool details = explorerMode == Models.ViewMode.Details;
+            bool list = explorerMode == Models.ViewMode.List;
+            bool icon = Helpers.ViewModeExtensions.IsIconMode(explorerMode);
 
-            MillerTabsHost.Visibility = miller ? Visibility.Visible : Visibility.Collapsed;
-            DetailsTabsHost.Visibility = details ? Visibility.Visible : Visibility.Collapsed;
-            ListTabsHost.Visibility = list ? Visibility.Visible : Visibility.Collapsed;
-            IconTabsHost.Visibility = icon ? Visibility.Visible : Visibility.Collapsed;
-            HomeView.Visibility = Visibility.Collapsed;
+            // Left (top-left) pane: special host XOR explorer host — never stack both.
+            if (leftOnlySpecial)
+            {
+                MillerTabsHost.Visibility = Visibility.Collapsed;
+                DetailsTabsHost.Visibility = Visibility.Collapsed;
+                ListTabsHost.Visibility = Visibility.Collapsed;
+                IconTabsHost.Visibility = Visibility.Collapsed;
+                HomeView.Visibility = currentMode == Models.ViewMode.Home ? Visibility.Visible : Visibility.Collapsed;
+                SettingsView.Visibility = currentMode == Models.ViewMode.Settings ? Visibility.Visible : Visibility.Collapsed;
+                LogView.Visibility = currentMode == Models.ViewMode.ActionLog ? Visibility.Visible : Visibility.Collapsed;
+                RecycleBinView.Visibility = currentMode == Models.ViewMode.RecycleBin ? Visibility.Visible : Visibility.Collapsed;
+            }
+            else
+            {
+                MillerTabsHost.Visibility = miller ? Visibility.Visible : Visibility.Collapsed;
+                DetailsTabsHost.Visibility = details ? Visibility.Visible : Visibility.Collapsed;
+                ListTabsHost.Visibility = list ? Visibility.Visible : Visibility.Collapsed;
+                IconTabsHost.Visibility = icon ? Visibility.Visible : Visibility.Collapsed;
+                HomeView.Visibility = Visibility.Collapsed;
+                SettingsView.Visibility = Visibility.Collapsed;
+                LogView.Visibility = Visibility.Collapsed;
+                RecycleBinView.Visibility = Visibility.Collapsed;
+            }
 
             LeftPreviewSplitterCol.Width = new GridLength(0);
             LeftPreviewCol.Width = new GridLength(0);

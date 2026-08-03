@@ -90,6 +90,7 @@ Navigieren Sie tiefe Ordnerhierarchien, ohne den Kontext zu verlieren. Jede Spal
 - **Dual-Panel**: nebeneinander oder gestapelt, mit unabhaengiger Navigation pro Panel
 - **Quad (2×2)**: vier Panels fuer paralleles Browsen
 - **Gemeinsamer Ansichtsmodus**: alle sichtbaren Panels nutzen denselben Modus (Miller / Details / Liste / Symbole)
+- Spezielle Modi links (Home, Einstellungen, Papierkorb, Action-Log) werden nicht in die anderen Panels geschoben
 - Individuelles Vorschau-Panel im Dual-Layout
 - Drag-and-Drop zwischen Panels zum Kopieren/Verschieben
 
@@ -172,6 +173,12 @@ Ueber 30 Shortcuts fuer Nutzer, die die Haende nicht von der Tastatur nehmen:
 - **Strukturierte Abfragen**: `type:image`, `size:>100MB`, `date:today`, `ext:.pdf`
 - **Autovervollstaendigung**: In jeder Spalte tippen und sofort filtern
 - **Hintergrundverarbeitung**: Die Suche blockiert die Benutzeroberflaeche nicht
+- Klick auf ein Live-Filter-Ergebnis behält den Filter; Entf/Backspace im Suchfeld löscht nur Text (keine Dateien)
+
+### Papierkorb
+
+- Eigener Papierkorb-Tab — wiederherstellen oder endgültig löschen
+- Im Dual/Quad-Split bleibt der Papierkorb im linken Panel ohne Overlay über andere Explorer; Esc verlässt den Papierkorb bei leerem Suchfeld
 
 ### Arbeitsbereiche — Tab-Layouts speichern & wiederherstellen *(v1.2.1.0)*
 
@@ -276,7 +283,7 @@ Weitere Details finden Sie in der [Datenschutzerklaerung](../PRIVACY.md).
 
 ## Fork-Changelog
 
-Fork-spezifische Aenderungen (natives Shell-Menue, Favoritengruppen, Paper-Theme, Everything-Bruecke, Miller-Alters-Badges u. a.) stehen in [CHANGELOG.md](../CHANGELOG.md).
+Fork-spezifische Aenderungen (natives Shell-Menue, Favoritengruppen, Paper-Theme, Everything-Bruecke, Miller-Alters-Badges, Suche/Papierkorb-Quad-Fixes, Zwischenablage/`CF_HDROP` fuer Tools wie Easy Tagger u. a.) stehen in [CHANGELOG.md](../CHANGELOG.md).
 
 ---
 

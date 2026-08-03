@@ -80,6 +80,18 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 - **Column View scroll** when opening a new column (Issue #53) and when reselecting a previous column (Issue #57) — kept fork Dual/Quad left-pane scroll targeting.
 - **Thumbnails / preview** for image-editor formats: `.clip`, `.psd`, `.jfif` (Issue #56).
 
+### Search, Recycle Bin (Quad), and clipboard (August 2026)
+
+- **Live search click:** selecting a result in the filtered Miller column no longer clears the filter (GotFocus only restores when focus moves to a *different* column).
+- **Second recursive search (Quad):** Enter search no longer overwrites the pre-search Miller column snapshot with the results column — leaving search restores the real folders again.
+- **Delete in SearchBox:** Entf / Backspace / Ctrl+C/X/V/A while typing in the search box no longer trigger file commands (global `handledEventsToo` handler).
+- **Recycle Bin in Dual/Quad:** opening the bin is left-pane only; explorer hosts stay collapsed so the bin no longer overlays Miller. Esc with an empty SearchBox leaves the bin.
+- **Clipboard / Easy Tagger:** Ctrl+C writes **`CF_HDROP` first** (before slow StorageItem resolve). Miller selection falls back to `SelectedChild` after live-filter. With Recycle Bin open in split/quad, Ctrl+C and explorer shortcuts work again in the *focused secondary pane* (bin key blocking no longer applies globally).
+
+### Outbound drag helper (August 2026)
+
+- Shared `OutboundFileDragHelper` for drag-out (eager StorageItems, deferred fallback). Classic OLE/`CF_HDROP` drag for stubborn importers (e.g. HitPaw) remains an open follow-up — WinUI StorageItems alone is not always enough.
+
 ### Productivity & Miller polish (August 2026)
 
 - **Command Palette** (`Ctrl+K`) enabled by default for quick commands and setting toggles.
@@ -104,6 +116,8 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 | Commit   | Topic |
 |----------|--------|
+| (latest) | Search / Recycle Bin Quad / clipboard (Easy Tagger) / outbound drag helper |
+| b8f4b56  | Note August productivity commit in CHANGELOG git history table |
 | 59a7efe  | Tags, folder notes, Everything search, long paths, Miller age badges |
 | 4a65185  | Favorite groups, Paper theme, Miller column width, dev scripts |
 | cfbf070  | install-local.bat, .gitattributes for batch files |

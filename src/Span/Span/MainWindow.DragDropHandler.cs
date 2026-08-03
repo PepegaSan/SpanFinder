@@ -82,8 +82,6 @@ namespace Span
             var items = e.Items.OfType<FileSystemViewModel>().ToList();
             if (items.Count == 0) { e.Cancel = true; return; }
 
-            BeginOutboundFileDrag();
-
             // 드래그 오버레이용 항목 정보 캡처 (최대 3개 아이콘 — 스택 표시용)
             _dragItemCount = items.Count;
             _dragItemName = items[0].Name;
@@ -93,25 +91,15 @@ namespace Span
             e.Data.SetText(string.Join("\n", paths));
             e.Data.Properties["SourcePaths"] = paths;
             e.Data.Properties["SourcePane"] = DeterminePane(sender);
-            // 모든 작업 유형(Copy/Move/Link)을 허용.
-            // AcceptedOperation이 RequestedOperation의 부분집합이어야 WinUI가 수용하므로,
-            // Shift=Move, Alt=Link, 기본(같은 드라이브)=Move가 동작하려면 모두 포함해야 한다.
-            // 참고: SPAN→외부앱(Explorer) 드롭 시 Explorer가 자체 규칙으로 Move/Copy 결정.
             e.Data.RequestedOperation = DataPackageOperation.Copy | DataPackageOperation.Move | DataPackageOperation.Link;
+            Helpers.OutboundFileDragHelper.Populate(e.Data, paths, skipArchivePaths: true);
 
-            // Span→외부 앱: StorageItems를 지연 로딩 (외부 앱이 요청할 때만 로드)
-            // DragItemsStarting에서 await 사용 금지 — async void + await는 드래그 종료 시
-            // UI 스레드 데드락 유발 (DataPackage freeze 후 async 연속이 수정 시도)
-            var capturedPaths = new List<string>(paths);
-            e.Data.SetDataProvider(StandardDataFormats.StorageItems, request =>
-            {
-                var deferral = request.GetDeferral();
-                _ = ProvideStorageItemsAsync(request, capturedPaths, deferral);
-            });
+            BeginOutboundFileDrag();
         }
 
         /// <summary>
         /// 드래그 작업 완료(드롭 또는 취소) 시 IsDragInProgress 플래그를 해제한다.
+        /// 
         /// </summary>
         private void OnDragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
         {
@@ -140,6 +128,7 @@ namespace Span
             _dragItemCount = 0;
             _windowLoweredForDrag = false;
         }
+
 
         /// <summary>
         /// While dragging out to another app, send Span behind other windows when the cursor
@@ -196,47 +185,6 @@ namespace Span
                     return "Right";
             }
             return "Left";
-        }
-
-        /// <summary>
-        /// Deferred StorageItems provider for drag-and-drop to external apps.
-        /// Called lazily only when an external app (e.g. Windows Explorer) requests the data.
-        /// </summary>
-        private static async System.Threading.Tasks.Task ProvideStorageItemsAsync(
-            Windows.ApplicationModel.DataTransfer.DataProviderRequest request,
-            List<string> paths,
-            Windows.ApplicationModel.DataTransfer.DataProviderDeferral deferral)
-        {
-            try
-            {
-                var storageItems = new List<Windows.Storage.IStorageItem>();
-                foreach (var p in paths)
-                {
-                    if (Helpers.ArchivePathHelper.IsArchivePath(p))
-                        continue;
-
-                    try
-                    {
-                        if (System.IO.Directory.Exists(p))
-                            storageItems.Add(await Windows.Storage.StorageFolder.GetFolderFromPathAsync(p));
-                        else if (System.IO.File.Exists(p))
-                            storageItems.Add(await Windows.Storage.StorageFile.GetFileFromPathAsync(p));
-                    }
-                    catch (Exception ex)
-                    {
-                        Helpers.DebugLogger.Log($"[DragDrop] StorageItem resolve failed ({p}): {ex.Message}");
-                    }
-                }
-                request.SetData(storageItems);
-            }
-            catch (Exception ex)
-            {
-                Helpers.DebugLogger.Log($"[DragDrop] StorageItems provider error: {ex.Message}");
-            }
-            finally
-            {
-                deferral.Complete();
-            }
         }
 
         /// <summary>
@@ -380,11 +328,11 @@ namespace Span
 
             // Check if data contains paths (internal or external app)
             if (!e.DataView.Contains(StandardDataFormats.Text) &&
-                !e.DataView.Properties.ContainsKey("SourcePaths") &&
+                !Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out _) &&
                 !e.DataView.Contains(StandardDataFormats.StorageItems)) return;
 
             // Prevent dropping onto self (check source paths)
-            if (e.DataView.Properties.TryGetValue("SourcePaths", out var srcObj) && srcObj is List<string> srcPaths)
+            if (Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out var srcPaths))
             {
                 if (srcPaths.Any(p => p.Equals(targetFolder.Path, StringComparison.OrdinalIgnoreCase)))
                 {
@@ -567,7 +515,7 @@ namespace Span
             }
 
             if (!e.DataView.Contains(StandardDataFormats.Text) &&
-                !e.DataView.Properties.ContainsKey("SourcePaths") &&
+                !Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out _) &&
                 !e.DataView.Contains(StandardDataFormats.StorageItems)) return;
 
             // Same-folder check: block Move only when source and target are in the SAME pane.
@@ -575,11 +523,11 @@ namespace Span
             // the same folder path, because the user explicitly intends to move between panes.
             bool isSameFolder = false;
             bool isCrossPane = false;
-            if (e.DataView.Properties.TryGetValue("SourcePaths", out var srcObj) && srcObj is List<string> srcPaths)
+            if (Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out var srcPaths))
             {
                 isSameFolder = srcPaths.All(p => System.IO.Path.GetDirectoryName(p)?.Equals(folderVm.Path, StringComparison.OrdinalIgnoreCase) == true);
             }
-            if (e.DataView.Properties.TryGetValue("SourcePane", out var spObj) && spObj is string srcPane)
+            if (Helpers.OutboundFileDragHelper.TryGetSourcePane(e.DataView, out var srcPane))
             {
                 var targetPane = IsDescendant(RightPaneContainer, sender as DependencyObject) ? "Right" : "Left";
                 isCrossPane = srcPane != targetPane;
@@ -646,7 +594,7 @@ namespace Span
         /// </summary>
         internal async Task<List<string>> ExtractDropPaths(DragEventArgs e)
         {
-            if (e.DataView.Properties.TryGetValue("SourcePaths", out var srcObj) && srcObj is List<string> srcPaths)
+            if (Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out var srcPaths))
                 return srcPaths;
 
             if (e.DataView.Contains(StandardDataFormats.Text))
@@ -691,7 +639,7 @@ namespace Span
             if (ctrl) return DragDropMode.Copy;    // Ctrl = force Copy
 
             // Default: same drive root = Move, different drive = Copy
-            if (e.DataView.Properties.TryGetValue("SourcePaths", out var srcObj) && srcObj is List<string> srcPaths && srcPaths.Count > 0)
+            if (Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out var srcPaths) && srcPaths.Count > 0)
             {
                 var srcRoot = System.IO.Path.GetPathRoot(srcPaths[0]);
                 var destRoot = System.IO.Path.GetPathRoot(destFolder);
@@ -1246,8 +1194,7 @@ namespace Span
 
             // Determine source and target panes
             // External drags (Windows Explorer etc.) won't have "SourcePane" property
-            bool isInternalDrag = e.DataView.Properties.TryGetValue("SourcePane", out var sp) && sp is string s;
-            var sourcePane = isInternalDrag ? (string)sp! : "";
+            bool isInternalDrag = Helpers.OutboundFileDragHelper.TryGetSourcePane(e.DataView, out var sourcePane);
 
             bool isLeftTarget = fe.Name == "LeftPaneContainer";
             string targetPane = isLeftTarget ? "Left" : "Right";
@@ -1268,7 +1215,7 @@ namespace Span
             // Only applies to internal drags — external drops always allowed.
             bool isSameFolder = false;
             if (isInternalDrag && sourcePane == targetPane
-                && e.DataView.Properties.TryGetValue("SourcePaths", out var srcObj2) && srcObj2 is List<string> srcPaths2)
+                && Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out var srcPaths2))
             {
                 isSameFolder = srcPaths2.All(p =>
                     System.IO.Path.GetDirectoryName(p)?.Equals(destFolder, StringComparison.OrdinalIgnoreCase) == true);
@@ -1307,8 +1254,7 @@ namespace Span
             try
             {
                 // External drags (Windows Explorer etc.) won't have "SourcePane" property
-                bool isInternalDrag = e.DataView.Properties.TryGetValue("SourcePane", out var sp) && sp is string s;
-                var sourcePane = isInternalDrag ? (string)sp! : "";
+                bool isInternalDrag = Helpers.OutboundFileDragHelper.TryGetSourcePane(e.DataView, out var sourcePane);
 
                 bool isLeftTarget = fe.Name == "LeftPaneContainer";
                 string targetPane = isLeftTarget ? "Left" : "Right";
@@ -1803,14 +1749,14 @@ namespace Span
             }
 
             if (!e.DataView.Contains(StandardDataFormats.Text) &&
-                !e.DataView.Properties.ContainsKey("SourcePaths") &&
+                !Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out _) &&
                 !e.DataView.Contains(StandardDataFormats.StorageItems)) return;
 
             bool isSameFolder = false;
             bool isCrossPane = false;
-            if (e.DataView.Properties.TryGetValue("SourcePaths", out var srcObj) && srcObj is List<string> srcPaths)
+            if (Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out var srcPaths))
                 isSameFolder = srcPaths.All(p => System.IO.Path.GetDirectoryName(p)?.Equals(destFolderPath, StringComparison.OrdinalIgnoreCase) == true);
-            if (e.DataView.Properties.TryGetValue("SourcePane", out var spObj) && spObj is string srcPane)
+            if (Helpers.OutboundFileDragHelper.TryGetSourcePane(e.DataView, out var srcPane))
                 isCrossPane = srcPane != (isRightPane ? "Right" : "Left");
 
             var mode = ResolveDragDropMode(e, destFolderPath);
@@ -1873,11 +1819,11 @@ namespace Span
             }
 
             if (!e.DataView.Contains(StandardDataFormats.Text) &&
-                !e.DataView.Properties.ContainsKey("SourcePaths") &&
+                !Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out _) &&
                 !e.DataView.Contains(StandardDataFormats.StorageItems)) return;
 
             // Self-drop check: 대상 폴더 자체를 대상으로 드롭 차단
-            if (e.DataView.Properties.TryGetValue("SourcePaths", out var srcObj) && srcObj is List<string> srcPaths)
+            if (Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out var srcPaths))
             {
                 if (srcPaths.Any(p => p.Equals(folderVm.Path, StringComparison.OrdinalIgnoreCase)))
                 {

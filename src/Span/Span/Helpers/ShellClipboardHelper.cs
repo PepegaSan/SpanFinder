@@ -109,19 +109,11 @@ internal static class ShellClipboardHelper
             if (!EmptyClipboard())
                 return false;
 
-            var pathBlock = new StringBuilder();
-            foreach (var path in paths)
-            {
-                if (string.IsNullOrWhiteSpace(path))
-                    continue;
-                pathBlock.Append(path);
-                pathBlock.Append('\0');
-            }
-            pathBlock.Append('\0');
+            var payload = BuildDropFilesPayload(paths);
+            if (payload == null || payload.Length == 0)
+                return false;
 
-            var pathBytes = Encoding.Unicode.GetBytes(pathBlock.ToString());
-            var totalSize = DROPFILES_SIZE + pathBytes.Length;
-            var hDrop = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)totalSize);
+            var hDrop = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)payload.Length);
             if (hDrop == IntPtr.Zero)
                 return false;
 
@@ -131,9 +123,7 @@ internal static class ShellClipboardHelper
 
             try
             {
-                Marshal.WriteInt32(dropPtr, 0, DROPFILES_SIZE);
-                Marshal.WriteInt32(dropPtr, 16, 1); // fWide = TRUE
-                Marshal.Copy(pathBytes, 0, dropPtr + DROPFILES_SIZE, pathBytes.Length);
+                Marshal.Copy(payload, 0, dropPtr, payload.Length);
             }
             finally
             {
@@ -176,6 +166,37 @@ internal static class ShellClipboardHelper
         {
             CloseClipboard();
         }
+    }
+
+    /// <summary>
+    /// Build a DROPFILES + double-null Unicode path list (CF_HDROP payload).
+    /// Used by clipboard write and outbound drag for classic importers.
+    /// </summary>
+    internal static byte[]? BuildDropFilesPayload(IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0)
+            return null;
+
+        var pathBlock = new StringBuilder();
+        foreach (var path in paths)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                continue;
+            pathBlock.Append(path);
+            pathBlock.Append('\0');
+        }
+
+        if (pathBlock.Length == 0)
+            return null;
+
+        pathBlock.Append('\0');
+
+        var pathBytes = Encoding.Unicode.GetBytes(pathBlock.ToString());
+        var payload = new byte[DROPFILES_SIZE + pathBytes.Length];
+        BitConverter.TryWriteBytes(payload.AsSpan(0, 4), DROPFILES_SIZE);
+        payload[16] = 1; // fWide = TRUE
+        Buffer.BlockCopy(pathBytes, 0, payload, DROPFILES_SIZE, pathBytes.Length);
+        return payload;
     }
 
     private static void SetPreferredDropEffect(int dropEffect)

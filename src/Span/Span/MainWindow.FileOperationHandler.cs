@@ -208,6 +208,16 @@ namespace Span
                 return col.SelectedItems.Count;
             }
 
+            // Single-click navigation often sets SelectedChild while SelectedItems is briefly empty
+            // (e.g. after live-search Children.Clear). Easy Tagger / Ctrl+C need this fallback.
+            if (col.SelectedChild != null
+                && col.Children.Any(c => ReferenceEquals(c, col.SelectedChild)
+                    || string.Equals(c.Path, col.SelectedChild.Path, StringComparison.OrdinalIgnoreCase)))
+            {
+                items = new List<FileSystemViewModel> { col.SelectedChild };
+                return 1;
+            }
+
             items = new List<FileSystemViewModel>();
             return 0;
         }
@@ -610,6 +620,14 @@ namespace Span
                 }
             }
 
+            // Write CF_HDROP first — Easy Tagger / AHK send Ctrl+C and ClipWait immediately.
+            // Resolving StorageItems before HDROP made the clipboard stay empty during ClipWait.
+            if (Helpers.ShellClipboardHelper.TryWriteFileClipboard(_hwnd, paths, isCut))
+            {
+                Helpers.DebugLogger.Log($"[Clipboard] Published {paths.Count} item(s) via CF_HDROP, isCut={isCut}: {string.Join("; ", paths.Select(System.IO.Path.GetFileName))}");
+                return;
+            }
+
             var storageItems = new List<Windows.Storage.IStorageItem>();
             foreach (var p in paths)
             {
@@ -624,12 +642,6 @@ namespace Span
                 {
                     Helpers.DebugLogger.Log($"[Clipboard] StorageItem resolve failed ({p}): {ex.Message}");
                 }
-            }
-
-            if (Helpers.ShellClipboardHelper.TryWriteFileClipboard(_hwnd, paths, isCut))
-            {
-                Helpers.DebugLogger.Log($"[Clipboard] Published {paths.Count} item(s) via CF_HDROP, isCut={isCut}: {string.Join("; ", paths.Select(System.IO.Path.GetFileName))}");
-                return;
             }
 
             var dataPackage = new DataPackage();
@@ -2134,6 +2146,7 @@ namespace Span
         private bool _isSearchFiltered = false;
         private List<FileSystemViewModel>? _searchOriginalChildren = null;
         private int _searchFilteredColumnIndex = -1;
+        private FolderViewModel? _searchFilteredColumn;
 
         /// <summary>
         /// Apply advanced search filter: replace column children with filtered results.
@@ -2150,13 +2163,32 @@ namespace Span
             {
                 _searchOriginalChildren = column.Children.ToList();
                 _searchFilteredColumnIndex = columnIndex;
+                _searchFilteredColumn = column;
             }
+
+            var selectedPaths = column.SelectedItems
+                .Select(i => i.Path)
+                .Concat(column.SelectedChild != null ? new[] { column.SelectedChild.Path } : Array.Empty<string>())
+                .Where(p => !string.IsNullOrEmpty(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
             var filtered = Helpers.SearchFilter.Apply(query, source);
 
-            column.Children.Clear();
-            foreach (var item in filtered)
-                column.Children.Add(item);
+            // Bulk-update so SelectionChanged does not wipe SelectedItems/SelectedChild mid-filter
+            column.IsBulkUpdating = true;
+            try
+            {
+                column.Children.Clear();
+                foreach (var item in filtered)
+                    column.Children.Add(item);
+            }
+            finally
+            {
+                column.IsBulkUpdating = false;
+            }
+
+            RestoreSelectionAfterFilter(column, selectedPaths);
 
             _isSearchFiltered = true;
 
@@ -2165,6 +2197,10 @@ namespace Span
             if (filtered.Count == 0)
             {
                 ViewModel.StatusSelectionText = _loc.Get("Search_EscToClear");
+            }
+            else
+            {
+                ViewModel.UpdateStatusBar();
             }
         }
 
@@ -2175,18 +2211,58 @@ namespace Span
         {
             if (!_isSearchFiltered || _searchOriginalChildren == null) return;
 
-            var columns = ViewModel.ActiveExplorer.Columns;
-            if (_searchFilteredColumnIndex >= 0 && _searchFilteredColumnIndex < columns.Count)
+            FolderViewModel? column = _searchFilteredColumn;
+            if (column == null)
             {
-                var column = columns[_searchFilteredColumnIndex];
-                column.Children.Clear();
-                foreach (var item in _searchOriginalChildren)
-                    column.Children.Add(item);
+                var columns = ViewModel.ActiveExplorer.Columns;
+                if (_searchFilteredColumnIndex >= 0 && _searchFilteredColumnIndex < columns.Count)
+                    column = columns[_searchFilteredColumnIndex];
+            }
+
+            if (column != null)
+            {
+                var selectedPaths = column.SelectedItems
+                    .Select(i => i.Path)
+                    .Concat(column.SelectedChild != null ? new[] { column.SelectedChild.Path } : Array.Empty<string>())
+                    .Where(p => !string.IsNullOrEmpty(p))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                column.IsBulkUpdating = true;
+                try
+                {
+                    column.Children.Clear();
+                    foreach (var item in _searchOriginalChildren)
+                        column.Children.Add(item);
+                }
+                finally
+                {
+                    column.IsBulkUpdating = false;
+                }
+
+                RestoreSelectionAfterFilter(column, selectedPaths);
             }
 
             _isSearchFiltered = false;
             _searchOriginalChildren = null;
             _searchFilteredColumnIndex = -1;
+            _searchFilteredColumn = null;
+        }
+
+        private static void RestoreSelectionAfterFilter(FolderViewModel column, List<string> selectedPaths)
+        {
+            if (selectedPaths.Count == 0) return;
+
+            var restored = column.Children
+                .Where(c => selectedPaths.Any(p => string.Equals(p, c.Path, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            if (restored.Count == 0) return;
+
+            column.SelectedItems.Clear();
+            foreach (var item in restored)
+                column.SelectedItems.Add(item);
+            if (restored.Count == 1)
+                column.SelectedChild = restored[0];
         }
 
         #endregion

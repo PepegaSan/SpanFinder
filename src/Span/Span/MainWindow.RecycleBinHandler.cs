@@ -292,13 +292,17 @@ namespace Span
                     return true;
 
                 case Windows.System.VirtualKey.Escape when !ctrl && !shift && !alt:
-                    // 검색 필터 활성 시 → 필터 초기화만 (일반 탭과 동일 패턴)
+                    // Search filter active → clear filter only (same pattern as other views)
                     if (!string.IsNullOrEmpty(SearchBox.Text))
                     {
                         RecycleBinView.FilterItems(null);
                         SearchBox.Text = string.Empty;
+                        return true;
                     }
-                    // 비어있으면 아무 동작 없음 (휴지통 뷰 유지 — 나가려면 사이드바/주소바 사용)
+                    // Empty Escape → leave Recycle Bin and restore previous explorer view
+                    ViewModel.SwitchViewMode(ViewModel.ResolveViewModeFromHome());
+                    UpdateViewModeVisibility();
+                    FocusActiveView();
                     return true;
             }
 

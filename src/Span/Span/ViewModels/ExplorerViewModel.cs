@@ -1686,13 +1686,17 @@ namespace Span.ViewModels
         /// </summary>
         public async Task StartRecursiveSearchAsync(SearchQuery query, string rootPath, bool showHidden)
         {
-            // 1. 기존 검색 취소
+            // 1. Cancel in-flight search, but keep the original Miller snapshot.
+            // Re-search must not overwrite _preSearchColumns with the previous results column.
             CancelRecursiveSearchInternal(restoreColumns: false);
 
-            // 2. 현재 Columns/Path/SelectedChild 저장 (Escape 복원용)
-            _preSearchColumns = Columns.ToList();
-            _preSearchSelectedChildren = Columns.ToDictionary(c => c, c => c.SelectedChild);
-            _preSearchPath = CurrentPath;
+            // 2. Snapshot real Columns/Path/SelectedChild only once (Escape restore)
+            if (_preSearchColumns == null)
+            {
+                _preSearchColumns = Columns.ToList();
+                _preSearchSelectedChildren = Columns.ToDictionary(c => c, c => c.SelectedChild);
+                _preSearchPath = CurrentPath;
+            }
 
             // 3. 가상 FolderViewModel 생성
             var searchRootName = System.IO.Path.GetFileName(rootPath);

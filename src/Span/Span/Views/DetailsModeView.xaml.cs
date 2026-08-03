@@ -1920,6 +1920,7 @@ namespace Span.Views
                 val => _isSyncingSelection = val,
                 items => ViewModel?.CurrentFolder?.SyncSelectedItems(items),
                 () => (ContextMenuHost as MainWindow)?.ViewModel?.UpdateStatusBar());
+
         }
 
         private void OnListViewWrapperUnloaded(object sender, RoutedEventArgs e)
