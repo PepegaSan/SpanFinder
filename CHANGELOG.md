@@ -116,7 +116,7 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 | Commit   | Topic |
 |----------|--------|
-| (latest) | Search / Recycle Bin Quad / clipboard (Easy Tagger) / outbound drag helper |
+| 15e34c2  | Search / Recycle Bin Quad / clipboard (Easy Tagger) / outbound drag helper |
 | b8f4b56  | Note August productivity commit in CHANGELOG git history table |
 | 59a7efe  | Tags, folder notes, Everything search, long paths, Miller age badges |
 | 4a65185  | Favorite groups, Paper theme, Miller column width, dev scripts |
