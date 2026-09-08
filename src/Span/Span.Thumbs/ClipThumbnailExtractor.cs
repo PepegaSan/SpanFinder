@@ -14,6 +14,11 @@ namespace Span.Thumbs;
 /// 셸 썸네일 핸들러(IThumbnailProvider)를 CSP가 등록하지 않으므로 Shell 경로로는
 /// .clip 썸네일이 나오지 않는다. 이 추출기는 셸 핸들러 없이 전 사용자에게 동작한다.
 ///
+/// 탐색 경로: CHNKHead 페이로드에 CHNKSQLi 청크의 절대 위치(database_offset)가 들어 있어
+/// 선두 32바이트만 읽고 그 지점으로 바로 Seek한다. 그림 데이터가 든 중간 CHNKExta 청크를
+/// 아예 건드리지 않으므로 그중 하나가 손상돼도 썸네일이 나온다. 값이 못 쓸 상태면 기존
+/// 청크 순회로 폴백하므로 동작을 잃지 않는다. [샘플 12개 실측 — 순회 결과와 바이트 일치]
+///
 /// 대용량(.clip은 수백MB~GB) 대비: 청크 헤더(16B)만 읽고 데이터는 Seek로 건너뛰며
 /// 순회하므로 파일 전체를 메모리에 올리지 않는다. CHNKSQLi 청크(대개 수 MB)만 읽는다.
 /// 손상/미지원 스키마/예외는 모두 null 반환 → 썸네일 없음(현상 유지). 격리 워커
@@ -22,6 +27,7 @@ namespace Span.Thumbs;
 internal static class ClipThumbnailExtractor
 {
     private static readonly byte[] Magic = "CSFCHUNK"u8.ToArray();
+    private static readonly byte[] HeadTag = "CHNKHead"u8.ToArray();
     private static readonly byte[] SqliTag = "CHNKSQLi"u8.ToArray();
     private static readonly byte[] FootTag = "CHNKFoot"u8.ToArray();
 
@@ -72,6 +78,17 @@ internal static class ClipThumbnailExtractor
         long pos = ReadU64BE(hdr.Slice(0, 8));
         if (pos < 24 || pos >= fs.Length) { stage = $"bad-first-offset ({pos})"; return null; }
 
+        // ── 빠른 경로: CHNKHead가 알려주는 위치로 바로 간다 ──
+        long dbOffset = TryReadDatabaseOffset(fs, pos);
+        if (dbOffset > 0)
+        {
+            byte[]? fast = ReadSqliChunkAt(fs, dbOffset, out string fastStage);
+            if (fast != null) { stage = "ok"; return fast; }
+            // 정상 파일에서는 안 나오는 로그다. 나온다면 헤더와 실제 배치가 어긋난 파일이라는 뜻.
+            WorkerLogger.Log($"[ClipExtract] header offset unusable ({fastStage}) — chunk walk fallback: {System.IO.Path.GetFileName(filePath)}");
+        }
+
+        // ── 폴백: 청크를 처음부터 순회한다 ──
         while (pos + 16 <= fs.Length)
         {
             ct.ThrowIfCancellationRequested();
@@ -82,20 +99,7 @@ internal static class ClipThumbnailExtractor
             if (len < 0) { stage = $"negative-chunk-len (pos={pos})"; return null; }
 
             if (hdr.Slice(0, 8).SequenceEqual(SqliTag))
-            {
-                if (len < 16 || len > MaxSqliteBytes) { stage = $"sqli-len-out-of-range ({len})"; return null; }
-                var buf = new byte[len];
-                if (!ReadExactly(fs, buf)) { stage = "eof-in-sqli-data"; return null; }
-                // SQLite 파일 매직 검증 ("SQLite format 3\0")
-                if (buf.Length < 16 || buf[0] != (byte)'S' || buf[1] != (byte)'Q' ||
-                    buf[2] != (byte)'L' || buf[3] != (byte)'i')
-                {
-                    stage = "sqli-data-not-sqlite";
-                    return null;
-                }
-                stage = "ok";
-                return buf;
-            }
+                return ReadSqliChunkAt(fs, pos, out stage);
 
             if (hdr.Slice(0, 8).SequenceEqual(FootTag))
             {
@@ -114,6 +118,53 @@ internal static class ClipThumbnailExtractor
         }
         stage = "walk-ran-past-eof";
         return null;
+    }
+
+    /// <summary>
+    /// CHNKHead 페이로드에서 CHNKSQLi 청크의 절대 위치를 읽는다. 읽을 수 없으면 -1.
+    /// 레이아웃 [실측]: 태그(8B) + 페이로드길이(8B) + 포맷버전(8B) + database_offset(8B) + …
+    /// 값 자체는 검증하지 않는다 — 쓸 수 있는지는 ReadSqliChunkAt이 태그로 판정한다.
+    /// </summary>
+    private static long TryReadDatabaseOffset(FileStream fs, long firstChunkPos)
+    {
+        if (firstChunkPos < 0 || firstChunkPos + 32 > fs.Length) return -1;
+        Span<byte> b = stackalloc byte[32];
+        fs.Position = firstChunkPos;
+        if (!ReadExactly(fs, b)) return -1;
+        if (!b.Slice(0, 8).SequenceEqual(HeadTag)) return -1;   // 첫 청크가 CHNKHead가 아님
+        if (ReadU64BE(b.Slice(8, 8)) < 16) return -1;           // 페이로드가 짧아 offset이 없음
+        return ReadU64BE(b.Slice(24, 8));                       // long 범위 초과 시 -1 (ReadU64BE 규약)
+    }
+
+    /// <summary>
+    /// 주어진 위치의 CHNKSQLi 청크에서 SQLite 바이트를 읽어 검증한다. 실패 시 null.
+    /// 빠른 경로와 청크 순회가 공유한다 — 검증 규칙이 한 벌만 존재하도록.
+    /// </summary>
+    private static byte[]? ReadSqliChunkAt(FileStream fs, long chunkPos, out string stage)
+    {
+        if (chunkPos < 24 || chunkPos + 16 > fs.Length) { stage = $"sqli-offset-out-of-file ({chunkPos})"; return null; }
+
+        Span<byte> hdr = stackalloc byte[16];
+        fs.Position = chunkPos;
+        if (!ReadExactly(fs, hdr)) { stage = $"eof-at-sqli-header ({chunkPos})"; return null; }
+        if (!hdr.Slice(0, 8).SequenceEqual(SqliTag)) { stage = $"not-sqli-tag ({ToAscii(hdr.Slice(0, 8))} at {chunkPos})"; return null; }
+
+        long len = ReadU64BE(hdr.Slice(8, 8));
+        if (len < 16 || len > MaxSqliteBytes) { stage = $"sqli-len-out-of-range ({len})"; return null; }
+        if (chunkPos + 16 + len > fs.Length) { stage = $"sqli-len-past-eof (len={len})"; return null; }
+
+        var buf = new byte[len];
+        if (!ReadExactly(fs, buf)) { stage = "eof-in-sqli-data"; return null; }
+
+        // SQLite 파일 매직 검증
+        if (buf[0] != (byte)'S' || buf[1] != (byte)'Q' || buf[2] != (byte)'L' || buf[3] != (byte)'i')
+        {
+            stage = "sqli-data-not-sqlite";
+            return null;
+        }
+
+        stage = "ok";
+        return buf;
     }
 
     private static string ToAscii(ReadOnlySpan<byte> b)
