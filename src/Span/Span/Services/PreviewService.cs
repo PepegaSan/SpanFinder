@@ -46,7 +46,36 @@ namespace Span.Services
             ".txt", ".cs", ".json", ".xml", ".log", ".ini", ".cfg", ".yaml", ".yml",
             ".toml", ".html", ".htm", ".css", ".js", ".ts", ".py", ".java", ".cpp", ".c",
             ".h", ".go", ".rs", ".sh", ".bat", ".ps1", ".sql", ".gitignore",
-            ".editorconfig", ".env", ".dockerfile", ".xaml", ".csproj", ".sln"
+            ".editorconfig", ".env", ".dockerfile", ".xaml", ".csproj", ".sln",
+
+            // Issue #69: 아래 9개는 _extToLanguage(PreviewPanelView)에 구문 강조가 이미
+            // 매핑돼 있었는데 이 목록에 없어 미리보기가 열리지 않았다 — 강조 코드가
+            // 도달 불가 상태였다. 신고자가 걸린 .php가 정확히 이 경우다.
+            ".php", ".jsx", ".tsx", ".hpp", ".psm1", ".vb", ".fs", ".fsx", ".svg",
+
+            // Issue #69: 흔한 코드/설정 확장자. ColorCode에 강조기가 없어 평문으로 뜨지만
+            // 아무것도 안 뜨는 것보다 낫다. 여기 없는 것은 아래 내용 판별이 받아낸다.
+            ".cc", ".cxx", ".hh", ".hxx", ".m", ".mm", ".ino", ".asm", ".pas", ".d",
+            ".rb", ".lua", ".pl", ".pm", ".r", ".kt", ".kts", ".swift", ".dart",
+            ".scala", ".groovy", ".ex", ".exs", ".erl", ".clj", ".hs", ".ml", ".nim",
+            ".zig", ".jl", ".vbs", ".zsh", ".bash", ".fish", ".cmd",
+            ".vue", ".svelte", ".scss", ".sass", ".less", ".styl", ".astro",
+            ".mjs", ".cjs", ".mts", ".cts",
+            ".conf", ".properties", ".gradle", ".tf", ".tfvars", ".hcl", ".proto",
+            ".graphql", ".gql", ".prisma", ".cmake", ".mk", ".nix", ".bzl", ".rc",
+            ".lock", ".sum", ".mod", ".npmrc", ".nvmrc", ".prettierrc", ".eslintrc",
+            ".babelrc", ".gitattributes", ".gitmodules",
+            ".rst", ".adoc", ".tex", ".bib", ".srt", ".vtt", ".po", ".pot",
+            ".diff", ".patch", ".plist", ".reg", ".inf"
+        };
+
+        /// <summary>
+        /// Issue #69: 확장자만으로는 텍스트인지 이진인지 단정할 수 없는 것들.
+        /// 내용을 들여다본 뒤 텍스트가 아니면 기존대로 헥스 뷰어로 보낸다.
+        /// </summary>
+        private static readonly HashSet<string> AmbiguousExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".dat", ".data", ".out", ".sav", ".bak", ".tmp", ".temp", ".cache", ".db"
         };
 
         private static readonly HashSet<string> PdfExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -73,7 +102,8 @@ namespace Span.Services
 
         private static readonly HashSet<string> BinaryExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
-            ".dll", ".exe", ".sys", ".bin", ".dat", ".so", ".dylib", ".o", ".obj",
+            // .dat은 AmbiguousExtensions로 옮겼다 (Issue #69) — 텍스트인 .dat이 흔하다.
+            ".dll", ".exe", ".sys", ".bin", ".so", ".dylib", ".o", ".obj",
             ".class", ".pyc", ".pdb", ".lib", ".a", ".wasm"
         };
 
@@ -81,13 +111,22 @@ namespace Span.Services
         private const int MaxTextChars = 30000;
         private const int HexPreviewBytes = 512; // Hex viewer: first 512 bytes
 
+        // Issue #69: 내용 판별에 읽을 바이트 수. 텍스트/이진 구분에는 이 정도면 충분하고,
+        // 한 번에 읽히는 크기라 디스크 왕복이 1회다.
+        private const int SniffBytes = 4096;
+        // 제어문자가 이 비율(%)을 넘으면 이진으로 본다.
+        private const int SniffControlCharPercent = 5;
+
         public PreviewType GetPreviewType(string? filePath, bool isFolder)
         {
             if (isFolder) return PreviewType.Folder;
             if (string.IsNullOrEmpty(filePath)) return PreviewType.None;
 
             var ext = Path.GetExtension(filePath);
-            if (string.IsNullOrEmpty(ext)) return PreviewType.Generic;
+
+            // 확장자 없는 파일(Makefile, LICENSE, README 등)도 내용으로 판별한다.
+            if (string.IsNullOrEmpty(ext))
+                return LooksLikeText(filePath) ? PreviewType.Text : PreviewType.Generic;
 
             if (ImageExtensions.Contains(ext)) return PreviewType.Image;
             if (MarkdownExtensions.Contains(ext)) return PreviewType.Markdown;
@@ -97,9 +136,67 @@ namespace Span.Services
             if (MediaExtensions.Contains(ext)) return PreviewType.Media;
             if (FontExtensions.Contains(ext)) return PreviewType.Font;
             if (ArchiveExtensions.Contains(ext)) return PreviewType.Archive;
+
+            // Issue #69: 모호한 확장자는 내용을 보고 정한다. 아니면 기존대로 헥스.
+            if (AmbiguousExtensions.Contains(ext))
+                return LooksLikeText(filePath) ? PreviewType.Text : PreviewType.HexBinary;
+
             if (BinaryExtensions.Contains(ext)) return PreviewType.HexBinary;
 
-            return PreviewType.Generic;
+            // Issue #69: 목록에 없는 확장자 — 텍스트면 보여준다. 목록을 무한히 늘리는 대신
+            // 내용으로 받아낸다. 아니면 기존대로 메타데이터만.
+            return LooksLikeText(filePath) ? PreviewType.Text : PreviewType.Generic;
+        }
+
+        /// <summary>
+        /// Issue #69: 파일 앞부분을 읽어 텍스트인지 판정한다. 확장자로 단정할 수 없는
+        /// 파일(.dat, 확장자 없음, 목록에 없는 코드 파일)에만 쓴다.
+        ///
+        /// 판정: NUL 바이트가 하나라도 있으면 이진. BOM이 있으면 즉시 텍스트.
+        /// 그 외에는 제어문자 비율로 가른다. UTF-8 멀티바이트(0x80~)는 세지 않으므로
+        /// 한국어/중국어/일본어 텍스트도 통과한다.
+        ///
+        /// 읽지 않는 경우 — 둘 다 false를 돌려 기존 동작(Generic/HexBinary)을 유지한다:
+        ///   클라우드 전용 파일 — 여기서 열면 하이드레이션(다운로드)이 걸린다. 호출자의
+        ///     클라우드 가드는 GetPreviewType "다음"에 있어서 이 안에서 막아야 한다.
+        ///   UNC 경로 — 잠든 서버에서 FileStream 열기가 42초 블록되는 것을 실측했다.
+        ///     알려진 텍스트 확장자는 어차피 미리보기 로더가 읽지만, 이진일 수도 있는
+        ///     파일까지 투기적으로 읽어 UI를 세우지는 않는다. (Issue #67의 UI 스레드
+        ///     블로킹이 해소되면 이 가드는 걷어낼 수 있다.)
+        /// </summary>
+        private static bool LooksLikeText(string filePath)
+        {
+            try
+            {
+                if (filePath.StartsWith(@"\\", StringComparison.Ordinal)) return false;
+                if (CloudSyncService.IsCloudOnlyFile(filePath)) return false;
+
+                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read,
+                                              FileShare.ReadWrite | FileShare.Delete);
+                if (fs.Length == 0) return true;   // 빈 파일은 헥스 뷰어보다 빈 텍스트가 낫다
+
+                Span<byte> buf = stackalloc byte[SniffBytes];
+                int read = fs.Read(buf);
+                if (read <= 0) return true;
+                buf = buf[..read];
+
+                // BOM이면 확정
+                if (read >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF) return true;
+                if (read >= 2 && ((buf[0] == 0xFF && buf[1] == 0xFE) || (buf[0] == 0xFE && buf[1] == 0xFF))) return true;
+
+                int control = 0;
+                foreach (byte b in buf)
+                {
+                    if (b == 0) return false;                             // NUL 하나면 이진 확정
+                    if (b < 0x09 || (b > 0x0D && b < 0x20) || b == 0x7F)  // 탭/개행 제외한 제어문자
+                        control++;
+                }
+                return control * 100 / read <= SniffControlCharPercent;
+            }
+            catch
+            {
+                return false;   // 잠김/권한 없음 등 — 기존 동작 유지
+            }
         }
 
         public FilePreviewMetadata GetBasicMetadata(string filePath)
