@@ -1549,9 +1549,13 @@ namespace Span.ViewModels
                         .Replace("\\?", ".") + "$";
                     try
                     {
+                        // NonBacktracking: 선형 시간이 보장된다. 와일드카드가 여럿인 필터(*a*a*a*b)는
+                        // 백트래킹 엔진에서 다항 시간이라 긴 이름에 수백 ms가 걸린다. Regex 기본
+                        // 타임아웃(Issue #36, 1초)이 걸리면 아래 IsMatch는 try 밖이라 크래시가 된다.
+                        // 와일드카드(.*, .)는 이 모드와 의미가 같다(필터 11 x 이름 15 대조, 불일치 0).
                         return new System.Text.RegularExpressions.Regex(
                             pattern,
-                            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.NonBacktracking);
                     }
                     catch { return null; }
                 });

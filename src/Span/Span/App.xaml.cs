@@ -59,9 +59,10 @@ namespace Span
                     Helpers.DebugLogger.Log($"[App] post-mortem task faulted: {t.Exception.Flatten().Message}");
             }, TaskContinuationOptions.OnlyOnFaulted);
 
-            // ColorCode 등 라이브러리의 Regex catastrophic backtracking 방지 (Issue #36)
-            // 1초 이상 UI 스레드 블로킹 시 사용자 체감 "응답없음" → 타임아웃 1초로 제한
-            AppDomain.CurrentDomain.SetData("REGEX_DEFAULT_MATCH_TIMEOUT", TimeSpan.FromSeconds(1));
+            // Issue #36: Regex 기본 타임아웃은 Program.Main 첫 줄에서 건다. 여기서는 이미 늦다 —
+            // 위의 Sentry 초기화가 Regex를 먼저 만든다. 실제로 적용됐는지 로그로 남긴다.
+            // "00:00:01"이 아니면 누군가 Main보다 앞에서 Regex를 만든 것이다.
+            Helpers.DebugLogger.Log($"[App] Regex default match timeout = {new System.Text.RegularExpressions.Regex("x").MatchTimeout}");
 
             // UI thread unhandled exceptions
             this.UnhandledException += OnUnhandledException;
