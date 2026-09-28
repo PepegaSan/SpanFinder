@@ -18,10 +18,11 @@ class Program
         // (실측: 무한). App 생성자의 시작 로그가 실제 적용값을 기록한다.
         AppDomain.CurrentDomain.SetData("REGEX_DEFAULT_MATCH_TIMEOUT", TimeSpan.FromSeconds(1));
 
-        // 와일드카드 필터·검색(Helpers.WildcardRegex)이 쓰는 NonBacktracking 엔진의 오토마톤 크기
-        // 상한. 기본값에서는 '*' + 199자 패턴부터 생성이 실패한다 — 긴 파일명을 붙여 넣은 필터가
-        // 여기에 걸린다. 실패하면 WildcardRegex가 백트래킹 엔진으로 되돌리지만, 상한을 올려 두면
-        // 그럴 일 자체가 없다. 이 값은 Regex를 만들 때마다 읽으므로 위치 제약은 없다. int여야 한다.
+        // 와일드카드 필터·검색(Helpers.WildcardRegex)은 '*'가 여럿인 패턴(*a*b)에 NonBacktracking
+        // 엔진을 쓴다. 이 엔진은 오토마톤 크기에 상한이 있어 기본값에서는 199자 패턴부터 생성이
+        // 실패하고, 그러면 백트래킹 엔진으로 되돌아간다. 그 모양은 백트래킹에서 다항 시간이라
+        // '*a' x 100 + 'b' 같은 필터가 긴 이름에서 끝나지 않는다(실측 5초 이상). 상한을 올려
+        // 그 경로를 막는다. 이 값은 Regex를 만들 때마다 읽으므로 위치 제약은 없다. int여야 한다.
         AppDomain.CurrentDomain.SetData("REGEX_NONBACKTRACKING_MAX_AUTOMATA_SIZE", 100_000);
 
         WinRT.ComWrappersSupport.InitializeComWrappers();
