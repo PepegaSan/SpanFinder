@@ -55,18 +55,27 @@ namespace Span.Services
 
             // Issue #69: 흔한 코드/설정 확장자. ColorCode에 강조기가 없어 평문으로 뜨지만
             // 아무것도 안 뜨는 것보다 낫다. 여기 없는 것은 아래 내용 판별이 받아낸다.
+            //
+            // 이진 포맷과 이름이 겹치는 확장자는 이 목록에 넣지 않는다. 여기 있으면 내용
+            // 판별 없이 Text로 확정돼 이진 파일이 깨진 텍스트로 뜬다. 판별에 맡기면 텍스트
+            // 쪽은 그대로 보이고, 이진 쪽은 커밋 전처럼 메타데이터만 뜬다. 뺀 것들:
+            //   .mts  TypeScript 모듈  <->  AVCHD 캠코더 영상(00001.MTS)
+            //   .mod  Go 모듈          <->  트래커 음악, JVC 캠코더 영상
+            //   .pot  gettext 템플릿   <->  PowerPoint 97-2003 서식(OLE)
+            //   .plist XML plist       <->  bplist00 이진 plist
+            //   .lock 패키지 잠금       <->  앱별 이진 잠금 파일
             ".cc", ".cxx", ".hh", ".hxx", ".m", ".mm", ".ino", ".asm", ".pas", ".d",
             ".rb", ".lua", ".pl", ".pm", ".r", ".kt", ".kts", ".swift", ".dart",
             ".scala", ".groovy", ".ex", ".exs", ".erl", ".clj", ".hs", ".ml", ".nim",
             ".zig", ".jl", ".vbs", ".zsh", ".bash", ".fish", ".cmd",
             ".vue", ".svelte", ".scss", ".sass", ".less", ".styl", ".astro",
-            ".mjs", ".cjs", ".mts", ".cts",
+            ".mjs", ".cjs", ".cts",
             ".conf", ".properties", ".gradle", ".tf", ".tfvars", ".hcl", ".proto",
             ".graphql", ".gql", ".prisma", ".cmake", ".mk", ".nix", ".bzl", ".rc",
-            ".lock", ".sum", ".mod", ".npmrc", ".nvmrc", ".prettierrc", ".eslintrc",
+            ".sum", ".npmrc", ".nvmrc", ".prettierrc", ".eslintrc",
             ".babelrc", ".gitattributes", ".gitmodules",
-            ".rst", ".adoc", ".tex", ".bib", ".srt", ".vtt", ".po", ".pot",
-            ".diff", ".patch", ".plist", ".reg", ".inf"
+            ".rst", ".adoc", ".tex", ".bib", ".srt", ".vtt", ".po",
+            ".diff", ".patch", ".reg", ".inf"
         };
 
         /// <summary>
@@ -156,19 +165,21 @@ namespace Span.Services
         /// 그 외에는 제어문자 비율로 가른다. UTF-8 멀티바이트(0x80~)는 세지 않으므로
         /// 한국어/중국어/일본어 텍스트도 통과한다.
         ///
-        /// 읽지 않는 경우 — 둘 다 false를 돌려 기존 동작(Generic/HexBinary)을 유지한다:
+        /// 읽지 않는 경우 — 모두 false를 돌려 기존 동작(Generic/HexBinary)을 유지한다:
+        ///   압축 내부·FTP/SFTP 경로 — 실제 로컬 파일이 아니라 열어 봐야 예외만 난다.
+        ///   네트워크 경로(UNC·매핑 드라이브)와 광학 드라이브 — 잠든 서버에서 FileStream
+        ///     열기가 42초 블록되는 것을 실측했다. 알려진 텍스트 확장자는 어차피 미리보기
+        ///     로더가 읽지만, 이진일 수도 있는 파일까지 투기적으로 읽어 UI를 세우지는 않는다.
+        ///     (Issue #67의 UI 스레드 블로킹이 해소되면 이 가드는 걷어낼 수 있다.)
         ///   클라우드 전용 파일 — 여기서 열면 하이드레이션(다운로드)이 걸린다. 호출자의
         ///     클라우드 가드는 GetPreviewType "다음"에 있어서 이 안에서 막아야 한다.
-        ///   UNC 경로 — 잠든 서버에서 FileStream 열기가 42초 블록되는 것을 실측했다.
-        ///     알려진 텍스트 확장자는 어차피 미리보기 로더가 읽지만, 이진일 수도 있는
-        ///     파일까지 투기적으로 읽어 UI를 세우지는 않는다. (Issue #67의 UI 스레드
-        ///     블로킹이 해소되면 이 가드는 걷어낼 수 있다.)
         /// </summary>
         private static bool LooksLikeText(string filePath)
         {
             try
             {
-                if (filePath.StartsWith(@"\\", StringComparison.Ordinal)) return false;
+                if (Helpers.ArchivePathHelper.IsArchivePath(filePath) || FileSystemRouter.IsRemotePath(filePath)) return false;
+                if (IsNetworkOrOpticalPath(filePath)) return false;
                 if (CloudSyncService.IsCloudOnlyFile(filePath)) return false;
 
                 using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read,
@@ -197,6 +208,25 @@ namespace Span.Services
             {
                 return false;   // 잠김/권한 없음 등 — 기존 동작 유지
             }
+        }
+
+        /// <summary>
+        /// 열기가 수십 초 블록될 수 있는 경로인지. UNC(\\server\share, \\?\ 포함), 매핑된
+        /// 네트워크 드라이브(Z:\ -> \\server\share), 광학 드라이브. 이동식(USB)은 로컬이라 뺀다.
+        ///
+        /// GetDriveType은 네트워크를 타지 않는다 — 실측 1000회 평균 2~17μs, 서버가 꺼진
+        /// 매핑 드라이브에서도 17μs(열기는 42초 블록되는 바로 그 드라이브). 그래서 캐시하지 않는다. 드라이브 문자별로 캐시하면 세션 중 매핑이 바뀔 때
+        /// (USB였던 Z:가 네트워크 드라이브로) 틀린 값이 남는다.
+        /// </summary>
+        private static bool IsNetworkOrOpticalPath(string path)
+        {
+            if (path.StartsWith(@"\\", StringComparison.Ordinal)) return true;
+            if (path.Length >= 2 && path[1] == ':' && char.IsAsciiLetter(path[0]))
+            {
+                var type = new DriveInfo(path[0].ToString()).DriveType;
+                return type is DriveType.Network or DriveType.CDRom;
+            }
+            return false;
         }
 
         public FilePreviewMetadata GetBasicMetadata(string filePath)
