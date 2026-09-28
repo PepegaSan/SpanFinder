@@ -118,6 +118,9 @@ namespace Span.Services
 
         private const long MaxPreviewFileSize = 100 * 1024 * 1024; // 100MB
         private const int MaxTextChars = 30000;
+        // Issue #69: 텍스트 인코딩 판별에 읽을 바이트. MaxTextChars를 CP949(2바이트/자)로 채우는
+        // 크기 이상이라 화면에 뜰 부분을 대부분 덮는다.
+        private const int EncodingProbeBytes = 64 * 1024;
         private const int HexPreviewBytes = 512; // Hex viewer: first 512 bytes
 
         // Issue #69: 내용 판별에 읽을 바이트 수. 텍스트/이진 구분에는 이 정도면 충분하고,
@@ -355,10 +358,22 @@ namespace Span.Services
         {
             try
             {
-                var fi = new FileInfo(filePath);
-                long readSize = Math.Min(fi.Length, MaxTextChars * 2); // approximate
+                // Issue #69: 다른 프로세스가 쓰는 중인 파일(활성 로그, nohup.out 등)도 읽는다.
+                // StreamReader(path)는 FileShare.Read로 열어 쓰는 중인 파일에서 공유 위반이 났고,
+                // 판별기(LooksLikeText)는 ReadWrite로 열어 Text로 판정한 뒤 빈 화면이 됐다.
+                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read,
+                                              FileShare.ReadWrite | FileShare.Delete);
 
-                using var reader = new StreamReader(filePath, detectEncodingFromByteOrderMarks: true);
+                // Issue #69: BOM 없는 레거시 인코딩(CP949·GBK·Shift-JIS)을 UTF-8로 읽으면 글자가
+                // 깨진다. 앞부분으로 인코딩을 정하고 처음으로 되감는다. BOM이 있으면 StreamReader가
+                // 그쪽을 따른다(detectEncodingFromByteOrderMarks).
+                var head = new byte[(int)Math.Min(fs.Length, EncodingProbeBytes)];
+                int headRead = await fs.ReadAtLeastAsync(head, head.Length, throwOnEndOfStream: false, ct);
+                fs.Position = 0;
+                var encoding = Helpers.TextEncodingDetector.DetectNoBom(
+                    head.AsSpan(0, headRead), isWholeFile: headRead >= fs.Length);
+
+                using var reader = new StreamReader(fs, encoding, detectEncodingFromByteOrderMarks: true);
                 var buffer = new char[MaxTextChars];
                 int charsRead = await reader.ReadAsync(buffer, 0, MaxTextChars);
 
@@ -490,7 +505,9 @@ namespace Span.Services
                 int bytesToRead = (int)Math.Min(fi.Length, HexPreviewBytes);
                 var buffer = new byte[bytesToRead];
 
-                using var stream = File.OpenRead(filePath);
+                // Issue #69: 쓰는 중인 파일도 연다 — 텍스트 로더·판별기와 같은 공유 모드.
+                using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read,
+                                                  FileShare.ReadWrite | FileShare.Delete);
                 int read = await stream.ReadAsync(buffer.AsMemory(0, bytesToRead), ct);
 
                 ct.ThrowIfCancellationRequested();
