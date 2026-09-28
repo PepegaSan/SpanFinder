@@ -58,7 +58,9 @@ namespace Span.Services
             //
             // 이진 포맷과 이름이 겹치는 확장자는 이 목록에 넣지 않는다. 여기 있으면 내용
             // 판별 없이 Text로 확정돼 이진 파일이 깨진 텍스트로 뜬다. 판별에 맡기면 텍스트
-            // 쪽은 그대로 보이고, 이진 쪽은 커밋 전처럼 메타데이터만 뜬다. 뺀 것들:
+            // 쪽은 그대로 보이고, 이진 쪽은 커밋 전처럼 메타데이터만 뜬다. 단 판별은 로컬
+            // 파일에서만 한다 — 네트워크·광학·클라우드 전용 파일은 텍스트 쪽도 메타데이터만
+            // 뜬다(LooksLikeText 참고). 뺀 것들:
             //   .mts  TypeScript 모듈  <->  AVCHD 캠코더 영상(00001.MTS)
             //   .mod  Go 모듈          <->  트래커 음악, JVC 캠코더 영상
             //   .pot  gettext 템플릿   <->  PowerPoint 97-2003 서식(OLE)
@@ -176,6 +178,7 @@ namespace Span.Services
         ///     (Issue #67의 UI 스레드 블로킹이 해소되면 이 가드는 걷어낼 수 있다.)
         ///   클라우드 전용 파일 — 여기서 열면 하이드레이션(다운로드)이 걸린다. 호출자의
         ///     클라우드 가드는 GetPreviewType "다음"에 있어서 이 안에서 막아야 한다.
+        ///   네트워크를 가리키는 파일 심볼릭 링크 — 링크는 로컬이지만 열면 대상으로 따라간다.
         /// </summary>
         private static bool LooksLikeText(string filePath)
         {
@@ -184,6 +187,7 @@ namespace Span.Services
                 if (Helpers.ArchivePathHelper.IsArchivePath(filePath) || FileSystemRouter.IsRemotePath(filePath)) return false;
                 if (IsNetworkOrOpticalPath(filePath)) return false;
                 if (CloudSyncService.IsCloudOnlyFile(filePath)) return false;
+                if (LinksToNetworkOrOptical(filePath)) return false;
 
                 using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read,
                                               FileShare.ReadWrite | FileShare.Delete);
@@ -218,8 +222,9 @@ namespace Span.Services
         /// 네트워크 드라이브(Z:\ -> \\server\share), 광학 드라이브. 이동식(USB)은 로컬이라 뺀다.
         ///
         /// GetDriveType은 네트워크를 타지 않는다 — 실측 1000회 평균 2~17μs, 서버가 꺼진
-        /// 매핑 드라이브에서도 17μs(열기는 42초 블록되는 바로 그 드라이브). 그래서 캐시하지 않는다. 드라이브 문자별로 캐시하면 세션 중 매핑이 바뀔 때
-        /// (USB였던 Z:가 네트워크 드라이브로) 틀린 값이 남는다.
+        /// 매핑 드라이브에서도 17μs(열기는 42초 블록되는 바로 그 드라이브). 그래서 캐시하지
+        /// 않는다. 드라이브 문자별로 캐시하면 세션 중 매핑이 바뀔 때(USB였던 Z:가 네트워크
+        /// 드라이브로) 틀린 값이 남는다.
         /// </summary>
         private static bool IsNetworkOrOpticalPath(string path)
         {
@@ -230,6 +235,31 @@ namespace Span.Services
                 return type is DriveType.Network or DriveType.CDRom;
             }
             return false;
+        }
+
+        /// <summary>
+        /// 파일 심볼릭 링크가 네트워크·광학 경로를 가리키는지. 링크 자체는 로컬(C:\...)이라
+        /// IsNetworkOrOpticalPath를 통과하지만, 열면 대상으로 따라가 같은 블록이 난다(실측:
+        /// 없는 서버를 가리키는 링크를 열면 약 20초). 링크 대상은 로컬 재분석 지점에서 읽으므로
+        /// 네트워크를 타지 않는다(같은 링크에서 3ms 이내). 대상이 로컬이면서 또 링크면 이어서
+        /// 따라간다. OneDrive 자리표시자·앱 실행 별칭 같은 다른 재분석 지점은 대상이 null이라
+        /// 걸리지 않는다(읽어도 하이드레이션 없음).
+        /// 폴더 링크 아래의 파일(C:\mnt\a.dat, mnt → \\server\share)은 잡지 못한다 — 그 폴더는
+        /// 목록을 읽을 때 이미 네트워크를 탄다.
+        /// </summary>
+        private static bool LinksToNetworkOrOptical(string path)
+        {
+            const int maxHops = 8;
+            FileSystemInfo info = new FileInfo(path);
+            for (int hop = 0; hop < maxHops; hop++)
+            {
+                if ((info.Attributes & System.IO.FileAttributes.ReparsePoint) == 0) return false;
+                var target = info.ResolveLinkTarget(returnFinalTarget: false);
+                if (target is null) return false;   // 심볼릭 링크가 아닌 재분석 지점
+                if (IsNetworkOrOpticalPath(target.FullName)) return true;
+                info = target;
+            }
+            return true;   // 사슬이 너무 길다 — 따라가지 않는다
         }
 
         public FilePreviewMetadata GetBasicMetadata(string filePath)
