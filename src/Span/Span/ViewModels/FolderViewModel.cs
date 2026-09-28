@@ -1530,10 +1530,16 @@ namespace Span.ViewModels
         /// - 기본 → 대소문자 무시 substring 매칭
         /// </summary>
         /// <summary>
-        /// Compiled Regex cache for wildcard filter patterns.
+        /// Regex cache for wildcard filter patterns.
         /// Avoids creating 14K+ Regex objects per filter application.
         /// </summary>
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.RegularExpressions.Regex?> _regexCache = new();
+
+        /// <summary>
+        /// 캐시 상한. 필터 바는 글자를 칠 때마다 새 키가 생기고 NonBacktracking 인스턴스는 개당
+        /// 약 200KB라, 상한 없이 두면 세션 내내 쌓인다. 넘으면 비운다 — 다시 만드는 비용은 작다.
+        /// </summary>
+        private const int RegexCacheLimit = 32;
 
         internal static bool MatchesFilter(string name, string filter)
         {
@@ -1542,23 +1548,16 @@ namespace Span.ViewModels
 
             if (filter.Contains('*') || filter.Contains('?'))
             {
-                var regex = _regexCache.GetOrAdd(filter, f =>
+                // 적중 경로는 TryGetValue 하나다. Count는 모든 잠금을 잡으므로 항목마다 부르지 않는다.
+                if (!_regexCache.TryGetValue(filter, out var regex))
                 {
-                    var pattern = "^" + System.Text.RegularExpressions.Regex.Escape(f)
-                        .Replace("\\*", ".*")
-                        .Replace("\\?", ".") + "$";
-                    try
+                    if (_regexCache.Count >= RegexCacheLimit) _regexCache.Clear();
+                    regex = _regexCache.GetOrAdd(filter, f =>
                     {
-                        // NonBacktracking: 선형 시간이 보장된다. 와일드카드가 여럿인 필터(*a*a*a*b)는
-                        // 백트래킹 엔진에서 다항 시간이라 긴 이름에 수백 ms가 걸린다. Regex 기본
-                        // 타임아웃(Issue #36, 1초)이 걸리면 아래 IsMatch는 try 밖이라 크래시가 된다.
-                        // 와일드카드(.*, .)는 이 모드와 의미가 같다(필터 11 x 이름 15 대조, 불일치 0).
-                        return new System.Text.RegularExpressions.Regex(
-                            pattern,
-                            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.NonBacktracking);
-                    }
-                    catch { return null; }
-                });
+                        try { return Helpers.WildcardRegex.Create(f); }
+                        catch { return null; }
+                    });
+                }
 
                 return regex?.IsMatch(name) ?? false;
             }

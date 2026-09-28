@@ -175,7 +175,7 @@ namespace Span.Helpers
                 // 와일드카드 감지: * 또는 ? 포함 시 Regex로 변환 (전체 이름 매칭)
                 if (nameFilter.Contains('*') || nameFilter.Contains('?'))
                 {
-                    query.NameRegex = WildcardToRegex(nameFilter);
+                    query.NameRegex = WildcardRegex.Create(nameFilter);
                 }
             }
 
@@ -423,22 +423,6 @@ namespace Span.Helpers
                 "=" => CompareOp.Equals,
                 _ => CompareOp.GreaterOrEqual // default for no operator (e.g., size:1MB means >= 1MB)
             };
-        }
-
-        /// <summary>
-        /// 와일드카드 패턴을 정규식으로 변환.
-        /// * → .* (0개 이상 문자), ? → . (정확히 1개 문자)
-        /// 전체 이름 매칭을 위해 ^...$ 앵커 적용.
-        /// </summary>
-        private static Regex WildcardToRegex(string pattern)
-        {
-            // Regex 특수문자 이스케이프 후 와일드카드만 복원
-            var escaped = Regex.Escape(pattern);
-            escaped = escaped.Replace("\\*", ".*").Replace("\\?", ".");
-            // NonBacktracking: 선형 시간 보장. FolderViewModel.MatchesFilter와 같은 이유 —
-            // 와일드카드가 여럿이면 백트래킹 엔진에서 다항 시간이고, Regex 기본 타임아웃
-            // (Issue #36)이 걸리면 재귀 검색 중 SearchFilter의 IsMatch가 예외를 던진다.
-            return new Regex("^" + escaped + "$", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
         }
     }
 }

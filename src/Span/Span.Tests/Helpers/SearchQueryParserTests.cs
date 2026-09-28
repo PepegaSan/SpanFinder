@@ -909,6 +909,31 @@ public class SearchQueryParserTests
         Assert.AreEqual(CompareOp.GreaterOrEqual, query.DateFilter!.Value.Op);
     }
 
+    [TestMethod]
+    public void Parse_Wildcard_UsesNonBacktracking()
+    {
+        // 와일드카드가 여럿인 패턴도 선형 시간이어야 한다 (Issue #36 타임아웃 → IsMatch 예외 방지)
+        var query = SearchQueryParser.Parse("*a*a*a*b");
+
+        Assert.IsNotNull(query.NameRegex);
+        Assert.IsTrue(query.NameRegex!.Options.HasFlag(System.Text.RegularExpressions.RegexOptions.NonBacktracking));
+        Assert.IsFalse(query.NameRegex!.IsMatch(new string('a', 200)));
+    }
+
+    [TestMethod]
+    public void Parse_LongWildcard_MatchesWithoutThrowing()
+    {
+        // NonBacktracking은 기본 오토마톤 상한에서 '*' + 199자부터 생성이 실패한다. 테스트는
+        // Program.Main의 상한 상향을 거치지 않으므로 이 경로가 백트래킹 폴백을 탄다.
+        var tail = new string('a', 250);
+        var query = SearchQueryParser.Parse("*" + tail);
+
+        Assert.IsNotNull(query.NameRegex);
+        Assert.IsTrue(query.NameRegex!.IsMatch("x" + tail));
+        Assert.IsTrue(query.NameRegex!.IsMatch("X" + tail.ToUpperInvariant()));
+        Assert.IsFalse(query.NameRegex!.IsMatch("x" + tail[1..]));
+    }
+
     // -------------------------------------------------------
     // 13. Multi-extension filter (ext:jpg;png;gif)
     // -------------------------------------------------------
