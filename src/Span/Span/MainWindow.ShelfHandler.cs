@@ -635,7 +635,7 @@ namespace Span
             e.Data.Properties["SourcePaths"] = paths;
             e.Data.Properties["SourcePane"] = "Shelf";
             e.Data.RequestedOperation = DataPackageOperation.Copy | DataPackageOperation.Move;
-            Helpers.OutboundFileDragHelper.Populate(e.Data, paths, skipArchivePaths: true);
+            Helpers.OutboundFileDragHelper.Populate(e.Data, paths, skipArchivePaths: false);
 
             BeginOutboundFileDrag();
         }

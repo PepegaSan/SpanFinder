@@ -46,7 +46,47 @@ namespace Span.Services
             ".txt", ".cs", ".json", ".xml", ".log", ".ini", ".cfg", ".yaml", ".yml",
             ".toml", ".html", ".htm", ".css", ".js", ".ts", ".py", ".java", ".cpp", ".c",
             ".h", ".go", ".rs", ".sh", ".bat", ".ps1", ".sql", ".gitignore",
-            ".editorconfig", ".env", ".dockerfile", ".xaml", ".csproj", ".sln"
+            ".editorconfig", ".env", ".dockerfile", ".xaml", ".csproj", ".sln",
+
+            // Issue #69: 아래 9개는 _extToLanguage(PreviewPanelView)에 구문 강조가 이미
+            // 매핑돼 있었는데 이 목록에 없어 미리보기가 열리지 않았다 — 강조 코드가
+            // 도달 불가 상태였다. 신고자가 걸린 .php가 정확히 이 경우다.
+            ".php", ".jsx", ".tsx", ".hpp", ".psm1", ".vb", ".fs", ".fsx", ".svg",
+
+            // Issue #69: 흔한 코드/설정 확장자. ColorCode에 강조기가 없어 평문으로 뜨지만
+            // 아무것도 안 뜨는 것보다 낫다. 여기 없는 것은 아래 내용 판별이 받아낸다.
+            //
+            // 이진 포맷과 이름이 겹치는 확장자는 이 목록에 넣지 않는다. 여기 있으면 내용
+            // 판별 없이 Text로 확정돼 이진 파일이 깨진 텍스트로 뜬다. 판별에 맡기면 텍스트
+            // 쪽은 그대로 보이고, 이진 쪽은 커밋 전처럼 메타데이터만 뜬다. 단 판별은 로컬
+            // 파일에서만 한다 — 네트워크·광학·클라우드 전용 파일과 심볼릭 링크는 텍스트 쪽도
+            // 메타데이터만 뜬다(LooksLikeText 참고). 뺀 것들:
+            //   .mts  TypeScript 모듈  <->  AVCHD 캠코더 영상(00001.MTS)
+            //   .mod  Go 모듈          <->  트래커 음악, JVC 캠코더 영상
+            //   .pot  gettext 템플릿   <->  PowerPoint 97-2003 서식(OLE)
+            //   .plist XML plist       <->  bplist00 이진 plist
+            //   .lock 패키지 잠금       <->  앱별 이진 잠금 파일
+            ".cc", ".cxx", ".hh", ".hxx", ".m", ".mm", ".ino", ".asm", ".pas", ".d",
+            ".rb", ".lua", ".pl", ".pm", ".r", ".kt", ".kts", ".swift", ".dart",
+            ".scala", ".groovy", ".ex", ".exs", ".erl", ".clj", ".hs", ".ml", ".nim",
+            ".zig", ".jl", ".vbs", ".zsh", ".bash", ".fish", ".cmd",
+            ".vue", ".svelte", ".scss", ".sass", ".less", ".styl", ".astro",
+            ".mjs", ".cjs", ".cts",
+            ".conf", ".properties", ".gradle", ".tf", ".tfvars", ".hcl", ".proto",
+            ".graphql", ".gql", ".prisma", ".cmake", ".mk", ".nix", ".bzl", ".rc",
+            ".sum", ".npmrc", ".nvmrc", ".prettierrc", ".eslintrc",
+            ".babelrc", ".gitattributes", ".gitmodules",
+            ".rst", ".adoc", ".tex", ".bib", ".srt", ".vtt", ".po",
+            ".diff", ".patch", ".reg", ".inf"
+        };
+
+        /// <summary>
+        /// Issue #69: 확장자만으로는 텍스트인지 이진인지 단정할 수 없는 것들.
+        /// 내용을 들여다본 뒤 텍스트가 아니면 기존대로 헥스 뷰어로 보낸다.
+        /// </summary>
+        private static readonly HashSet<string> AmbiguousExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".dat", ".data", ".out", ".sav", ".bak", ".tmp", ".temp", ".cache", ".db"
         };
 
         private static readonly HashSet<string> PdfExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -73,13 +113,23 @@ namespace Span.Services
 
         private static readonly HashSet<string> BinaryExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
-            ".dll", ".exe", ".sys", ".bin", ".dat", ".so", ".dylib", ".o", ".obj",
+            // .dat은 AmbiguousExtensions로 옮겼다 (Issue #69) — 텍스트인 .dat이 흔하다.
+            ".dll", ".exe", ".sys", ".bin", ".so", ".dylib", ".o", ".obj",
             ".class", ".pyc", ".pdb", ".lib", ".a", ".wasm"
         };
 
         private const long MaxPreviewFileSize = 100 * 1024 * 1024; // 100MB
         private const int MaxTextChars = 30000;
+        // Issue #69: 텍스트 인코딩 판별에 읽을 바이트. MaxTextChars를 CP949(2바이트/자)로 채우는
+        // 크기 이상이라 화면에 뜰 부분을 대부분 덮는다.
+        private const int EncodingProbeBytes = 64 * 1024;
         private const int HexPreviewBytes = 512; // Hex viewer: first 512 bytes
+
+        // Issue #69: 내용 판별에 읽을 바이트 수. 텍스트/이진 구분에는 이 정도면 충분하고,
+        // 한 번에 읽히는 크기라 디스크 왕복이 1회다.
+        private const int SniffBytes = 4096;
+        // 제어문자가 이 비율(%)을 넘으면 이진으로 본다.
+        private const int SniffControlCharPercent = 5;
 
         public PreviewType GetPreviewType(string? filePath, bool isFolder)
         {
@@ -87,7 +137,10 @@ namespace Span.Services
             if (string.IsNullOrEmpty(filePath)) return PreviewType.None;
 
             var ext = Path.GetExtension(filePath);
-            if (string.IsNullOrEmpty(ext)) return PreviewType.Generic;
+
+            // 확장자 없는 파일(Makefile, LICENSE, README 등)도 내용으로 판별한다.
+            if (string.IsNullOrEmpty(ext))
+                return LooksLikeText(filePath) ? PreviewType.Text : PreviewType.Generic;
 
             if (ImageExtensions.Contains(ext)) return PreviewType.Image;
             if (MarkdownExtensions.Contains(ext)) return PreviewType.Markdown;
@@ -97,9 +150,108 @@ namespace Span.Services
             if (MediaExtensions.Contains(ext)) return PreviewType.Media;
             if (FontExtensions.Contains(ext)) return PreviewType.Font;
             if (ArchiveExtensions.Contains(ext)) return PreviewType.Archive;
+
+            // Issue #69: 모호한 확장자는 내용을 보고 정한다. 아니면 기존대로 헥스.
+            if (AmbiguousExtensions.Contains(ext))
+                return LooksLikeText(filePath) ? PreviewType.Text : PreviewType.HexBinary;
+
             if (BinaryExtensions.Contains(ext)) return PreviewType.HexBinary;
 
-            return PreviewType.Generic;
+            // Issue #69: 목록에 없는 확장자 — 텍스트면 보여준다. 목록을 무한히 늘리는 대신
+            // 내용으로 받아낸다. 아니면 기존대로 메타데이터만.
+            return LooksLikeText(filePath) ? PreviewType.Text : PreviewType.Generic;
+        }
+
+        /// <summary>
+        /// Issue #69: 파일 앞부분을 읽어 텍스트인지 판정한다. 확장자로 단정할 수 없는
+        /// 파일(.dat, 확장자 없음, 목록에 없는 코드 파일)에만 쓴다.
+        ///
+        /// 판정: NUL 바이트가 하나라도 있으면 이진. BOM이 있으면 즉시 텍스트.
+        /// 그 외에는 제어문자 비율로 가른다. UTF-8 멀티바이트(0x80~)는 세지 않으므로
+        /// 한국어/중국어/일본어 텍스트도 통과한다.
+        ///
+        /// 읽지 않는 경우 — 모두 false를 돌려 기존 동작(Generic/HexBinary)을 유지한다:
+        ///   압축 내부·FTP/SFTP 경로 — 실제 로컬 파일이 아니라 열어 봐야 예외만 난다.
+        ///   네트워크 경로(UNC·매핑 드라이브)와 광학 드라이브 — 잠든 서버에서 FileStream
+        ///     열기가 42초 블록되는 것을 실측했다. 알려진 텍스트 확장자는 어차피 미리보기
+        ///     로더가 읽지만, 이진일 수도 있는 파일까지 투기적으로 읽어 UI를 세우지는 않는다.
+        ///     (Issue #67의 UI 스레드 블로킹이 해소되면 이 가드는 걷어낼 수 있다.)
+        ///   클라우드 전용 파일 — 여기서 열면 하이드레이션(다운로드)이 걸린다. 호출자의
+        ///     클라우드 가드는 GetPreviewType "다음"에 있어서 이 안에서 막아야 한다.
+        ///   파일 심볼릭 링크 — 링크 자체는 로컬이라 위 가드를 통과하지만, 열면 대상으로
+        ///     따라간다. 대상이 네트워크(직접이든, 대상 경로 중간의 폴더 링크를 거치든)거나
+        ///     클라우드 전용이면 같은 블록·하이드레이션이 난다. 대상 경로의 구성요소를 하나씩
+        ///     풀지 않고는 안전을 가릴 수 없어서, 링크는 판별하지 않는다(2.0.6과 같은 동작).
+        /// </summary>
+        private static bool LooksLikeText(string filePath)
+        {
+            try
+            {
+                if (Helpers.ArchivePathHelper.IsArchivePath(filePath) || FileSystemRouter.IsRemotePath(filePath)) return false;
+                if (IsNetworkOrOpticalPath(filePath)) return false;
+                if (CloudSyncService.IsCloudOnlyFile(filePath)) return false;
+                if (IsSymbolicLink(filePath)) return false;
+
+                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read,
+                                              FileShare.ReadWrite | FileShare.Delete);
+                if (fs.Length == 0) return true;   // 빈 파일은 헥스 뷰어보다 빈 텍스트가 낫다
+
+                Span<byte> buf = stackalloc byte[SniffBytes];
+                int read = fs.Read(buf);
+                if (read <= 0) return true;
+                buf = buf[..read];
+
+                // BOM이면 확정
+                if (read >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF) return true;
+                if (read >= 2 && ((buf[0] == 0xFF && buf[1] == 0xFE) || (buf[0] == 0xFE && buf[1] == 0xFF))) return true;
+
+                int control = 0;
+                foreach (byte b in buf)
+                {
+                    if (b == 0) return false;                             // NUL 하나면 이진 확정
+                    if (b < 0x09 || (b > 0x0D && b < 0x20) || b == 0x7F)  // 탭/개행 제외한 제어문자
+                        control++;
+                }
+                return control * 100 / read <= SniffControlCharPercent;
+            }
+            catch
+            {
+                return false;   // 잠김/권한 없음 등 — 기존 동작 유지
+            }
+        }
+
+        /// <summary>
+        /// 열기가 수십 초 블록될 수 있는 경로인지. UNC(\\server\share, \\?\ 포함), 매핑된
+        /// 네트워크 드라이브(Z:\ -> \\server\share), 광학 드라이브. 이동식(USB)은 로컬이라 뺀다.
+        ///
+        /// GetDriveType은 네트워크를 타지 않는다 — 실측 1000회 평균 2~17μs, 서버가 꺼진
+        /// 매핑 드라이브에서도 17μs(열기는 42초 블록되는 바로 그 드라이브). 그래서 캐시하지
+        /// 않는다. 드라이브 문자별로 캐시하면 세션 중 매핑이 바뀔 때(USB였던 Z:가 네트워크
+        /// 드라이브로) 틀린 값이 남는다.
+        /// </summary>
+        private static bool IsNetworkOrOpticalPath(string path)
+        {
+            if (path.StartsWith(@"\\", StringComparison.Ordinal)) return true;
+            if (path.Length >= 2 && path[1] == ':' && char.IsAsciiLetter(path[0]))
+            {
+                var type = new DriveInfo(path[0].ToString()).DriveType;
+                return type is DriveType.Network or DriveType.CDRom;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 파일 심볼릭 링크인지. 링크 자체의 속성과 재분석 데이터만 읽으므로 대상에 접근하지
+        /// 않는다(실측: 없는 서버를 가리키는 링크에서 1ms 미만, 가드 없이 열면 약 20초 블록).
+        /// OneDrive 자리표시자·앱 실행 별칭 같은 다른 재분석 지점은 LinkTarget이 null이라
+        /// 해당하지 않는다(읽어도 하이드레이션 없음).
+        /// 폴더 링크 아래의 파일(C:\mnt\a.dat, mnt → \\server\share)은 잡지 못한다 — 그 폴더는
+        /// 목록을 읽을 때 이미 네트워크를 탄다.
+        /// </summary>
+        private static bool IsSymbolicLink(string path)
+        {
+            var info = new FileInfo(path);
+            return (info.Attributes & System.IO.FileAttributes.ReparsePoint) != 0 && info.LinkTarget is not null;
         }
 
         public FilePreviewMetadata GetBasicMetadata(string filePath)
@@ -131,8 +283,8 @@ namespace Span.Services
                 var di = new DirectoryInfo(folderPath);
                 foreach (var entry in di.EnumerateFileSystemInfos())
                 {
-                    if ((entry.Attributes & System.IO.FileAttributes.Hidden) != 0) continue;
-                    if ((entry.Attributes & System.IO.FileAttributes.System) != 0) continue;
+                    // 이 경로는 ShowHiddenFiles 설정을 반영하지 않는다 — 본 목록과 불일치(별건).
+                    if (Helpers.FileVisibility.IsHidden(entry.Attributes)) continue;
                     count++;
                 }
                 return count;
@@ -228,10 +380,22 @@ namespace Span.Services
         {
             try
             {
-                var fi = new FileInfo(filePath);
-                long readSize = Math.Min(fi.Length, MaxTextChars * 2); // approximate
+                // Issue #69: 다른 프로세스가 쓰는 중인 파일(활성 로그, nohup.out 등)도 읽는다.
+                // StreamReader(path)는 FileShare.Read로 열어 쓰는 중인 파일에서 공유 위반이 났고,
+                // 판별기(LooksLikeText)는 ReadWrite로 열어 Text로 판정한 뒤 빈 화면이 됐다.
+                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read,
+                                              FileShare.ReadWrite | FileShare.Delete);
 
-                using var reader = new StreamReader(filePath, detectEncodingFromByteOrderMarks: true);
+                // Issue #69: BOM 없는 레거시 인코딩(CP949·GBK·Shift-JIS)을 UTF-8로 읽으면 글자가
+                // 깨진다. 앞부분으로 인코딩을 정하고 처음으로 되감는다. BOM이 있으면 StreamReader가
+                // 그쪽을 따른다(detectEncodingFromByteOrderMarks).
+                var head = new byte[(int)Math.Min(fs.Length, EncodingProbeBytes)];
+                int headRead = await fs.ReadAtLeastAsync(head, head.Length, throwOnEndOfStream: false, ct);
+                fs.Position = 0;
+                var encoding = Helpers.TextEncodingDetector.DetectNoBom(
+                    head.AsSpan(0, headRead), isWholeFile: headRead >= fs.Length);
+
+                using var reader = new StreamReader(fs, encoding, detectEncodingFromByteOrderMarks: true);
                 var buffer = new char[MaxTextChars];
                 int charsRead = await reader.ReadAsync(buffer, 0, MaxTextChars);
 
@@ -261,10 +425,22 @@ namespace Span.Services
                 var fi = new FileInfo(filePath);
                 if (fi.Length > MaxPreviewFileSize) return null;
 
-                var file = await StorageFile.GetFileFromPathAsync(filePath);
+                // Issue #60: PdfDocument.LoadFromFileAsync(StorageFile)는 파일 핸들을 문서 수명
+                // 동안 유지하는데 PdfDocument에는 Close API가 없어 GC 시점까지(비결정적) 락이
+                // 지속됨 → 미리보기 중인 PDF를 삭제/이동할 수 없었다. 파일을 읽고 즉시 닫은 뒤
+                // 메모리 스트림으로 로드하여 파일 핸들을 결정적으로 해제한다.
+                // (FileShare.Delete 포함 — 읽는 도중의 삭제도 허용)
+                byte[] pdfBytes;
+                using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read,
+                                               FileShare.ReadWrite | FileShare.Delete))
+                {
+                    pdfBytes = new byte[fs.Length];
+                    await fs.ReadExactlyAsync(pdfBytes, ct);
+                }
                 ct.ThrowIfCancellationRequested();
 
-                var pdfDoc = await PdfDocument.LoadFromFileAsync(file);
+                var pdfDoc = await PdfDocument.LoadFromStreamAsync(
+                    new MemoryStream(pdfBytes).AsRandomAccessStream());
                 if (pdfDoc.PageCount == 0) return null;
 
                 using var page = pdfDoc.GetPage(0);
@@ -351,7 +527,9 @@ namespace Span.Services
                 int bytesToRead = (int)Math.Min(fi.Length, HexPreviewBytes);
                 var buffer = new byte[bytesToRead];
 
-                using var stream = File.OpenRead(filePath);
+                // Issue #69: 쓰는 중인 파일도 연다 — 텍스트 로더·판별기와 같은 공유 모드.
+                using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read,
+                                                  FileShare.ReadWrite | FileShare.Delete);
                 int read = await stream.ReadAsync(buffer.AsMemory(0, bytesToRead), ct);
 
                 ct.ThrowIfCancellationRequested();

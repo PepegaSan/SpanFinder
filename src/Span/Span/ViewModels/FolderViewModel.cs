@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -291,7 +291,15 @@ namespace Span.ViewModels
         }
 
         public override string IconGlyph => Services.IconService.Current?.FolderIcon ?? "\uED53";
-        public override Microsoft.UI.Xaml.Media.Brush IconBrush => Services.IconService.Current?.FolderBrush;
+        /// <summary>
+        /// Issue #58: 컬러 태그가 지정된 폴더는 폴더 아이콘 자체를 태그 색으로 칠한다
+        /// (macOS Finder의 컬러 폴더와 동일한 표현). 작은 점보다 색 인지가 쉽고
+        /// 아이콘을 가리지 않으며 레이아웃에도 영향이 없다.
+        /// 커스텀 아이콘(이미지)이 있는 폴더는 글리프가 표시되지 않으므로 색칠 대신
+        /// 좌상단 점(ShowTagDot)으로 표시한다.
+        /// </summary>
+        public override Microsoft.UI.Xaml.Media.Brush IconBrush
+            => HasTag && !HasCustomIcon ? TagBrush : Services.IconService.Current?.FolderBrush;
 
         private bool _customIconRequested;
 
@@ -419,6 +427,12 @@ namespace Span.ViewModels
         public void RequestFolderSizeCalculation()
         {
             if (_calculatedSize != null) return; // 이미 계산됨
+
+            // Issue #67: 서버 루트를 Details 뷰로 열면 공유마다 SMB 전체 재귀 워크가
+            // 동시에 시작된다. 탐색기도 공유 크기는 계산하지 않는다.
+            if (Helpers.UncPathHelper.IsVirtualRoot(System.IO.Path.GetDirectoryName(Path) ?? string.Empty)
+                || Helpers.UncPathHelper.IsVirtualRoot(Path))
+                return;
 
             var svc = App.Current.Services.GetService(typeof(FolderSizeService)) as FolderSizeService;
             if (svc == null) return;
@@ -568,6 +582,22 @@ namespace Span.ViewModels
                 {
                     await LoadFromRemoteAsync(folderPath, token);
                 }
+                else if (Helpers.UncPathHelper.IsShellNamespaceRoot(folderPath))
+                {
+                    // Issue #67: \\wsl.localhost 는 파일 서버가 아니라 셸 네임스페이스 루트라
+                    // 공유 열거가 통하지 않는다. 배포판 이름은 레지스트리에서 얻고, 그 아래
+                    // \\wsl.localhost\<배포판> 은 실제 경로라 기존 디스크 경로로 합류한다.
+                    await LoadWslDistributionsAsync(token);
+                }
+                else if (Helpers.UncPathHelper.IsServerRoot(folderPath))
+                {
+                    // Issue #67: \\server 는 디렉터리가 아니라 Directory.Exists가 항상 false다.
+                    // 공유 목록은 NetShareEnum으로만 얻을 수 있다. LoadFromDiskAsync 안이
+                    // 아니라 여기서 분기하는 이유는 그쪽이 Task.Run 동기 람다라 await가
+                    // 불가능하기 때문이다. 결과는 캐시하지 않는다 — 공유 구성은 서버 쪽에서
+                    // 바뀔 수 있고 목록이 작아 다시 읽는 비용이 낮다.
+                    await LoadServerSharesAsync(folderPath, token);
+                }
                 else
                 {
                     await LoadFromDiskAsync(folderPath, showHidden, folderCache, token);
@@ -670,6 +700,93 @@ namespace Span.ViewModels
             }
         }
 
+        /// <summary>
+        /// Lists installed WSL distributions as folders (Issue #67).
+        ///
+        /// Reported symptom: typing <c>\\wsl.localhost</c> launched Windows File Explorer even
+        /// with SPAN set as the default file manager. Rather than only stopping the hand-off,
+        /// SPAN now lists the distributions itself, the same way a server root lists its shares.
+        /// </summary>
+        private async Task LoadWslDistributionsAsync(System.Threading.CancellationToken token)
+        {
+            var distros = await Task.Run(WslDistributionService.GetDistributions, token);
+            if (token.IsCancellationRequested) return;
+
+            if (distros.Count == 0)
+            {
+                // WSL이 없거나 배포판이 하나도 마운트되지 않은 상태.
+                ErrorMessage = GetLoc().Get("Error_NetworkPathNotFound") ?? "Cannot access network path";
+                ErrorIcon = "\uE871";
+                return;
+            }
+
+            var items = new List<FileSystemViewModel>();
+            foreach (var d in distros)
+            {
+                if (token.IsCancellationRequested) return;
+                items.Add(new FolderViewModel(new FolderItem { Name = d.Name, Path = d.Path }, _fileService));
+            }
+
+            if (!token.IsCancellationRequested)
+                PopulateChildren(items, token);
+        }
+
+        /// <summary>
+        /// Lists a server's shares as folders (Issue #67).
+        ///
+        /// Windows does not expose <c>\\server</c> as a directory, so it can only be listed
+        /// through NetShareEnum. Each share becomes a normal FolderViewModel whose Path is
+        /// the full <c>\\server\share</c> UNC — clicking one therefore navigates through the
+        /// ordinary disk path that already works today.
+        ///
+        /// The listing is read-only: a server root has nowhere to create or paste into.
+        /// See <c>UncPathHelper.IsVirtualRoot</c> for how the write paths are blocked.
+        /// </summary>
+        private async Task LoadServerSharesAsync(string folderPath, System.Threading.CancellationToken token)
+        {
+            NetworkBrowserService? browser = null;
+            try { browser = App.Current.Services.GetService<NetworkBrowserService>(); }
+            catch (Exception ex) { Helpers.DebugLogger.Log($"[ServerShares] service unavailable: {ex.Message}"); }
+
+            if (browser == null)
+            {
+                ErrorMessage = GetLoc().Get("Error_NetworkPathNotFound") ?? "Cannot access network path";
+                ErrorIcon = "\uE871";
+                return;
+            }
+
+            var (status, shares) = await browser.ListSharesForNavigationAsync(folderPath);
+            if (token.IsCancellationRequested) return;
+
+            if (status != NetworkBrowserService.ShareListStatus.Ok)
+            {
+                // 도달 불가 / 권한 거부 / 타임아웃. F5로 다시 시도할 수 있도록 실패 기억을
+                // 지워 둔다 — 그러지 않으면 30초 동안 재시도가 조용히 무시된다.
+                NetworkBrowserService.ForgetServerFailure(folderPath);
+                ErrorMessage = GetLoc().Get("Error_NetworkPathNotFound") ?? "Cannot access network path";
+                ErrorIcon = "\uE871";
+                Helpers.DebugLogger.Log($"[ServerShares] {folderPath} → {status}");
+                return;
+            }
+
+            var items = new List<FileSystemViewModel>();
+            foreach (var share in shares)
+            {
+                if (token.IsCancellationRequested) return;
+
+                items.Add(new FolderViewModel(new FolderItem
+                {
+                    Name = share.Name,
+                    // 이미 완전한 \\server\share 형태다. 이 경로는 Directory.Exists를
+                    // 통과하므로 하위 탐색은 기존 디스크 경로를 그대로 탄다.
+                    Path = share.Path,
+                }, _fileService));
+            }
+
+            if (!token.IsCancellationRequested)
+                PopulateChildren(items, token);
+        }
+
         private async Task LoadFromRemoteAsync(string folderPath, System.Threading.CancellationToken token)
         {
             var router = App.Current.Services.GetRequiredService<FileSystemRouter>();
@@ -758,11 +875,8 @@ namespace Span.ViewModels
                     {
                         if (token.IsCancellationRequested) return (new List<FileSystemViewModel>(), folders, files, (string?)null, (string?)null);
                         var attrs = d.Attributes;
-                        // Issue #51: 숨김 파일 표시(ShowHiddenFiles)를 켜면 System 속성 항목도 표시.
-                        // System 폴더(예: C:\ProgramData\Microsoft)는 Hidden이 아니라 System만 있어
-                        // 이전에는 showHidden ON이어도 무조건 숨겨졌음. Windows 탐색기의 "보호된 OS 파일"
-                        // 표시와 동일하게, 숨김 표시 옵션에 통합.
-                        if (!showHidden && (attrs & (System.IO.FileAttributes.Hidden | System.IO.FileAttributes.System)) != 0) continue;
+                        // 표시 규칙은 Helpers/FileVisibility에 모여 있다 (Issue #68).
+                        if (Helpers.FileVisibility.ShouldHide(attrs, showHidden)) continue;
 
                         bool hasChild;
                         try { hasChild = System.IO.Directory.EnumerateFileSystemEntries(d.FullName).Any(); }
@@ -777,11 +891,8 @@ namespace Span.ViewModels
                     {
                         if (token.IsCancellationRequested) return (new List<FileSystemViewModel>(), folders, files, (string?)null, (string?)null);
                         var attrs = f.Attributes;
-                        // Issue #51: 숨김 파일 표시(ShowHiddenFiles)를 켜면 System 속성 항목도 표시.
-                        // System 폴더(예: C:\ProgramData\Microsoft)는 Hidden이 아니라 System만 있어
-                        // 이전에는 showHidden ON이어도 무조건 숨겨졌음. Windows 탐색기의 "보호된 OS 파일"
-                        // 표시와 동일하게, 숨김 표시 옵션에 통합.
-                        if (!showHidden && (attrs & (System.IO.FileAttributes.Hidden | System.IO.FileAttributes.System)) != 0) continue;
+                        // 표시 규칙은 Helpers/FileVisibility에 모여 있다 (Issue #68).
+                        if (Helpers.FileVisibility.ShouldHide(attrs, showHidden)) continue;
 
                         var fileItem = new FileItem { Name = f.Name, Path = Helpers.LongPathHelper.StripPrefix(f.FullName), Size = f.Length, DateModified = f.LastWriteTime, FileType = f.Extension, IsHidden = (attrs & System.IO.FileAttributes.Hidden) != 0 };
                         files.Add(fileItem);
@@ -1210,6 +1321,40 @@ namespace Span.ViewModels
         }
 
         /// <summary>
+        /// On-demand folder color tags (upstream). Cached reads stay on the UI thread;
+        /// a cache miss is resolved in the background.
+        /// </summary>
+        public void InjectTagIfNeeded(FileSystemViewModel item)
+        {
+            if (item.TagInjected) return;
+            if (item is not FolderViewModel) { item.TagInjected = true; return; }
+
+            var settings = App.Current.Services.GetService(typeof(SettingsService)) as SettingsService;
+            if (settings?.FolderTagsEnabled != true) { item.TagInjected = true; return; }
+
+            var svc = App.Current.Services.GetService(typeof(FolderTagService)) as FolderTagService;
+            if (svc == null) { item.TagInjected = true; return; }
+
+            item.TagInjected = true;
+
+            var cached = svc.GetCachedTag(item.Path);
+            if (cached.HasValue)
+            {
+                if (cached.Value != Models.FolderTagColor.None) item.TagColor = cached.Value;
+                return;
+            }
+
+            var dq = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+            string path = item.Path;
+            _ = System.Threading.Tasks.Task.Run(() =>
+            {
+                var tag = svc.GetTag(path);
+                if (tag == Models.FolderTagColor.None) return;
+                dq?.TryEnqueue(() => { if (item.Path == path) item.TagColor = tag; });
+            });
+        }
+
+        /// <summary>
         /// Git 레포 여부를 반환 (Details 뷰에서 상태 로드 판단용).
         /// </summary>
         public bool IsGitFolder => _isGitFolder;
@@ -1421,10 +1566,16 @@ namespace Span.ViewModels
         /// - 기본 → 대소문자 무시 substring 매칭
         /// </summary>
         /// <summary>
-        /// Compiled Regex cache for wildcard filter patterns.
+        /// Regex cache for wildcard filter patterns.
         /// Avoids creating 14K+ Regex objects per filter application.
         /// </summary>
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.RegularExpressions.Regex?> _regexCache = new();
+
+        /// <summary>
+        /// 캐시 상한. 필터 바는 글자를 칠 때마다 새 키가 생기고 NonBacktracking 인스턴스는 개당
+        /// 약 200KB라, 상한 없이 두면 세션 내내 쌓인다. 넘으면 비운다 — 다시 만드는 비용은 작다.
+        /// </summary>
+        private const int RegexCacheLimit = 32;
 
         internal static bool MatchesFilter(string name, string filter)
         {
@@ -1433,19 +1584,16 @@ namespace Span.ViewModels
 
             if (filter.Contains('*') || filter.Contains('?'))
             {
-                var regex = _regexCache.GetOrAdd(filter, f =>
+                // 적중 경로는 TryGetValue 하나다. Count는 모든 잠금을 잡으므로 항목마다 부르지 않는다.
+                if (!_regexCache.TryGetValue(filter, out var regex))
                 {
-                    var pattern = "^" + System.Text.RegularExpressions.Regex.Escape(f)
-                        .Replace("\\*", ".*")
-                        .Replace("\\?", ".") + "$";
-                    try
+                    if (_regexCache.Count >= RegexCacheLimit) _regexCache.Clear();
+                    regex = _regexCache.GetOrAdd(filter, f =>
                     {
-                        return new System.Text.RegularExpressions.Regex(
-                            pattern,
-                            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
-                    }
-                    catch { return null; }
-                });
+                        try { return Helpers.WildcardRegex.Create(f); }
+                        catch { return null; }
+                    });
+                }
 
                 return regex?.IsMatch(name) ?? false;
             }

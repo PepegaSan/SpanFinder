@@ -21,14 +21,28 @@ namespace Span.Helpers
             bool skipArchivePaths = true)
         {
             var localPaths = new List<string>(paths.Count);
+            var archivePaths = new List<string>();
             foreach (var p in paths)
             {
                 if (string.IsNullOrWhiteSpace(p))
                     continue;
-                if (skipArchivePaths && ArchivePathHelper.IsArchivePath(p))
+                if (ArchivePathHelper.IsArchivePath(p))
+                {
+                    if (!skipArchivePaths)
+                        archivePaths.Add(p);
                     continue;
+                }
                 if (File.Exists(p) || Directory.Exists(p))
                     localPaths.Add(p);
+            }
+
+            if (archivePaths.Count > 0)
+            {
+                localPaths.AddRange(archivePaths);
+                if (localPaths.Count == 0)
+                    return;
+                RegisterDeferredStorageItems(data, localPaths);
+                return;
             }
 
             if (localPaths.Count == 0)
@@ -138,6 +152,7 @@ namespace Span.Helpers
         {
             try
             {
+                paths = await Span.Services.Archive.ArchiveEntryStaging.MaterializeAsync(paths);
                 var storageItems = new List<IStorageItem>();
                 foreach (var p in paths)
                 {

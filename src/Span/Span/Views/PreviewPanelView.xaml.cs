@@ -185,8 +185,11 @@ namespace Span.Views
                             ct.ThrowIfCancellationRequested();
                             var regex = new Regex(rule.Regex, RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.Singleline,
                                 TimeSpan.FromMilliseconds(RegexProbeTimeoutMs));
-                            // 첫 매치만 시도 — backtracking이면 여기서 타임아웃
-                            regex.Match(text);
+                            // 모든 매치를 끝까지 돈다. 첫 매치만 보면 파일 앞쪽에 닫힌 /* */가 있을 때
+                            // 통과하고, 뒤쪽의 닫히지 않은 블록에서 실제 포맷(UI 스레드)이 멈췄다.
+                            // 타임아웃은 매치마다 적용되고, 백그라운드라 두 번 도는 비용은 UI에 가지 않는다.
+                            for (var m = regex.Match(text); m.Success; m = m.NextMatch())
+                                ct.ThrowIfCancellationRequested();
                         }
                         return true;
                     }

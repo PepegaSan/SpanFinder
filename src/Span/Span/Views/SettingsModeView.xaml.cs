@@ -233,6 +233,7 @@ public sealed partial class SettingsModeView : UserControl
             };
 
             FolderCustomIconsToggle.IsOn = _settings.FolderCustomIconsEnabled;
+            FolderTagsToggle.IsOn = _settings.FolderTagsEnabled;
             AnimationsEnabledToggle.IsOn = _settings.AnimationsEnabled;
 
             var font = _settings.FontFamily;
@@ -444,6 +445,7 @@ public sealed partial class SettingsModeView : UserControl
         };
 
         FolderCustomIconsToggle.Toggled += (s, e) => { if (!_isLoading) _settings.FolderCustomIconsEnabled = FolderCustomIconsToggle.IsOn; };
+        FolderTagsToggle.Toggled += (s, e) => { if (!_isLoading) _settings.FolderTagsEnabled = FolderTagsToggle.IsOn; };
         AnimationsEnabledToggle.Toggled += (s, e) => { if (!_isLoading) _settings.AnimationsEnabled = AnimationsEnabledToggle.IsOn; };
 
         ShowHiddenToggle.Toggled += (s, e) => { if (!_isLoading) _settings.ShowHiddenFiles = ShowHiddenToggle.IsOn; };
@@ -747,6 +749,8 @@ public sealed partial class SettingsModeView : UserControl
             IconPackRestartText.Text = _loc.Get("Settings_IconPackRestart");
             FolderCustomIconsLabel.Text = _loc.Get("Settings_FolderCustomIcons");
             FolderCustomIconsDesc.Text = _loc.Get("Settings_FolderCustomIconsDesc");
+            FolderTagsLabel.Text = _loc.Get("Settings_FolderTags");
+            FolderTagsDesc.Text = _loc.Get("Settings_FolderTagsDesc");
             AnimationsEnabledLabel.Text = _loc.Get("Settings_Animations");
             AnimationsEnabledDesc.Text = _loc.Get("Settings_AnimationsDesc");
             FontLabel.Text = _loc.Get("Settings_Font");

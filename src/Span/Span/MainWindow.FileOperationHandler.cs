@@ -817,6 +817,19 @@ namespace Span
                 return;
             }
 
+            // Upstream: archive:// entries are staged to temp files at paste time.
+            if (Services.Archive.ArchiveEntryStaging.ContainsArchiveEntry(sourcePaths))
+            {
+                sourcePaths = await Services.Archive.ArchiveEntryStaging.MaterializeAsync(sourcePaths);
+                if (sourcePaths.Count == 0)
+                {
+                    Helpers.DebugLogger.Log("[Paste] archive entries could not be staged");
+                    ViewModel.ShowToast(_loc.Get("Toast_PasteFailed") ?? "Paste failed", 3000, isError: true);
+                    return;
+                }
+                isCut = false;
+            }
+
             var destNorm = destDir.TrimEnd('\\', '/') + "\\";
             int removedCount = sourcePaths.RemoveAll(srcPath =>
             {
@@ -1717,6 +1730,32 @@ namespace Span
                 }
             }
             if (cancelled)
+            {
+                _justFinishedRename = true;
+            }
+            _renameTargetPath = null;
+        }
+
+        /// <summary>
+        /// Commit an active inline rename (empty-area click saves, matching Explorer).
+        /// </summary>
+        private void CommitAnyActiveRename()
+        {
+            if (_renamePendingFocus) return;
+
+            var explorer = ViewModel?.ActiveExplorer;
+            if (explorer == null) return;
+
+            bool committed = false;
+            foreach (var col in explorer.Columns)
+            {
+                if (col.SelectedChild?.IsRenaming == true)
+                {
+                    col.SelectedChild.CommitRename();
+                    committed = true;
+                }
+            }
+            if (committed)
             {
                 _justFinishedRename = true;
             }

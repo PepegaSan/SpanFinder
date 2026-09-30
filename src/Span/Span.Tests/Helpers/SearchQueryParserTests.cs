@@ -909,6 +909,53 @@ public class SearchQueryParserTests
         Assert.AreEqual(CompareOp.GreaterOrEqual, query.DateFilter!.Value.Op);
     }
 
+    private static bool IsNonBacktracking(SearchQuery query)
+        => query.NameRegex!.Options.HasFlag(System.Text.RegularExpressions.RegexOptions.NonBacktracking);
+
+    [TestMethod]
+    public void Parse_Wildcard_ManyStars_UsesNonBacktracking()
+    {
+        // 뒤에 문자가 이어지는 '*'가 둘 이상이면 백트래킹에서 다항 시간이다 — 선형 엔진을 써야
+        // Issue #36의 기본 타임아웃에 걸리지 않는다
+        var query = SearchQueryParser.Parse("*a*a*a*b");
+
+        Assert.IsNotNull(query.NameRegex);
+        Assert.IsTrue(IsNonBacktracking(query));
+        Assert.IsFalse(query.NameRegex!.IsMatch(new string('a', 200)));
+        Assert.IsTrue(IsNonBacktracking(SearchQueryParser.Parse("a*b*c")));
+    }
+
+    [TestMethod]
+    public void Parse_Wildcard_SingleInnerStar_UsesBacktrackingEngine()
+    {
+        // 이 모양은 백트래킹에서도 선형이다. NonBacktracking은 생성 비용이 서로 다른 문자 수에
+        // 따라 커져서('*' + 한글·CJK 긴 파일명) 쓰지 않는다
+        foreach (var pattern in new[] { "*.txt", "report*", "*a*", "**a", "file?.doc", "*?*" })
+            Assert.IsFalse(IsNonBacktracking(SearchQueryParser.Parse(pattern)), pattern);
+
+        var cjk = new string(Enumerable.Range(0, 255).Select(i => (char)(0x4E00 + i * 7)).ToArray());
+        var query = SearchQueryParser.Parse("*" + cjk);
+
+        Assert.IsFalse(IsNonBacktracking(query));
+        Assert.IsTrue(query.NameRegex!.IsMatch("앞부분_" + cjk));
+        Assert.IsFalse(query.NameRegex!.IsMatch(cjk[1..]));
+    }
+
+    [TestMethod]
+    public void Parse_LongWildcard_MatchesWithoutThrowing()
+    {
+        // NonBacktracking은 기본 오토마톤 상한에서 199자 패턴부터 생성이 실패한다. 테스트는
+        // Program.Main의 상한 상향을 거치지 않으므로 '*'가 여럿인 긴 패턴이 백트래킹 폴백을 탄다.
+        var tail = new string('a', 250);
+        var query = SearchQueryParser.Parse("*x*" + tail);
+
+        Assert.IsNotNull(query.NameRegex);
+        Assert.IsTrue(query.NameRegex!.IsMatch("px" + tail));
+        Assert.IsTrue(query.NameRegex!.IsMatch("X" + tail.ToUpperInvariant()));
+        Assert.IsFalse(query.NameRegex!.IsMatch("x" + tail[1..]));
+        Assert.IsFalse(query.NameRegex!.IsMatch("q" + tail));
+    }
+
     // -------------------------------------------------------
     // 13. Multi-extension filter (ext:jpg;png;gif)
     // -------------------------------------------------------

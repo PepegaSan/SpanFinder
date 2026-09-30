@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -31,7 +31,9 @@ namespace Span
         // 드래그 시각 피드백용 브러시 캐시 (매 이벤트 할당 방지)
         private static readonly SolidColorBrush _dragHighlightBrush = new(Microsoft.UI.Colors.White) { Opacity = 0.08 };
         private static readonly SolidColorBrush _transparentBrush = new(Microsoft.UI.Colors.Transparent);
-        private static readonly SolidColorBrush _sidebarHoverBrush = new(Microsoft.UI.Colors.White) { Opacity = 0.05 };
+        // Issue #62: 사이드바 hover는 테마 브러시(SpanBgHoverBrush)를 호출 시점에 조회한다.
+        // 기존의 흰색 5% 고정값은 라이트 테마(거의 흰 배경)에서 사실상 보이지 않아
+        // 드라이브/휴지통 클릭이 아무 반응 없는 것처럼 느껴졌다.
         private static readonly SolidColorBrush _gripHighlightBrush = new(Microsoft.UI.Colors.Gray) { Opacity = 0.3 };
 
         /// <summary>
@@ -92,7 +94,7 @@ namespace Span
             e.Data.Properties["SourcePaths"] = paths;
             e.Data.Properties["SourcePane"] = DeterminePane(sender);
             e.Data.RequestedOperation = DataPackageOperation.Copy | DataPackageOperation.Move | DataPackageOperation.Link;
-            Helpers.OutboundFileDragHelper.Populate(e.Data, paths, skipArchivePaths: true);
+            Helpers.OutboundFileDragHelper.Populate(e.Data, paths, skipArchivePaths: false);
 
             BeginOutboundFileDrag();
         }
@@ -955,9 +957,28 @@ namespace Span
             if (Helpers.ArchivePathHelper.IsArchivePath(destFolder))
                 return;
 
-            // Archive safety: block drag from archives (not yet supported)
-            if (sourcePaths.Any(p => Helpers.ArchivePathHelper.IsArchivePath(p)))
+            // Issue #67: 서버 루트(\\server)는 공유 목록일 뿐 쓸 수 있는 위치가 아니다.
+            // 막지 않으면 드롭이 조용히 실패한다.
+            if (Helpers.UncPathHelper.IsVirtualRoot(destFolder))
+            {
+                Helpers.DebugLogger.Log($"[ServerRoot] drop blocked into {destFolder}");
+                ViewModel.ShowToast(_loc.Get("Toast_NetworkRootReadOnly"));
                 return;
+            }
+
+            // Issue #64: 압축 내부에서 꺼내오는 드래그. 항목을 임시 파일로 꺼낸 뒤
+            // 실제 경로로 진행한다. 아카이브는 읽기 전용이라 원본을 지울 수 없으므로
+            // 이동은 복사로 강등한다 — 여기서 Move를 허용하면 임시 파일만 지워진다.
+            if (Services.Archive.ArchiveEntryStaging.ContainsArchiveEntry(sourcePaths))
+            {
+                sourcePaths = await Services.Archive.ArchiveEntryStaging.MaterializeAsync(sourcePaths);
+                if (sourcePaths.Count == 0)
+                {
+                    Helpers.DebugLogger.Log("[DragDrop] archive entries could not be staged — drop ignored");
+                    return;
+                }
+                mode = DragDropMode.Copy;
+            }
 
             // Early check: if the destination is one of the selected/dragged items, warn and block.
             // e.g., selecting 24 folders and dropping into one of them is almost certainly a mistake.
@@ -1342,7 +1363,8 @@ namespace Span
         {
             if (sender is Grid grid)
             {
-                grid.Background = _sidebarHoverBrush;
+                // 테마 변경에도 따라가도록 매번 현재 테마의 브러시를 조회
+                grid.Background = GetThemeBrush("SpanBgHoverBrush");
                 Helpers.CursorHelper.SetHandCursor(grid);
             }
         }
@@ -1355,6 +1377,28 @@ namespace Span
             if (sender is Grid grid)
             {
                 grid.Background = _transparentBrush;
+            }
+        }
+
+        /// <summary>
+        /// Issue #62: 사이드바 항목 클릭 피드백(눌림 표시).
+        /// 드라이브/휴지통 항목은 Grid라 포커스·선택 비주얼이 없어 클릭해도 아무 반응이
+        /// 없는 것처럼 보였다. 눌리는 순간 진하게, 떼면 hover 상태로 되돌린다.
+        /// </summary>
+        private void OnSidebarItemPointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+        {
+            if (sender is Grid grid)
+            {
+                grid.Background = GetThemeBrush("SpanBgSelectedBrush");
+            }
+        }
+
+        /// <summary>포인터를 떼면 hover 상태로 복귀 (커서가 아직 항목 위에 있으므로).</summary>
+        private void OnSidebarItemPointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+        {
+            if (sender is Grid grid)
+            {
+                grid.Background = GetThemeBrush("SpanBgHoverBrush");
             }
         }
 

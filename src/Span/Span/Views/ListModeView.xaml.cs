@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -1088,6 +1088,7 @@ namespace Span.Views
                     {
                         _viewModel?.CurrentFolder?.InjectCloudStateIfNeeded(fsVm);
                         _viewModel?.CurrentFolder?.InjectColorTagIfNeeded(fsVm);
+                        _viewModel?.CurrentFolder?.InjectTagIfNeeded(fsVm);
                     }
                     catch (Exception ex) { Helpers.DebugLogger.Log($"[List.CCC] InjectCloud failed: {ex.Message}"); }
                 }

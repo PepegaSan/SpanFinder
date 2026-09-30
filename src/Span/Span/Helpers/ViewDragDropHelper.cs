@@ -28,7 +28,7 @@ namespace Span.Helpers
             e.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy
                 | Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move
                 | Windows.ApplicationModel.DataTransfer.DataPackageOperation.Link;
-            OutboundFileDragHelper.Populate(e.Data, paths, skipArchivePaths: true);
+            OutboundFileDragHelper.Populate(e.Data, paths, skipArchivePaths: false);
 
             return true;
         }
@@ -99,6 +99,5 @@ namespace Span.Helpers
             }
             return null;
         }
-
     }
 }

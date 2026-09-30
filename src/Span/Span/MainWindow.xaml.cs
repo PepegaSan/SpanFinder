@@ -334,6 +334,11 @@ namespace Span
         // Clipboard
         private readonly List<string> _clipboardPaths = new();
         private bool _isCutOperation = false;
+        /// <summary>
+        /// Issue #62: SPAN 자신이 클립보드에 쓴 직후 발생하는 ContentChanged를 무시하기 위한 플래그.
+        /// (자기 이벤트로 방금 넣은 내부 상태를 지우면 안 됨)
+        /// </summary>
+        private bool _suppressNextClipboardChange;
         private readonly List<ViewModels.FileSystemViewModel> _cutItems = new();
 
         // Rename 완료 직후 Enter가 파일 실행으로 이어지는 것을 방지
@@ -382,6 +387,11 @@ namespace Span
         private Models.TabStateDto? _pendingTearOff;
         // True if this window was created from a tear-off (skip session save on close)
         private bool _isTearOffWindow;
+        // True only for a window created by DRAGGING a tab out. Ctrl+N/점프리스트 창도
+        // _pendingTearOff를 쓰기 때문에 _isTearOffWindow만으로는 둘을 구분할 수 없다.
+        // 언클로킹 주체가 다르다 — 드래그 창은 StartManualWindowDrag 타이머가 풀고,
+        // Ctrl+N 창은 Loaded가 직접 풀어야 한다. 이 플래그가 그 갈림길이다.
+        private bool _isDragTearOff;
 
         private const double ColumnWidth = 220;
         private const double MillerColumnMinWidth = 150;
@@ -581,6 +591,10 @@ namespace Span
             // v1.4.19: spacer 펼치기/접기로 ExtentWidth 박동 차단
             // 인스턴스 단위 구독은 backing field 직접 할당 케이스에서 새 인스턴스로 안 따라감 →
             // 정적 이벤트로 forward 받아 sender 비교로 라우팅 (인스턴스 무관 보장).
+            // Issue #62: 다른 앱(탐색기 등)이 클립보드를 가져가면 내부 클립보드 상태를 무효화한다.
+            // 구독이 없어서, SPAN에서 한 번 복사하면 이후 탐색기 복사본이 영원히 무시됐다.
+            try { Windows.ApplicationModel.DataTransfer.Clipboard.ContentChanged += OnSystemClipboardChanged; }
+            catch (Exception ex) { Helpers.DebugLogger.Log($"[Clipboard] ContentChanged 구독 실패: {ex.Message}"); }
             ViewModels.ExplorerViewModel.AnyBeforeReplaceLastColumn += OnAnyBeforeReplaceLastColumn;
             ViewModels.ExplorerViewModel.AnyAfterReplaceLastColumn += OnAnyAfterReplaceLastColumn;
             // Issue #57: 잔여 spacer 실시간 트리밍 — XAML 기본 패널 좌/우 (동적 탭 패널은
@@ -819,7 +833,9 @@ namespace Span
             // Cloak the window so the user never sees the WinUI default size.
             // Activate() resets the size, but the Loaded handler re-applies
             // the saved placement and then uncloaks.
-            // Skip for tear-off windows — TearOffTab manages cloak/position via drag timer.
+            // 주의: 아래 _pendingTearOff 검사는 실제로는 항상 참이다. 이 필드는 생성자가
+            // 끝난 뒤에 호출자가 채우므로(TabManager.cs:1038, :1154) 여기서는 늘 null이다.
+            // 즉 tear-off 창도 여기서 클로킹된다 — 언클로킹 주체가 누구인지가 중요하다.
             if (_settings.RememberWindowPosition && _pendingTearOff == null)
             {
                 int cloakOn = 1;
@@ -929,9 +945,12 @@ namespace Span
                         ViewModel.Favorites.CollectionChanged += OnFavoritesCollectionChanged;
                         ApplySidebarSectionVisibility();
 
-                        // Uncloak if cloaked during constructor (RememberWindowPosition)
-                        // For tear-off windows, uncloak is managed by StartManualWindowDrag timer
-                        if (_settings.RememberWindowPosition && !_isTearOffWindow)
+                        // Uncloak if cloaked during constructor (RememberWindowPosition).
+                        // 드래그로 떼어낸 창만 StartManualWindowDrag 타이머가 언클로킹한다.
+                        // 여기서 _isTearOffWindow를 보면 안 된다 — 바로 위에서 true로 세팅되므로
+                        // 조건이 영영 거짓이 되고, Ctrl+N 창이 클로킹된 채로 남아 화면에 안 뜬다.
+                        // (v1.2.13.0 ~ v2.0.4 회귀. 작업표시줄에는 보이는데 창이 없던 증상.)
+                        if (_settings.RememberWindowPosition && !_isDragTearOff)
                         {
                             int cloakOff = 0;
                             Helpers.NativeMethods.DwmSetWindowAttribute(
@@ -990,7 +1009,9 @@ namespace Span
                         App.StartupArguments = null; // Consume to prevent re-navigation
                         jumpArg = jumpArg?.Trim().Trim('"');
 
-                        if (jumpArg != "--new-window")
+                        // "--new-window"로 시작한 경우는 이 창 자체가 그 새 창이므로 할 일이 없다.
+                        // (앱이 이미 떠 있을 때는 App.OnAppActivated가 창을 하나 더 만든다.)
+                        if (!App.IsNewWindowArgument(jumpArg))
                         {
                             // 가상 폴더 처리 (휴지통, 내 PC 등)
                             if (IsRecycleBinArgument(jumpArg))
@@ -1483,6 +1504,7 @@ namespace Span
                 try { MillerScrollViewerTopRight.BringIntoViewRequested -= OnMillerBringIntoViewRequested; } catch { }
                 try { MillerScrollViewerBottomRight.BringIntoViewRequested -= OnMillerBringIntoViewRequested; } catch { }
                 // v1.4.19: 정적 forward 이벤트 해제 (메모리 누수 방지)
+                try { Windows.ApplicationModel.DataTransfer.Clipboard.ContentChanged -= OnSystemClipboardChanged; } catch { }
                 try { ViewModels.ExplorerViewModel.AnyBeforeReplaceLastColumn -= OnAnyBeforeReplaceLastColumn; } catch { }
                 try { ViewModels.ExplorerViewModel.AnyAfterReplaceLastColumn -= OnAnyAfterReplaceLastColumn; } catch { }
                 if (ViewModel?.RightExplorer != null)
@@ -2008,6 +2030,32 @@ namespace Span
         /// 비교해 좌/우 spacer 핸들러에 라우팅. 인스턴스 단위 구독이 _leftExplorer 직접 할당으로
         /// 끊어지는 케이스를 모두 cover.
         /// </summary>
+        /// <summary>
+        /// Issue #62: 시스템 클립보드가 바뀌면(다른 앱이 복사/잘라내기) 내부 클립보드 상태를 비운다.
+        /// 그래야 HandlePaste가 외부 분기로 진입하고, 붙여넣기 버튼/메뉴도 올바르게 활성화된다.
+        /// SPAN 자신이 쓴 직후의 이벤트는 _suppressNextClipboardChange로 건너뛴다.
+        /// </summary>
+        private void OnSystemClipboardChanged(object? sender, object e)
+        {
+            if (_isClosed) return;
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_isClosed) return;
+                if (_suppressNextClipboardChange)
+                {
+                    _suppressNextClipboardChange = false;
+                    return;
+                }
+                if (_clipboardPaths.Count == 0 && _cutItems.Count == 0) return;
+
+                Helpers.DebugLogger.Log("[Clipboard] 외부 클립보드 변경 감지 — 내부 클립보드 상태 초기화");
+                ClearCutState();
+                _clipboardPaths.Clear();
+                _isCutOperation = false;
+                UpdateToolbarButtonStates();
+            });
+        }
+
         private void OnAnyBeforeReplaceLastColumn(ViewModels.ExplorerViewModel sender, int vanishingColumns)
         {
             if (_isClosed || ViewModel == null) return;
@@ -2080,8 +2128,24 @@ namespace Span
                 leftScrollViewer = panel.scroller;
             else
                 leftScrollViewer = MillerScrollViewer;
-            if (sender == leftScrollViewer)
+            if (sender != leftScrollViewer) return;
+
+            if (e.PreviousSize.Width < 1)
+            {
                 ScrollToLastColumnSync(ViewModel.LeftExplorer, leftScrollViewer, disableAnimation: true);
+                return;
+            }
+
+            // Skip re-anchor when the viewport grows (preview panel close) so the view does not jump.
+            if (e.NewSize.Width > e.PreviousSize.Width) return;
+            if (e.NewSize.Width < 1) return;
+            double spacerW = GetMillerSpacer(leftScrollViewer)?.Width ?? 0;
+            if (double.IsNaN(spacerW)) spacerW = 0;
+            bool wasAtEnd = leftScrollViewer.HorizontalOffset + e.PreviousSize.Width
+                            >= leftScrollViewer.ExtentWidth - spacerW - 2;
+            if (!wasAtEnd) return;
+
+            ScrollToLastColumnSync(ViewModel.LeftExplorer, leftScrollViewer, disableAnimation: true);
         }
 
         /// <summary>
@@ -2092,6 +2156,20 @@ namespace Span
         {
             if (_isClosed || ViewModel?.RightExplorer == null) return;
             if (Math.Abs(e.PreviousSize.Width - e.NewSize.Width) < 1) return;
+            if (e.PreviousSize.Width < 1)
+            {
+                ScrollToLastColumnSync(ViewModel.RightExplorer, MillerScrollViewerRight, disableAnimation: true);
+                return;
+            }
+
+            if (e.NewSize.Width > e.PreviousSize.Width) return;
+            if (e.NewSize.Width < 1) return;
+            double spacerW = GetMillerSpacer(MillerScrollViewerRight)?.Width ?? 0;
+            if (double.IsNaN(spacerW)) spacerW = 0;
+            bool wasAtEnd = MillerScrollViewerRight.HorizontalOffset + e.PreviousSize.Width
+                            >= MillerScrollViewerRight.ExtentWidth - spacerW - 2;
+            if (!wasAtEnd) return;
+
             ScrollToLastColumnSync(ViewModel.RightExplorer, MillerScrollViewerRight, disableAnimation: true);
         }
 
@@ -2564,18 +2642,18 @@ namespace Span
                 await col.ReloadAsync();
                 explorer.NotifyCurrentItemsChanged();
 
-                // Mirror RefreshCurrentFolderAsync: SelectedChild gone → orphan child columns
-                if (col.SelectedChild == null && i + 1 < explorer.Columns.Count)
+                bool reloadFailed = !string.IsNullOrEmpty(col.ErrorMessage);
+
+                if (!reloadFailed && col.SelectedChild == null && i + 1 < explorer.Columns.Count)
                 {
                     explorer.CleanupColumnsFrom(i + 1);
                 }
-                // 리로드 후 빈 컬럼 → 자식 컬럼 정리
-                else if (col.Children.Count == 0 && i + 1 < explorer.Columns.Count)
+                else if (!reloadFailed && col.Children.Count == 0 && i + 1 < explorer.Columns.Count)
                 {
                     explorer.CleanupColumnsFrom(i + 1);
                 }
                 // 빈 컬럼 자체가 Active이면 부모로 Active 이동
-                if (col.Children.Count == 0 && col.IsActive && i > 0)
+                if (!reloadFailed && col.Children.Count == 0 && col.IsActive && i > 0)
                 {
                     explorer.SetActiveColumn(explorer.Columns[i - 1]);
                 }
@@ -4772,8 +4850,8 @@ namespace Span
                     try
                     {
                         var info = new System.IO.DirectoryInfo(dir);
-                        if ((info.Attributes & System.IO.FileAttributes.Hidden) != 0) continue;
-                        if ((info.Attributes & System.IO.FileAttributes.System) != 0) continue;
+                        // 이 경로는 ShowHiddenFiles 설정을 반영하지 않는다 — 본 목록과 불일치(별건).
+                        if (Helpers.FileVisibility.IsHidden(info.Attributes)) continue;
                         return true; // Found at least one visible subfolder
                     }
                     catch { continue; }
@@ -4803,8 +4881,8 @@ namespace Span
                     try
                     {
                         var info = new System.IO.DirectoryInfo(dir);
-                        if ((info.Attributes & System.IO.FileAttributes.Hidden) != 0) continue;
-                        if ((info.Attributes & System.IO.FileAttributes.System) != 0) continue;
+                        // 이 경로는 ShowHiddenFiles 설정을 반영하지 않는다 — 본 목록과 불일치(별건).
+                        if (Helpers.FileVisibility.IsHidden(info.Attributes)) continue;
 
                         var childContent = new SidebarFolderNode
                         {
@@ -4849,11 +4927,10 @@ namespace Span
 
             if (!string.IsNullOrEmpty(path) && System.IO.Directory.Exists(path))
             {
-                // Switch away from Home mode if needed (ActionLog has its own sidebar, no navigation)
                 var activeViewMode = GetActivePaneViewMode();
-                if (activeViewMode == ViewMode.Home)
+                if (activeViewMode == ViewMode.Home || activeViewMode == ViewMode.RecycleBin)
                 {
-                    ViewModel.SwitchViewMode(ViewMode.MillerColumns);
+                    ViewModel.SwitchViewMode(ViewModel.ResolveViewModeFromHome());
                 }
 
                 var folder = new FolderItem
@@ -4928,13 +5005,22 @@ namespace Span
                 {
                     if (System.IO.Directory.Exists(folderNode.Path))
                     {
+                        // Issue #62: 트리 클릭과 동일하게 Home/RecycleBin에서 벗어난다
+                        var vm = (ViewModel.IsSplitViewEnabled && ViewModel.ActivePane == ActivePane.Right)
+                            ? ViewModel.RightViewMode : ViewModel.CurrentViewMode;
+                        if (vm == ViewMode.Home || vm == ViewMode.RecycleBin)
+                        {
+                            ViewModel.SwitchViewMode(ViewModel.ResolveViewModeFromHome());
+                        }
+
                         var folder = new FolderItem
                         {
                             Name = folderNode.Name,
                             Path = folderNode.Path
                         };
                         _ = ViewModel.ActiveExplorer?.NavigateTo(folder);
-                        FocusColumnAsync(0);
+                        if (ViewModel.CurrentViewMode == ViewMode.MillerColumns) FocusColumnAsync(0);
+                        else FocusActiveView();
                     }
                 };
                 menu.Items.Add(openItem);
@@ -5179,6 +5265,8 @@ namespace Span
                 {
                     try { folderVm.InjectCloudStateIfNeeded(fsVm); }
                     catch (Exception ex) { Helpers.DebugLogger.Log($"[OnMillerCCC] InjectCloud failed: {ex.Message}"); }
+                    try { folderVm.InjectTagIfNeeded(fsVm); }
+                    catch (Exception ex) { Helpers.DebugLogger.Log($"[OnMillerCCC] InjectTag failed: {ex.Message}"); }
                     try { folderVm.InjectGitStateIfNeeded(fsVm); }
                     catch (Exception ex) { Helpers.DebugLogger.Log($"[OnMillerCCC] InjectGit failed: {ex.Message}"); }
                     try { folderVm.InjectColorTagIfNeeded(fsVm); }
@@ -5974,7 +6062,7 @@ namespace Span
                 var selected = folderVm.SelectedChild;
                 if (selected is FileViewModel file)
                 {
-                    if (Helpers.ArchivePathHelper.IsArchiveFile(file.Path))
+                    if (Helpers.ArchivePathHelper.IsBrowsableArchive(file.Path))
                     {
                         // Archive already navigated on selection; double-click is no-op
                         Helpers.DebugLogger.Log($"[MainWindow] Miller Column DoubleClick: Archive {file.Name} (already navigated)");
@@ -6134,7 +6222,9 @@ namespace Span
         private void UpdateToolbarButtonStates()
         {
             bool hasSelection = HasAnySelection();
-            bool hasClipboard = _clipboardPaths.Count > 0 || Helpers.ShellClipboardHelper.HasPasteableFiles();
+            bool hasClipboard = _clipboardPaths.Count > 0
+                || Helpers.ShellClipboardHelper.HasPasteableFiles()
+                || Helpers.Win32ClipboardHelper.HasFileDrop();
 
             ToolbarCutButton.IsEnabled = hasSelection;
             ToolbarCopyButton.IsEnabled = hasSelection;
@@ -6609,7 +6699,9 @@ namespace Span
         // =================================================================
 
         bool Services.IContextMenuHost.HasClipboardContent =>
-            _clipboardPaths.Count > 0 || Helpers.ShellClipboardHelper.HasPasteableFiles();
+            _clipboardPaths.Count > 0
+            || Helpers.ShellClipboardHelper.HasPasteableFiles()
+            || Helpers.Win32ClipboardHelper.HasFileDrop();
 
         void Services.IContextMenuHost.PerformCut(string path)
         {
@@ -6633,6 +6725,7 @@ namespace Span
         async void Services.IContextMenuHost.PerformPaste(string targetFolderPath)
         {
             if (Helpers.ArchivePathHelper.IsArchivePath(targetFolderPath)) { ViewModel.ShowToast(_loc.Get("Toast_ArchiveReadOnly")); return; }
+            if (Helpers.UncPathHelper.IsVirtualRoot(targetFolderPath)) { Helpers.DebugLogger.Log("[ServerRoot] write blocked"); ViewModel.ShowToast(_loc.Get("Toast_NetworkRootReadOnly")); return; }
             try
             {
             List<string> sourcePaths;
@@ -6888,7 +6981,7 @@ namespace Span
             }
             else if (item is FileViewModel file)
             {
-                if (Helpers.ArchivePathHelper.IsArchiveFile(file.Path))
+                if (Helpers.ArchivePathHelper.IsBrowsableArchive(file.Path))
                 {
                     // Archive: navigate into it instead of opening externally
                     var explorer = ViewModel.ActiveExplorer;
@@ -7063,6 +7156,7 @@ namespace Span
         async void Services.IContextMenuHost.PerformNewFolder(string parentFolderPath)
         {
             if (Helpers.ArchivePathHelper.IsArchivePath(parentFolderPath)) { ViewModel.ShowToast(_loc.Get("Toast_ArchiveReadOnly")); return; }
+            if (Helpers.UncPathHelper.IsVirtualRoot(parentFolderPath)) { Helpers.DebugLogger.Log("[ServerRoot] write blocked"); ViewModel.ShowToast(_loc.Get("Toast_NetworkRootReadOnly")); return; }
             string baseName = _loc.Get("NewFolderBaseName");
             string newPath = System.IO.Path.Combine(parentFolderPath, baseName);
 
@@ -7141,6 +7235,7 @@ namespace Span
         async void Services.IContextMenuHost.PerformNewFile(string parentFolderPath, string fileName)
         {
             if (Helpers.ArchivePathHelper.IsArchivePath(parentFolderPath)) { ViewModel.ShowToast(_loc.Get("Toast_ArchiveReadOnly")); return; }
+            if (Helpers.UncPathHelper.IsVirtualRoot(parentFolderPath)) { Helpers.DebugLogger.Log("[ServerRoot] write blocked"); ViewModel.ShowToast(_loc.Get("Toast_NetworkRootReadOnly")); return; }
             string baseName = System.IO.Path.GetFileNameWithoutExtension(fileName);
             string ext = System.IO.Path.GetExtension(fileName);
             string newPath = System.IO.Path.Combine(parentFolderPath, fileName);
@@ -7216,6 +7311,7 @@ namespace Span
         async void Services.IContextMenuHost.PerformNewFileFromShellNew(string parentFolderPath, Services.ShellNewItem shellNewItem)
         {
             if (Helpers.ArchivePathHelper.IsArchivePath(parentFolderPath)) { ViewModel.ShowToast(_loc.Get("Toast_ArchiveReadOnly")); return; }
+            if (Helpers.UncPathHelper.IsVirtualRoot(parentFolderPath)) { Helpers.DebugLogger.Log("[ServerRoot] write blocked"); ViewModel.ShowToast(_loc.Get("Toast_NetworkRootReadOnly")); return; }
 
             try
             {
@@ -7283,12 +7379,14 @@ namespace Span
         {
             if (paths == null || paths.Length == 0) return;
             if (paths.Any(p => Helpers.ArchivePathHelper.IsArchivePath(p))) { ViewModel.ShowToast(_loc.Get("Toast_ArchiveReadOnly")); return; }
+            if (paths.Any(p => Helpers.UncPathHelper.IsVirtualRoot(p))) { Helpers.DebugLogger.Log("[ServerRoot] write blocked"); ViewModel.ShowToast(_loc.Get("Toast_NetworkRootReadOnly")); return; }
 
             try
             {
                 // Multi-selection support: path 기반으로 올바른 컬럼의 선택 항목을 가져옴
                 var allPaths = GetSelectedPathsForContextMenu(paths[0]);
                 if (allPaths.Any(p => Helpers.ArchivePathHelper.IsArchivePath(p))) { ViewModel.ShowToast(_loc.Get("Toast_ArchiveReadOnly")); return; }
+                if (allPaths.Any(p => Helpers.UncPathHelper.IsVirtualRoot(p))) { Helpers.DebugLogger.Log("[ServerRoot] write blocked"); ViewModel.ShowToast(_loc.Get("Toast_NetworkRootReadOnly")); return; }
 
                 // ZIP name: first item name + .zip
                 string firstPath = allPaths[0];
@@ -7321,18 +7419,28 @@ namespace Span
             try
             {
                 string parentDir = System.IO.Path.GetDirectoryName(zipPath)!;
-                string folderName = System.IO.Path.GetFileNameWithoutExtension(zipPath);
+                // Issue #66: 복합 확장자를 인식한다. GetFileNameWithoutExtension은 마지막
+                // 확장자만 떼어 "backup.tar.gz"를 "backup.tar"로 만드는데, 폴더 이름으로도
+                // 틀렸고 바로 옆에 있기 마련인 "backup.tar" 파일과 충돌한다.
+                string folderName = Helpers.ArchivePathHelper.GetArchiveBaseName(zipPath);
                 string destPath = System.IO.Path.Combine(parentDir, folderName);
 
                 int count = 1;
-                while (System.IO.Directory.Exists(destPath))
+                // 같은 이름의 파일도 비켜간다. 디렉터리만 확인하면 동명 파일이 있을 때
+                // 검사를 통과한 뒤 CreateDirectory에서 IOException으로 터진다(실측 확인).
+                while (System.IO.Directory.Exists(destPath) || System.IO.File.Exists(destPath))
                 {
                     destPath = System.IO.Path.Combine(parentDir, $"{folderName} ({count})");
                     count++;
                 }
 
                 var op = new Span.Services.FileOperations.ExtractOperation(zipPath, destPath);
-                var activeIndex = GetActiveColumnIndex();
+                // Issue #63: 컨텍스트 메뉴에서 호출되면 포커스가 MenuFlyoutItem에 있어
+                // GetActiveColumnIndex()가 -1을 반환한다. 그러면 갱신 대상이 "마지막 컬럼"으로
+                // 폴백하는데, zip을 열어 둔 상태에서는 그게 archive:// 컬럼이라 실제 폴더가
+                // 갱신되지 않아 추출 결과가 F5 전까지 보이지 않았다.
+                // PerformCompress가 이미 쓰는 경로 매칭 방식으로 통일한다(커밋 6a980ac 선례).
+                var activeIndex = GetColumnIndexForPath(zipPath);
                 await ViewModel.ExecuteFileOperationAsync(op, activeIndex >= 0 ? activeIndex : null);
             }
             catch (Exception ex)
@@ -7359,18 +7467,28 @@ namespace Span
                 var folder = await picker.PickSingleFolderAsync();
                 if (folder == null) return;
 
-                string folderName = System.IO.Path.GetFileNameWithoutExtension(zipPath);
+                // Issue #66: 복합 확장자를 인식한다. GetFileNameWithoutExtension은 마지막
+                // 확장자만 떼어 "backup.tar.gz"를 "backup.tar"로 만드는데, 폴더 이름으로도
+                // 틀렸고 바로 옆에 있기 마련인 "backup.tar" 파일과 충돌한다.
+                string folderName = Helpers.ArchivePathHelper.GetArchiveBaseName(zipPath);
                 string destPath = System.IO.Path.Combine(folder.Path, folderName);
 
                 int count = 1;
-                while (System.IO.Directory.Exists(destPath))
+                // 같은 이름의 파일도 비켜간다. 디렉터리만 확인하면 동명 파일이 있을 때
+                // 검사를 통과한 뒤 CreateDirectory에서 IOException으로 터진다(실측 확인).
+                while (System.IO.Directory.Exists(destPath) || System.IO.File.Exists(destPath))
                 {
                     destPath = System.IO.Path.Combine(folder.Path, $"{folderName} ({count})");
                     count++;
                 }
 
                 var op = new Span.Services.FileOperations.ExtractOperation(zipPath, destPath);
-                var activeIndex = GetActiveColumnIndex();
+                // Issue #63: 컨텍스트 메뉴에서 호출되면 포커스가 MenuFlyoutItem에 있어
+                // GetActiveColumnIndex()가 -1을 반환한다. 그러면 갱신 대상이 "마지막 컬럼"으로
+                // 폴백하는데, zip을 열어 둔 상태에서는 그게 archive:// 컬럼이라 실제 폴더가
+                // 갱신되지 않아 추출 결과가 F5 전까지 보이지 않았다.
+                // PerformCompress가 이미 쓰는 경로 매칭 방식으로 통일한다(커밋 6a980ac 선례).
+                var activeIndex = GetColumnIndexForPath(zipPath);
                 await ViewModel.ExecuteFileOperationAsync(op, activeIndex >= 0 ? activeIndex : null);
             }
             catch (Exception ex)
@@ -7749,6 +7867,47 @@ namespace Span
             var settings = App.Current.Services.GetRequiredService<Services.SettingsService>();
             shellService.OpenTerminal(folderPath, settings.DefaultTerminal);
         }
+
+        /// <summary>
+        /// Issue #58: 폴더에 컬러 태그를 지정/해제한다.
+        /// desktop.ini 쓰기는 백그라운드에서 수행하고, 결과를 UI에 즉시 반영한다.
+        /// </summary>
+        async void Services.IContextMenuHost.PerformSetFolderTag(
+            ViewModels.FolderViewModel folder, Models.FolderTagColor color)
+        {
+            if (folder == null) return;
+            var svc = App.Current.Services.GetService(typeof(Services.FolderTagService)) as Services.FolderTagService;
+            if (svc == null) return;
+
+            string path = folder.Path;
+            string? error = await System.Threading.Tasks.Task.Run(() => svc.SetTag(path, color));
+
+            if (error != null)
+            {
+                ViewModel.ShowToast(error, 3000, isError: true);
+                return;
+            }
+
+            // 화면에 보이는 동일 경로 항목들에 즉시 반영 (재로딩 없이)
+            folder.TagColor = color;
+            try
+            {
+                var explorer = ViewModel?.ActiveExplorer;
+                if (explorer?.Columns != null)
+                {
+                    foreach (var col in explorer.Columns)
+                    {
+                        foreach (var child in col.Children)
+                        {
+                            if (string.Equals(child.Path, path, StringComparison.OrdinalIgnoreCase))
+                                child.TagColor = color;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { Helpers.DebugLogger.Log($"[FolderTag] UI 반영 실패: {ex.Message}"); }
+        }
+
 
         void Services.IContextMenuHost.PerformRefresh()
         {

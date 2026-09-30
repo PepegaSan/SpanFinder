@@ -59,9 +59,10 @@ namespace Span
                     Helpers.DebugLogger.Log($"[App] post-mortem task faulted: {t.Exception.Flatten().Message}");
             }, TaskContinuationOptions.OnlyOnFaulted);
 
-            // ColorCode 등 라이브러리의 Regex catastrophic backtracking 방지 (Issue #36)
-            // 1초 이상 UI 스레드 블로킹 시 사용자 체감 "응답없음" → 타임아웃 1초로 제한
-            AppDomain.CurrentDomain.SetData("REGEX_DEFAULT_MATCH_TIMEOUT", TimeSpan.FromSeconds(1));
+            // Issue #36: Regex 기본 타임아웃은 Program.Main 첫 줄에서 건다. 여기서는 이미 늦다 —
+            // 위의 Sentry 초기화가 Regex를 먼저 만든다. 실제로 적용됐는지 로그로 남긴다.
+            // "00:00:01"이 아니면 누군가 Main보다 앞에서 Regex를 만든 것이다.
+            Helpers.DebugLogger.Log($"[App] Regex default match timeout = {new System.Text.RegularExpressions.Regex("x").MatchTimeout}");
 
             // UI thread unhandled exceptions
             this.UnhandledException += OnUnhandledException;
@@ -223,6 +224,14 @@ namespace Span
                 && path.Contains(@"Program Files", StringComparison.OrdinalIgnoreCase)) return true;
             return false;
         }
+
+        /// <summary>
+        /// The Jump List "New window" task (JumpListService). It is a command, not a path —
+        /// ExtractFolderArgument falls back to returning the raw string when nothing looks
+        /// like a path, so callers must check this before treating the value as one.
+        /// </summary>
+        internal static bool IsNewWindowArgument(string? arg) =>
+            string.Equals(arg?.Trim().Trim('"'), "--new-window", StringComparison.OrdinalIgnoreCase);
 
         private static string? ExtractFolderArgument(string rawArgs)
         {
@@ -531,6 +540,8 @@ namespace Span
             services.AddSingleton<Services.NetworkBrowserService>();
             services.AddSingleton<Services.ConnectionManagerService>();
             services.AddSingleton<Services.GitStatusService>();
+            // Issue #58: 폴더 컬러 태그 (desktop.ini 저장/조회 + 캐시)
+            services.AddSingleton<Services.FolderTagService>();
             services.AddSingleton<Services.CrashReportingService>();
             services.AddSingleton<Services.Thumbnails.ThumbnailClientService>();
             services.AddSingleton<Services.JumpListService>();
@@ -708,6 +719,28 @@ namespace Span
                 {
                     DelegateToExplorer(folderPath);
                     Helpers.DebugLogger.Log($"[App] Redirected: virtual folder → explorer.exe (no activation): {folderPath}");
+                    return;
+                }
+
+                // 작업표시줄 점프 리스트의 "새 창". 경로가 아니라 명령이다.
+                // 기존 창을 건드리지 않고 새 창만 만든다 — 아래 포그라운드 처리 뒤에 두면
+                // 한 디스패처 틱에서 Activate가 두 번 일어나고, 새 창이 뜨자마자 사라지거나
+                // 종료 시 XAML에서 크래시가 났다(실측: 0xc000027b in Microsoft.UI.Xaml.dll).
+                if (IsNewWindowArgument(folderPath))
+                {
+                    mainWindow.DispatcherQueue?.TryEnqueue(() =>
+                    {
+                        try
+                        {
+                            if (mainWindow.IsClosed) return;
+                            mainWindow.OpenNewWindowFromActivation();
+                            Helpers.DebugLogger.Log("[App] Redirected: opened new window");
+                        }
+                        catch (Exception ex)
+                        {
+                            Helpers.DebugLogger.Log($"[App] New window from activation failed: {ex.Message}");
+                        }
+                    });
                     return;
                 }
 

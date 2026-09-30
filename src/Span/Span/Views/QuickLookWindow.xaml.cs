@@ -326,7 +326,10 @@ namespace Span.Views
                 this.Title = string.Format(LocalizationService.L("QuickLook_TitleWithName"), displayName);
             }
 
-            ViewModel.UpdateContent(item);
+            // Issue #69: 모드는 ViewModel이 게이트(헥스 설정·클라우드 전용)까지 적용해 정한
+            // 타입으로 정한다. 여기서 따로 판정하면 헥스가 꺼졌을 때 창은 콘텐츠 모드인데
+            // ViewModel은 Generic이라 보이는 요소가 없는 빈 창이 되고, 판별 읽기도 두 번 일어난다.
+            var previewType = ViewModel.UpdateContent(item);
 
             // 파일 카운터 업데이트
             UpdateFileCounter();
@@ -334,11 +337,7 @@ namespace Span.Views
             // Determine mode after ViewModel updates
             if (item != null)
             {
-                bool isFolder = item is FolderViewModel;
-                var previewType = App.Current.Services.GetRequiredService<PreviewService>()
-                    .GetPreviewType(item.Path, isFolder);
-
-                bool infoOnly = previewType == PreviewType.Folder || previewType == PreviewType.Generic;
+                bool infoOnly = previewType is PreviewType.Folder or PreviewType.Generic or PreviewType.None;
                 SwitchMode(infoOnly, item);
             }
         }

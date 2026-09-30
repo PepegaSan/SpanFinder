@@ -140,33 +140,40 @@ namespace Span.ViewModels
         /// 선택된 항목으로 Quick Look 내용을 업데이트한다.
         /// 디바운싱 없이 즉시 로딩 (Quick Look은 이미 열려 있는 상태에서 화살표로 이동하므로).
         /// </summary>
-        public void UpdateContent(FileSystemViewModel? item)
+        /// <returns>
+        /// 이 항목을 표시할 미리보기 타입(헥스 설정·클라우드 전용 게이트 적용 후).
+        /// QuickLookWindow가 정보 전용/콘텐츠 모드를 이 값으로 정한다 — 창이 따로 판정하면
+        /// 게이트가 한쪽에만 걸려 콘텐츠 모드인데 보이는 요소가 없는 빈 창이 된다(Issue #69).
+        /// 압축 내부 항목은 임시 추출 결과에 따라 이후 Generic으로 바뀔 수 있다.
+        /// </returns>
+        public PreviewType UpdateContent(FileSystemViewModel? item)
         {
             if (_disposed || item == null)
             {
                 ClearPreview();
-                return;
+                return PreviewType.None;
             }
 
             _currentCts?.Cancel();
             _currentCts = new CancellationTokenSource();
 
-            _ = UpdatePreviewAsync(item, _currentCts.Token);
+            // 타입은 여기서 동기로 한 번만 정한다. 판별이 파일을 읽으므로(Issue #69)
+            // 창과 비동기 로더가 각자 판정하면 같은 파일을 두 번 읽는다.
+            var previewType = ResolveDisplayPreviewType(item);
+            _ = UpdatePreviewAsync(item, previewType, _currentCts.Token);
+            return previewType;
         }
 
-        private async Task UpdatePreviewAsync(FileSystemViewModel item, CancellationToken ct)
+        /// <summary>
+        /// 확장자·내용 판별 결과에 표시 게이트를 적용한다. 헥스 미리보기가 꺼져 있으면
+        /// HexBinary를 Generic으로, 클라우드 전용 파일은 하이드레이션을 피하려고 Generic으로
+        /// (이미지·미디어는 셸 썸네일/스트리밍 경로라 예외).
+        /// 예외를 밖으로 내지 않는다 — 이전에는 이 판정이 UpdatePreviewAsync의 try 안에 있었다.
+        /// </summary>
+        private PreviewType ResolveDisplayPreviewType(FileSystemViewModel item)
         {
-            if (_disposed) return;
-
             try
             {
-                IsLoading = true;
-                HasContent = true;
-
-                // 1. Basic metadata
-                SetBasicInfo(item);
-
-                // 2. Type-specific preview
                 bool isFolder = item is FolderViewModel;
                 var previewType = _previewService.GetPreviewType(item.Path, isFolder);
                 if (previewType == PreviewType.HexBinary && _settings != null && !_settings.ShowHexPreview)
@@ -179,6 +186,39 @@ namespace Span.ViewModels
                 {
                     previewType = PreviewType.Generic;
                 }
+                return previewType;
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[QuickLook] preview type resolve failed: {ex.Message}");
+                return item is FolderViewModel ? PreviewType.Folder : PreviewType.Generic;
+            }
+        }
+
+        private async Task UpdatePreviewAsync(FileSystemViewModel item, PreviewType previewType, CancellationToken ct)
+        {
+            if (_disposed) return;
+
+            try
+            {
+                IsLoading = true;
+                HasContent = true;
+
+                // 1. Basic metadata
+                SetBasicInfo(item);
+
+                // 2. Type-specific preview — 타입(게이트 적용 후)은 UpdateContent에서 정했다.
+
+                // Issue #64: 압축 내부 항목은 실제 파일이 아니라 미리보기 로더가 열 수 없다.
+                // 미리보기 패널과 같은 정책으로 임시 파일에 꺼낸다(형식·크기 상한 적용).
+                var previewPath = item.Path;
+                if (Helpers.ArchivePathHelper.IsArchivePath(previewPath))
+                {
+                    var staged = await Helpers.ArchivePreviewResolver.ResolveAsync(
+                        previewType, previewPath, item.SizeValue, ct);
+                    if (staged is null) previewType = PreviewType.Generic;
+                    else previewPath = staged;
+                }
 
                 // Reset previous
                 ClearPreviewContent();
@@ -190,23 +230,23 @@ namespace Span.ViewModels
                 switch (previewType)
                 {
                     case PreviewType.Image:
-                        ImagePreview = await _previewService.LoadImagePreviewAsync(item.Path, 1024, ct);
-                        var imgMeta = await _previewService.GetImageMetadataAsync(item.Path, ct);
+                        ImagePreview = await _previewService.LoadImagePreviewAsync(previewPath, 1024, ct);
+                        var imgMeta = await _previewService.GetImageMetadataAsync(previewPath, ct);
                         if (imgMeta != null)
                             Dimensions = $"{imgMeta.Width} x {imgMeta.Height}";
                         break;
 
                     case PreviewType.Text:
-                        TextPreview = await _previewService.LoadTextPreviewAsync(item.Path, ct);
+                        TextPreview = await _previewService.LoadTextPreviewAsync(previewPath, ct);
                         break;
 
                     case PreviewType.Markdown:
-                        var mdText = await _previewService.LoadTextPreviewAsync(item.Path, ct);
+                        var mdText = await _previewService.LoadTextPreviewAsync(previewPath, ct);
                         MarkdownHtml = Helpers.MarkdownHelper.ToHtml(mdText ?? "");
                         break;
 
                     case PreviewType.Csv:
-                        var csvText = await _previewService.LoadTextPreviewAsync(item.Path, ct);
+                        var csvText = await _previewService.LoadTextPreviewAsync(previewPath, ct);
                         var isTsv = item.Path.EndsWith(".tsv", StringComparison.OrdinalIgnoreCase);
                         var (headers, rows) = Helpers.CsvHelper.Parse(csvText ?? "", isTsv ? '\t' : ',');
                         CsvHeaders = headers;
@@ -214,7 +254,7 @@ namespace Span.ViewModels
                         break;
 
                     case PreviewType.Pdf:
-                        PdfPreview = await _previewService.LoadPdfPreviewAsync(item.Path, ct);
+                        PdfPreview = await _previewService.LoadPdfPreviewAsync(previewPath, ct);
                         break;
 
                     case PreviewType.Media:
@@ -231,11 +271,11 @@ namespace Span.ViewModels
                         break;
 
                     case PreviewType.HexBinary:
-                        HexPreview = await _previewService.LoadHexPreviewAsync(item.Path, ct);
+                        HexPreview = await _previewService.LoadHexPreviewAsync(previewPath, ct);
                         break;
 
                     case PreviewType.Font:
-                        var fontData = _previewService.GetFontPreviewData(item.Path);
+                        var fontData = _previewService.GetFontPreviewData(previewPath);
                         if (fontData != null)
                         {
                             FontFamilySource = fontData.FamilyName;
