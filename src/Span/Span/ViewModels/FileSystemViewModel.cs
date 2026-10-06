@@ -403,6 +403,9 @@ namespace Span.ViewModels
             OnPropertyChanged(nameof(Name));
             OnPropertyChanged(nameof(Path));
             OnPropertyChanged(nameof(DisplayName));
+            // Miller/Details 행은 TruncatedDisplayName에 바인딩된다 — 빠뜨리면 외부 이름 변경 후에도
+            // 옛 이름(예: 임시 "...audio" 이름)이 남아 폴더를 다시 열어야 갱신됐다.
+            OnPropertyChanged(nameof(TruncatedDisplayName));
             OnPropertyChanged(nameof(IconGlyph));
             OnPropertyChanged(nameof(DateModified));
             OnPropertyChanged(nameof(DateModifiedShort));

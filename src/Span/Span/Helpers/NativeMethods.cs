@@ -16,6 +16,43 @@ namespace Span.Helpers
         internal static extern bool GetCursorPos(out POINT pt);
 
         [DllImport("user32.dll")]
+        internal static extern IntPtr WindowFromPoint(POINT point);
+
+        [DllImport("user32.dll")]
+        internal static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
+
+        internal const uint GA_ROOT = 2;
+
+        internal const uint GW_HWNDNEXT = 2;
+
+        [DllImport("user32.dll")]
+        internal static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+        [DllImport("user32.dll")]
+        internal static extern bool IsWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        internal static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        internal static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+
+        [DllImport("user32.dll")]
+        internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        [DllImport("user32.dll")]
+        internal static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+        [DllImport("user32.dll")]
+        internal static extern IntPtr GetForegroundWindow();
+
+        [DllImport("kernel32.dll")]
+        internal static extern uint GetCurrentThreadId();
+
+        internal const int DWMWA_CLOAKED = 14;
+        internal const int WS_EX_TOOLWINDOW = 0x00000080;
+
+        [DllImport("user32.dll")]
         internal static extern bool SetCursorPos(int x, int y);
 
         [DllImport("user32.dll")]
@@ -30,6 +67,10 @@ namespace Span.Helpers
         // DWM 클로킹 — 창을 DWM에서 합성하되 화면에 안 보이게 함 (깜빡임 방지)
         [DllImport("dwmapi.dll")]
         internal static extern int DwmSetWindowAttribute(
+            IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
+
+        [DllImport("dwmapi.dll")]
+        internal static extern int DwmGetWindowAttribute(
             IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 
         internal const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;

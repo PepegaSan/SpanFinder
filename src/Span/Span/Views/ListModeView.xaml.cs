@@ -843,7 +843,7 @@ namespace Span.Views
         {
             if (ListGridView == null) return;
             ListGridView.SelectedItem = item;
-            ListGridView.ScrollIntoView(item);
+            Helpers.ListScrollHelper.ScrollIntoViewWithMargin(ListGridView, item);
         }
 
         internal List<FileSystemViewModel> GetSelectedFileSystemItems()
@@ -924,7 +924,7 @@ namespace Span.Views
             if (container == null)
             {
                 // Virtualized — scroll into view and retry
-                ListGridView.ScrollIntoView(item);
+                Helpers.ListScrollHelper.ScrollIntoViewWithMargin(ListGridView, item);
                 DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
                 {
                     var retryContainer = ListGridView.ContainerFromIndex(idx) as UIElement;

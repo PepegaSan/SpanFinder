@@ -22,7 +22,7 @@ namespace Span.Helpers
                 return false;
 
             var paths = items.Select(i => i.Path).ToList();
-            e.Data.SetText(string.Join("\n", paths));
+            // 텍스트는 싣지 않는다 (외부 앱 파일 드롭 호환 — MainWindow.OnDragItemsStarting 참고)
             e.Data.Properties["SourcePaths"] = paths;
             e.Data.Properties["SourcePane"] = isRightPane ? "Right" : "Left";
             e.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy

@@ -85,7 +85,6 @@ namespace Span
 
         // Type-ahead search
         private string _typeAheadBuffer = string.Empty;
-        private int _typeAheadCycleIndex;
         private DispatcherTimer? _typeAheadTimer;
 
         // Filter bar debounce (300ms) — prevents 14K filter per keystroke
@@ -259,6 +258,8 @@ namespace Span
         // FileSystemWatcher 서비스 참조
         private FileSystemWatcherService? _watcherService;
         private System.IO.FileSystemWatcher? _networkShortcutsWatcher;
+        private Microsoft.UI.Dispatching.DispatcherQueueTimer? _columnReconcileTimer;
+        private bool _columnReconcileRunning;
 
         // Resume reconciliation: OS may drop watcher events while the window is backgrounded.
         private DateTime? _backgroundedAtUtc;
@@ -798,7 +799,6 @@ namespace Span
             _typeAheadTimer.Tick += (s, e) =>
             {
                 _typeAheadBuffer = string.Empty;
-                _typeAheadCycleIndex = 0;
                 _typeAheadTimer.Stop();
             };
 
@@ -1448,6 +1448,12 @@ namespace Span
                 // FileSystemWatcher 정리 — PathChanged 구독 해제.
                 // StopAll()는 싱글톤이므로 마지막 MainWindow에서만 호출 (다른 창의 감시 유지).
                 this.Activated -= OnWindowActivatedForFolderRefresh;
+                if (_columnReconcileTimer != null)
+                {
+                    _columnReconcileTimer.Tick -= OnColumnReconcileTick;
+                    _columnReconcileTimer.Stop();
+                    _columnReconcileTimer = null;
+                }
                 if (_watcherService != null)
                 {
                     _watcherService.PathChanged -= OnWatcherPathChanged;
@@ -2441,6 +2447,13 @@ namespace Span
                 UpdateFileSystemWatcherPaths();
                 this.Activated -= OnWindowActivatedForFolderRefresh;
                 this.Activated += OnWindowActivatedForFolderRefresh;
+
+                _columnReconcileTimer?.Stop();
+                _columnReconcileTimer = DispatcherQueue.CreateTimer();
+                _columnReconcileTimer.Interval = TimeSpan.FromMilliseconds(1200);
+                _columnReconcileTimer.IsRepeating = true;
+                _columnReconcileTimer.Tick += OnColumnReconcileTick;
+                _columnReconcileTimer.Start();
             }
             catch (Exception ex)
             {
@@ -2586,11 +2599,8 @@ namespace Span
             {
                 if (_isClosed) return;
 
-                // Bug 4: 명시적 RefreshCurrentFolderAsync 직후엔 Watcher 리로드 스킵 (더블 리프레시 방지)
-                if (ViewModel != null && (DateTime.UtcNow - ViewModel.LastExplicitRefreshTime).TotalMilliseconds < 500)
-                    return;
-
-                // 캐시 무효화
+                // 캐시 무효화 (명시적 새로고침 직후라도 건너뛰지 않는다 — 그 로드가 이 이벤트 이전에
+                // 시작됐을 수 있어, 건너뛰면 마지막 변경(예: 임시 이름 → 최종 이름)이 영영 반영되지 않는다)
                 try
                 {
                     var cache = App.Current.Services.GetService(typeof(FolderContentCache)) as FolderContentCache;
@@ -2633,33 +2643,236 @@ namespace Span
         /// </summary>
         private async Task ReloadAndCleanupColumn(ExplorerViewModel explorer, string changedPath)
         {
-            for (int i = 0; i < explorer.Columns.Count; i++)
+            int match = -1;
+            for (int i = explorer.Columns.Count - 1; i >= 0; i--)
             {
-                var col = explorer.Columns[i];
-                if (!col.Path.Equals(changedPath, StringComparison.OrdinalIgnoreCase))
-                    continue;
+                if (DirectoryPathsEqual(explorer.Columns[i].Path, changedPath))
+                {
+                    match = i;
+                    break;
+                }
+            }
 
+            if (match >= 0)
+            {
+                // 로딩 중이어도 건너뛰지 않는다. ReloadAsync가 진행 중인 로드를 취소하고 새로 읽으므로
+                // 이벤트가 로딩 도중에 와도 최종 상태가 반영된다. (이전: IsLoading이면 return → 마지막 이벤트 유실)
+                var col = explorer.Columns[match];
                 await col.ReloadAsync();
                 explorer.NotifyCurrentItemsChanged();
+                ReapplyLiveSearchFilterAfterReload(col, match);
+                // x:Bind in the column template sometimes keeps the old rows
+                // after an in-place collection update. Reassign when the view is behind.
+                EnsureMillerListViewShowsChildren(explorer, match);
 
-                bool reloadFailed = !string.IsNullOrEmpty(col.ErrorMessage);
-
-                if (!reloadFailed && col.SelectedChild == null && i + 1 < explorer.Columns.Count)
+                // Mirror RefreshCurrentFolderAsync: SelectedChild gone → orphan child columns
+                if (col.SelectedChild == null && match + 1 < explorer.Columns.Count)
                 {
-                    explorer.CleanupColumnsFrom(i + 1);
+                    explorer.CleanupColumnsFrom(match + 1);
                 }
-                else if (!reloadFailed && col.Children.Count == 0 && i + 1 < explorer.Columns.Count)
+                // 리로드 후 빈 컬럼 → 자식 컬럼 정리
+                else if (col.Children.Count == 0 && match + 1 < explorer.Columns.Count)
                 {
-                    explorer.CleanupColumnsFrom(i + 1);
+                    explorer.CleanupColumnsFrom(match + 1);
                 }
                 // 빈 컬럼 자체가 Active이면 부모로 Active 이동
-                if (!reloadFailed && col.Children.Count == 0 && col.IsActive && i > 0)
+                if (col.Children.Count == 0 && col.IsActive && match > 0)
                 {
-                    explorer.SetActiveColumn(explorer.Columns[i - 1]);
+                    explorer.SetActiveColumn(explorer.Columns[match - 1]);
                 }
 
                 RestoreMillerListViewSelection(explorer);
-                break;
+            }
+
+            RefreshAncestorFolderRows(explorer, changedPath);
+        }
+
+        /// <summary>
+        /// Watcher reload replaces column children. If a live filter is showing that
+        /// column, rebuild it from the fresh listing instead of the stale snapshot.
+        /// </summary>
+        private void ReapplyLiveSearchFilterAfterReload(FolderViewModel column, int columnIndex)
+        {
+            if (!_isSearchFiltered || !ReferenceEquals(column, _searchFilteredColumn))
+                return;
+
+            _searchOriginalChildren = column.Children.ToList();
+            var text = SearchBox.Text?.Trim() ?? string.Empty;
+            if (string.IsNullOrEmpty(text))
+                return;
+
+            var query = Helpers.SearchQueryParser.Parse(text);
+            if (query.IsEmpty)
+                return;
+
+            ApplySearchFilter(column, query, columnIndex);
+        }
+
+        /// <summary>
+        /// Parent Miller rows keep their own FolderViewModel. When a nested column
+        /// changes, refresh that row's modified time so the age badge tracks Explorer.
+        /// </summary>
+        private static void RefreshAncestorFolderRows(ExplorerViewModel explorer, string changedPath)
+        {
+            foreach (var col in explorer.Columns)
+            {
+                foreach (var child in col.Children)
+                {
+                    if (child is FolderViewModel folder
+                        && DirectoryPathsEqual(folder.Path, changedPath))
+                    {
+                        folder.RefreshDirectoryTimestamp();
+                    }
+                }
+            }
+        }
+
+        private void EnsureMillerListViewShowsChildren(ExplorerViewModel explorer, int columnIndex)
+        {
+            if (columnIndex < 0 || columnIndex >= explorer.Columns.Count)
+                return;
+
+            var listView = GetListViewForColumn(columnIndex, explorer);
+            var col = explorer.Columns[columnIndex];
+            if (listView == null)
+                return;
+            if (listView.Items.Count == col.Children.Count && ReferenceEquals(listView.ItemsSource, col.Children))
+                return;
+
+            col.IsBulkUpdating = true;
+            try
+            {
+                listView.ItemsSource = col.Children;
+            }
+            finally
+            {
+                col.IsBulkUpdating = false;
+            }
+        }
+
+        private static bool DirectoryPathsEqual(string? a, string? b)
+        {
+            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b))
+                return false;
+            return string.Equals(a.TrimEnd('\\', '/'), b.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void OnColumnReconcileTick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
+        {
+            if (_columnReconcileRunning)
+                return;
+            _ = ReconcileVisibleColumnsAsync();
+        }
+
+        /// <summary>
+        /// Safety net for Miller columns. FileSystemWatcher often stays silent on external
+        /// drives, and directory LastWriteTime does not move when files are added there.
+        /// Compare the actual listing (names + newest write) about once a second.
+        /// </summary>
+        private async Task ReconcileVisibleColumnsAsync()
+        {
+            if (_isClosed || _columnReconcileRunning || IsDragInProgress || ViewModel == null)
+                return;
+            if (_backgroundedAtUtc != null)
+                return;
+
+            bool showHidden = _settings.ShowHiddenFiles;
+            var snapshot = new List<(ExplorerViewModel Explorer, string Path, bool HasStamp, FolderViewModel.DirectoryStamp Stamp)>();
+            foreach (var explorer in EnumerateVisibleExplorers())
+            {
+                foreach (var col in explorer.Columns.ToList())
+                {
+                    if (!FolderViewModel.IsLocalDrivePath(col.Path))
+                        continue;
+                    snapshot.Add((explorer, col.Path, col.HasListedStamp, col.CurrentListedStamp));
+                }
+            }
+
+            if (snapshot.Count == 0)
+                return;
+
+            _columnReconcileRunning = true;
+            try
+            {
+                var measured = await System.Threading.Tasks.Task.Run(() =>
+                {
+                    var result = new List<(string Path, bool HasStamp, FolderViewModel.DirectoryStamp Previous, FolderViewModel.DirectoryStamp Current)>();
+                    foreach (var item in snapshot)
+                    {
+                        try
+                        {
+                            var ioPath = Helpers.LongPathHelper.ForIo(item.Path);
+                            var current = FolderViewModel.ComputeDirectoryStamp(ioPath, showHidden);
+                            result.Add((item.Path, item.HasStamp, item.Stamp, current));
+                        }
+                        catch
+                        {
+                            // Skip folders that disappeared mid-check.
+                        }
+                    }
+                    return result;
+                });
+
+                if (_isClosed)
+                    return;
+
+                var stalePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var explorer in EnumerateVisibleExplorers())
+                {
+                    foreach (var col in explorer.Columns.ToList())
+                    {
+                        var row = measured.FirstOrDefault(m => DirectoryPathsEqual(m.Path, col.Path));
+                        if (string.IsNullOrEmpty(row.Path))
+                            continue;
+
+                        if (!col.HasListedStamp)
+                        {
+                            // First observation — remember it, don't reload a column we just opened.
+                            continue;
+                        }
+
+                        if (row.Previous.Equals(row.Current))
+                            continue;
+
+                        stalePaths.Add(col.Path);
+                    }
+                }
+
+                // Columns opened during the disk scan still need a stamp, captured on next populate.
+                foreach (var path in stalePaths)
+                {
+                    if (_isClosed)
+                        return;
+                    Helpers.DebugLogger.Log($"[FileWatcher] Column listing changed, reload: {path}");
+                    foreach (var explorer in EnumerateVisibleExplorers())
+                        await ReloadAndCleanupColumn(explorer, path);
+                }
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[FileWatcher] Column reconcile failed: {ex.Message}");
+            }
+            finally
+            {
+                _columnReconcileRunning = false;
+            }
+        }
+
+        private IEnumerable<ExplorerViewModel> EnumerateVisibleExplorers()
+        {
+            if (ViewModel?.Explorer != null)
+                yield return ViewModel.Explorer;
+
+            if (ViewModel?.IsSplitViewEnabled != true)
+                yield break;
+
+            foreach (var pane in ViewModel.GetSplitLayoutPanes())
+            {
+                if (pane == ActivePane.Left)
+                    continue;
+                var explorer = ViewModel.GetExplorerForPane(pane);
+                if (explorer != null)
+                    yield return explorer;
             }
         }
 

@@ -44,6 +44,20 @@ namespace Span.ViewModels
         /// </summary>
         public bool IsDownloadsFolder => Helpers.KnownFolderHelper.IsDownloadsFolder(Path);
 
+        /// <summary>
+        /// Directory LastWriteTimeUtc captured when this column was last listed.
+        /// </summary>
+        internal DateTime ListedDirectoryWriteUtc { get; set; }
+
+        /// <summary>
+        /// Fingerprint of the listing (count, name hash, newest write).
+        /// Directory mtime does not move on some external drives when files change.
+        /// </summary>
+        internal bool HasListedStamp { get; private set; }
+        internal int ListedEntryCount { get; private set; }
+        internal int ListedNameHash { get; private set; }
+        internal long ListedMaxWriteUtcTicks { get; private set; }
+
         [ObservableProperty]
         private ObservableCollection<FileSystemViewModel> _children = new();
 
@@ -1179,6 +1193,7 @@ namespace Span.ViewModels
                 OnPropertyChanged(nameof(ChildCountText));
                 OnPropertyChanged(nameof(HasChildren));
                 OnPropertyChanged(nameof(TotalChildCount));
+                CaptureListedDirectoryWriteUtc();
             }
 
             // Detect cloud/git on background thread AFTER items are displayed
@@ -1602,6 +1617,140 @@ namespace Span.ViewModels
         }
 
         // LoadThumbnailsAsync 제거됨 — 썸네일은 ContainerContentChanging에서 on-demand 로드
+
+        /// <summary>
+        /// Remember the folder's directory timestamp and listing fingerprint after a successful listing.
+        /// </summary>
+        private void CaptureListedDirectoryWriteUtc()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(Path) || FileSystemRouter.IsRemotePath(Path))
+                    return;
+                if (!(Path.Length >= 2 && Path[1] == ':'))
+                    return;
+
+                var ioPath = Helpers.LongPathHelper.ForIo(Path);
+                ListedDirectoryWriteUtc = System.IO.Directory.GetLastWriteTimeUtc(ioPath);
+                var stamp = ComputeDirectoryStamp(ioPath, ReadShowHiddenFiles());
+                ListedEntryCount = stamp.Count;
+                ListedNameHash = stamp.NameHash;
+                ListedMaxWriteUtcTicks = stamp.MaxWriteUtcTicks;
+                HasListedStamp = true;
+            }
+            catch
+            {
+                // Missing/inaccessible folders are handled by the next reload.
+            }
+        }
+
+        internal readonly struct DirectoryStamp
+        {
+            public int Count { get; init; }
+            public int NameHash { get; init; }
+            public long MaxWriteUtcTicks { get; init; }
+
+            public bool Equals(DirectoryStamp other)
+                => Count == other.Count && NameHash == other.NameHash && MaxWriteUtcTicks == other.MaxWriteUtcTicks;
+        }
+
+        internal DirectoryStamp CurrentListedStamp => new()
+        {
+            Count = ListedEntryCount,
+            NameHash = ListedNameHash,
+            MaxWriteUtcTicks = ListedMaxWriteUtcTicks
+        };
+
+        internal static bool IsLocalDrivePath(string? path)
+            => !string.IsNullOrEmpty(path)
+               && !FileSystemRouter.IsRemotePath(path)
+               && path.Length >= 2
+               && path[1] == ':';
+
+        internal static DirectoryStamp ComputeDirectoryStamp(string ioPath, bool showHidden)
+        {
+            int count = 0;
+            int hash = 0;
+            long maxWrite = 0;
+
+            foreach (var full in System.IO.Directory.EnumerateFileSystemEntries(ioPath))
+            {
+                System.IO.FileAttributes attrs;
+                try
+                {
+                    attrs = System.IO.File.GetAttributes(full);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (!showHidden && (attrs & (System.IO.FileAttributes.Hidden | System.IO.FileAttributes.System)) != 0)
+                    continue;
+
+                count++;
+                var name = System.IO.Path.GetFileName(full);
+                hash ^= StringComparer.OrdinalIgnoreCase.GetHashCode(name);
+
+                long ticks;
+                try
+                {
+                    ticks = System.IO.File.GetLastWriteTimeUtc(full).Ticks;
+                }
+                catch
+                {
+                    ticks = 0;
+                }
+
+                if (ticks > maxWrite)
+                    maxWrite = ticks;
+            }
+
+            return new DirectoryStamp { Count = count, NameHash = hash, MaxWriteUtcTicks = maxWrite };
+        }
+
+        private static bool ReadShowHiddenFiles()
+        {
+            try
+            {
+                var settings = App.Current.Services.GetService(typeof(Services.SettingsService)) as Services.SettingsService;
+                return settings?.ShowHiddenFiles == true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Update this folder row's modified time (Miller age badge) from disk
+        /// without reloading its children. Used when a nested column changes.
+        /// </summary>
+        internal void RefreshDirectoryTimestamp()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(Path) || FileSystemRouter.IsRemotePath(Path))
+                    return;
+                var ioPath = Helpers.LongPathHelper.ForIo(Path);
+                if (!System.IO.Directory.Exists(ioPath))
+                    return;
+                var dt = System.IO.Directory.GetLastWriteTime(ioPath);
+                if (_folderModel.DateModified == dt)
+                    return;
+                _folderModel.DateModified = dt;
+                OnPropertyChanged(nameof(DateModified));
+                OnPropertyChanged(nameof(DateModifiedShort));
+                OnPropertyChanged(nameof(DateModifiedValue));
+                OnPropertyChanged(nameof(RelativeAgeText));
+                OnPropertyChanged(nameof(RelativeAgeBrush));
+                OnPropertyChanged(nameof(HasRelativeAge));
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[FolderViewModel] RefreshDirectoryTimestamp failed: {ex.Message}");
+            }
+        }
 
         /// <summary>
         /// Alias for ReloadAsync (used by settings refresh).

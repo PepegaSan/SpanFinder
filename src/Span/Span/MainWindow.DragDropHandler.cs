@@ -50,6 +50,7 @@ namespace Span
 
         /// <summary>True while the main window was sent behind other apps during an outbound drag.</summary>
         private bool _windowLoweredForDrag;
+        private IntPtr _revealedDragTarget;
 
         // 커스텀 드래그 오버레이: WinUI 기본 ListView 행 스크린샷 + 시스템 Caption 대신
         // 앱 폰트/테마에 맞는 경량 오버레이로 아이콘+파일명+작업 텍스트를 표시한다.
@@ -90,7 +91,8 @@ namespace Span
             _dragItemIcons = items.Take(3).Select(i => i.IconGlyph).ToList();
 
             var paths = items.Select(i => i.Path).ToList();
-            e.Data.SetText(string.Join("\n", paths));
+            // 텍스트(CF_UNICODETEXT)는 싣지 않는다 — 탐색기처럼 파일 형식만 제공해야 Discord 등
+            // Chromium/Electron 앱이 드롭을 텍스트가 아닌 파일 업로드로 처리한다. 내부 드롭은 SourcePaths 사용.
             e.Data.Properties["SourcePaths"] = paths;
             e.Data.Properties["SourcePane"] = DeterminePane(sender);
             e.Data.RequestedOperation = DataPackageOperation.Copy | DataPackageOperation.Move | DataPackageOperation.Link;
@@ -129,27 +131,39 @@ namespace Span
             HideDragTooltip();
             _dragItemCount = 0;
             _windowLoweredForDrag = false;
+            _revealedDragTarget = IntPtr.Zero;
         }
 
 
         /// <summary>
-        /// While dragging out to another app, send Span behind other windows when the cursor
-        /// leaves our window. Do not raise again until drag ends or an internal drop target
-        /// receives DragOver — otherwise the cursor path crossing our window pops Span in front
-        /// of the target app (same vertical band as a neighboring window).
+        /// Explorer-style outbound drag. WinUI keeps the source window foreground, so the
+        /// window under the cursor is always Span until the pointer has fully left — the
+        /// other program never comes forward. Yield earlier: when the pointer nears the
+        /// edge toward another app, or is already over one sitting behind us.
+        /// Once yielded, stay behind for the rest of the drag.
         /// </summary>
         private void UpdateWindowZOrderForOutboundDrag()
         {
-            if (_hwnd == IntPtr.Zero || !IsDragInProgress || _windowLoweredForDrag)
+            if (_hwnd == IntPtr.Zero || !IsDragInProgress)
                 return;
 
-            Helpers.NativeMethods.GetCursorPos(out var pt);
-            Helpers.NativeMethods.GetWindowRect(_hwnd, out var rect);
+            if (!_windowLoweredForDrag)
+            {
+                if (TryFindExternalDragTarget(out var target))
+                {
+                    _windowLoweredForDrag = true;
+                    _revealedDragTarget = target;
+                }
+            }
+            else
+            {
+                Helpers.NativeMethods.GetCursorPos(out var pt);
+                var under = RootAppWindowFromPoint(pt);
+                if (under != IntPtr.Zero)
+                    _revealedDragTarget = under;
+            }
 
-            bool cursorInWindow = pt.X >= rect.Left && pt.X < rect.Right
-                               && pt.Y >= rect.Top && pt.Y < rect.Bottom;
-
-            if (cursorInWindow)
+            if (!_windowLoweredForDrag)
                 return;
 
             Helpers.NativeMethods.SetWindowPos(
@@ -157,23 +171,214 @@ namespace Span
                 Helpers.NativeMethods.HWND_BOTTOM,
                 0, 0, 0, 0,
                 Helpers.NativeMethods.SWP_NOSIZE | Helpers.NativeMethods.SWP_NOMOVE | Helpers.NativeMethods.SWP_NOACTIVATE);
-            _windowLoweredForDrag = true;
+
+            if (_revealedDragTarget != IntPtr.Zero && Helpers.NativeMethods.IsWindow(_revealedDragTarget))
+                ForceWindowAbove(_revealedDragTarget);
         }
 
         /// <summary>
-        /// Raise Span again when the user drags back over an internal drop target (pane/column).
+        /// Another top-level app the user is dragging toward, before the cursor leaves Span.
         /// </summary>
-        private void RestoreWindowZOrderForInternalDragIfNeeded()
+        private bool TryFindExternalDragTarget(out IntPtr target)
         {
-            if (!_windowLoweredForDrag || _hwnd == IntPtr.Zero)
-                return;
+            target = IntPtr.Zero;
+            const int edgeMarginPx = 100;
 
+            Helpers.NativeMethods.GetCursorPos(out var pt);
+            Helpers.NativeMethods.GetWindowRect(_hwnd, out var rect);
+            bool inside = pt.X >= rect.Left && pt.X < rect.Right
+                       && pt.Y >= rect.Top && pt.Y < rect.Bottom;
+
+            if (!inside)
+            {
+                target = RootAppWindowFromPoint(pt);
+                return target != IntPtr.Zero;
+            }
+
+            bool nearEdge = IsNearWindowEdge(rect, pt, edgeMarginPx);
+            var behind = FindAppWindowBehind(_hwnd, pt);
+            if (behind != IntPtr.Zero && (nearEdge || !CoversMostOfWindow(behind, rect)))
+            {
+                target = behind;
+                return true;
+            }
+
+            if (nearEdge && TryProbeJustOutside(rect, pt, edgeMarginPx, out var probe))
+            {
+                target = RootAppWindowFromPoint(probe);
+                return target != IntPtr.Zero;
+            }
+
+            return false;
+        }
+
+        private static bool IsNearWindowEdge(Helpers.NativeMethods.RECT rect, Helpers.NativeMethods.POINT pt, int margin)
+        {
+            int dl = pt.X - rect.Left;
+            int dr = rect.Right - pt.X;
+            int dt = pt.Y - rect.Top;
+            int db = rect.Bottom - pt.Y;
+            return dl < margin || dr < margin || dt < margin || db < margin;
+        }
+
+        private static bool TryProbeJustOutside(
+            Helpers.NativeMethods.RECT rect,
+            Helpers.NativeMethods.POINT pt,
+            int margin,
+            out Helpers.NativeMethods.POINT probe)
+        {
+            int dl = pt.X - rect.Left;
+            int dr = rect.Right - pt.X;
+            int dt = pt.Y - rect.Top;
+            int db = rect.Bottom - pt.Y;
+            int nearest = Math.Min(Math.Min(dl, dr), Math.Min(dt, db));
+            probe = default;
+            if (nearest >= margin)
+                return false;
+
+            if (nearest == dl)
+                probe = new Helpers.NativeMethods.POINT { X = rect.Left - 16, Y = pt.Y };
+            else if (nearest == dr)
+                probe = new Helpers.NativeMethods.POINT { X = rect.Right + 16, Y = pt.Y };
+            else if (nearest == dt)
+                probe = new Helpers.NativeMethods.POINT { X = pt.X, Y = rect.Top - 16 };
+            else
+                probe = new Helpers.NativeMethods.POINT { X = pt.X, Y = rect.Bottom + 16 };
+            return true;
+        }
+
+        private IntPtr RootAppWindowFromPoint(Helpers.NativeMethods.POINT pt)
+        {
+            var hwnd = Helpers.NativeMethods.WindowFromPoint(pt);
+            if (hwnd == IntPtr.Zero)
+                return IntPtr.Zero;
+            hwnd = Helpers.NativeMethods.GetAncestor(hwnd, Helpers.NativeMethods.GA_ROOT);
+            return IsExternalAppWindow(hwnd) ? hwnd : IntPtr.Zero;
+        }
+
+        private IntPtr FindAppWindowBehind(IntPtr self, Helpers.NativeMethods.POINT pt)
+        {
+            var hwnd = Helpers.NativeMethods.GetWindow(self, Helpers.NativeMethods.GW_HWNDNEXT);
+            for (int i = 0; i < 48 && hwnd != IntPtr.Zero; i++)
+            {
+                var root = Helpers.NativeMethods.GetAncestor(hwnd, Helpers.NativeMethods.GA_ROOT);
+                if (root == IntPtr.Zero)
+                    root = hwnd;
+                if (root != self && IsExternalAppWindow(root) && WindowContainsPoint(root, pt))
+                    return root;
+                hwnd = Helpers.NativeMethods.GetWindow(hwnd, Helpers.NativeMethods.GW_HWNDNEXT);
+            }
+            return IntPtr.Zero;
+        }
+
+        private bool IsExternalAppWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero || hwnd == _hwnd)
+                return false;
+            if (!Helpers.NativeMethods.IsWindowVisible(hwnd) || Helpers.NativeMethods.IsIconic(hwnd))
+                return false;
+
+            Helpers.NativeMethods.GetWindowThreadProcessId(hwnd, out uint pid);
+            Helpers.NativeMethods.GetWindowThreadProcessId(_hwnd, out uint ourPid);
+            if (pid == ourPid && !HasSameWindowClass(hwnd, _hwnd))
+                return false;
+
+            int cloaked = 0;
+            Helpers.NativeMethods.DwmGetWindowAttribute(hwnd, Helpers.NativeMethods.DWMWA_CLOAKED, ref cloaked, sizeof(int));
+            if (cloaked != 0)
+                return false;
+
+            int ex = Helpers.NativeMethods.GetWindowLong(hwnd, Helpers.NativeMethods.GWL_EXSTYLE);
+            if ((ex & Helpers.NativeMethods.WS_EX_TOOLWINDOW) != 0)
+                return false;
+
+            var className = new System.Text.StringBuilder(256);
+            if (Helpers.NativeMethods.GetClassName(hwnd, className, className.Capacity) > 0)
+            {
+                var name = className.ToString();
+                if (name is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd"
+                    or "NotifyIconOverflowWindow" or "TopLevelWindowForOverflowXamlIsland")
+                    return false;
+            }
+
+            if (!Helpers.NativeMethods.GetWindowRect(hwnd, out var rect))
+                return false;
+            int w = rect.Right - rect.Left;
+            int h = rect.Bottom - rect.Top;
+            return w >= 80 && h >= 80;
+        }
+
+        private static bool WindowContainsPoint(IntPtr hwnd, Helpers.NativeMethods.POINT pt)
+        {
+            if (!Helpers.NativeMethods.GetWindowRect(hwnd, out var rect))
+                return false;
+            return pt.X >= rect.Left && pt.X < rect.Right && pt.Y >= rect.Top && pt.Y < rect.Bottom;
+        }
+
+        private static bool CoversMostOfWindow(IntPtr other, Helpers.NativeMethods.RECT ours)
+        {
+            if (!Helpers.NativeMethods.GetWindowRect(other, out var theirs))
+                return false;
+            int ourArea = Math.Max(1, (ours.Right - ours.Left) * (ours.Bottom - ours.Top));
+            int left = Math.Max(ours.Left, theirs.Left);
+            int top = Math.Max(ours.Top, theirs.Top);
+            int right = Math.Min(ours.Right, theirs.Right);
+            int bottom = Math.Min(ours.Bottom, theirs.Bottom);
+            int iw = Math.Max(0, right - left);
+            int ih = Math.Max(0, bottom - top);
+            return (long)iw * ih > (long)ourArea * 75 / 100;
+        }
+
+        private static bool HasSameWindowClass(IntPtr a, IntPtr b)
+        {
+            var ca = new System.Text.StringBuilder(256);
+            var cb = new System.Text.StringBuilder(256);
+            if (Helpers.NativeMethods.GetClassName(a, ca, ca.Capacity) <= 0)
+                return false;
+            if (Helpers.NativeMethods.GetClassName(b, cb, cb.Capacity) <= 0)
+                return false;
+            return string.Equals(ca.ToString(), cb.ToString(), StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// WinUI re-activates the drag source on every move. Push the target above us
+        /// and take foreground so it stays visible while the pointer is still over Span.
+        /// </summary>
+        private static void ForceWindowAbove(IntPtr target)
+        {
             Helpers.NativeMethods.SetWindowPos(
-                _hwnd,
+                target,
                 Helpers.NativeMethods.HWND_TOP,
                 0, 0, 0, 0,
                 Helpers.NativeMethods.SWP_NOSIZE | Helpers.NativeMethods.SWP_NOMOVE | Helpers.NativeMethods.SWP_NOACTIVATE);
-            _windowLoweredForDrag = false;
+
+            var foreground = Helpers.NativeMethods.GetForegroundWindow();
+            if (foreground == target)
+                return;
+
+            uint current = Helpers.NativeMethods.GetCurrentThreadId();
+            uint foreThread = foreground != IntPtr.Zero
+                ? Helpers.NativeMethods.GetWindowThreadProcessId(foreground, out _)
+                : 0;
+            uint targetThread = Helpers.NativeMethods.GetWindowThreadProcessId(target, out _);
+
+            bool attachedFore = false;
+            bool attachedTarget = false;
+            try
+            {
+                if (foreThread != 0 && foreThread != current)
+                    attachedFore = Helpers.NativeMethods.AttachThreadInput(current, foreThread, true);
+                if (targetThread != 0 && targetThread != current && targetThread != foreThread)
+                    attachedTarget = Helpers.NativeMethods.AttachThreadInput(current, targetThread, true);
+                Helpers.NativeMethods.SetForegroundWindow(target);
+            }
+            finally
+            {
+                if (attachedTarget)
+                    Helpers.NativeMethods.AttachThreadInput(current, targetThread, false);
+                if (attachedFore)
+                    Helpers.NativeMethods.AttachThreadInput(current, foreThread, false);
+            }
         }
 
         /// <summary>
@@ -196,7 +401,8 @@ namespace Span
         private void OnFavoritesDragOver(object sender, DragEventArgs e)
         {
             if (e.DataView.Contains(StandardDataFormats.Text) ||
-                e.DataView.Contains(StandardDataFormats.StorageItems))
+                e.DataView.Contains(StandardDataFormats.StorageItems) ||
+                Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out _))
             {
                 // Link (not Move) so the ListView does not treat folder drops as item reorder.
                 e.AcceptedOperation = DataPackageOperation.Link;
@@ -222,7 +428,9 @@ namespace Span
         private async void OnFavoritesDrop(object sender, DragEventArgs e)
         {
             HideDragTooltip();
-            if (!e.DataView.Contains(StandardDataFormats.Text) &&
+            bool hasSourcePaths = Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out var sourcePaths);
+            if (!hasSourcePaths &&
+                !e.DataView.Contains(StandardDataFormats.Text) &&
                 !e.DataView.Contains(StandardDataFormats.StorageItems))
                 return;
 
@@ -231,7 +439,19 @@ namespace Span
             {
                 var groupId = ResolveFavoriteDropTargetGroupId(e);
 
-                if (e.DataView.Contains(StandardDataFormats.Text))
+                // Span 내부 드래그: 텍스트를 싣지 않으므로(외부 앱 호환) 경로 목록을 직접 사용
+                if (hasSourcePaths)
+                {
+                    foreach (var path in sourcePaths)
+                    {
+                        if (System.IO.Directory.Exists(path))
+                        {
+                            ViewModel.AddToFavorites(path, groupId);
+                            Helpers.DebugLogger.Log($"[Sidebar] Folder dropped to favorites: {path} group={groupId ?? "(ungrouped)"}");
+                        }
+                    }
+                }
+                else if (e.DataView.Contains(StandardDataFormats.Text))
                 {
                     var path = await e.DataView.GetTextAsync();
                     if (!string.IsNullOrEmpty(path) && System.IO.Directory.Exists(path))
@@ -362,7 +582,6 @@ namespace Span
             e.AcceptedOperation = ToAcceptedOperation(mode);
             e.DragUIOverride.IsCaptionVisible = false;
             e.DragUIOverride.IsGlyphVisible = false;
-            RestoreWindowZOrderForInternalDragIfNeeded();
             UpdateDragTooltip(GetDragCaption(mode, targetFolder.Name), e, sender as UIElement ?? (UIElement)Content);
 
             // Visual feedback: highlight background (캐시된 브러시 사용)
@@ -551,7 +770,6 @@ namespace Span
             e.AcceptedOperation = ToAcceptedOperation(mode);
             e.DragUIOverride.IsCaptionVisible = false;
             e.DragUIOverride.IsGlyphVisible = false;
-            RestoreWindowZOrderForInternalDragIfNeeded();
             UpdateDragTooltip(GetDragCaption(mode, folderVm.Name), e, sender as UIElement ?? (UIElement)Content);
             e.Handled = true; // Prevent bubbling to PaneDragOver
         }
@@ -1254,7 +1472,6 @@ namespace Span
             e.AcceptedOperation = ToAcceptedOperation(mode);
             e.DragUIOverride.IsCaptionVisible = false;
             e.DragUIOverride.IsGlyphVisible = false;
-            RestoreWindowZOrderForInternalDragIfNeeded();
             UpdateDragTooltip(GetDragCaption(mode, targetExplorer?.CurrentFolder?.Name ?? ""), e, sender as UIElement ?? (UIElement)Content);
 
             // Show drop overlay
@@ -1817,7 +2034,6 @@ namespace Span
             e.AcceptedOperation = ToAcceptedOperation(mode);
             e.DragUIOverride.IsCaptionVisible = false;
             e.DragUIOverride.IsGlyphVisible = false;
-            RestoreWindowZOrderForInternalDragIfNeeded();
             UpdateDragTooltip(GetDragCaption(mode, destFolderName), e, sender);
             e.Handled = true;
         }
@@ -1888,7 +2104,6 @@ namespace Span
             e.AcceptedOperation = ToAcceptedOperation(mode);
             e.DragUIOverride.IsCaptionVisible = false;
             e.DragUIOverride.IsGlyphVisible = false;
-            RestoreWindowZOrderForInternalDragIfNeeded();
             UpdateDragTooltip(GetDragCaption(mode, folderVm.Name), e, grid);
 
             // Visual highlight

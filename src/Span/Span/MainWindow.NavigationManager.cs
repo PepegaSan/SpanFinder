@@ -1232,21 +1232,20 @@ namespace Span
         /// <summary>
         /// Chevron flyout 표시 공통 로직.
         /// </summary>
-        private void ShowBreadcrumbChevronFlyout(string fullPath, Button? btn, ExplorerViewModel explorer)
+        private async void ShowBreadcrumbChevronFlyout(string fullPath, Button? btn, ExplorerViewModel explorer)
         {
             if (btn == null) return;
 
             try
             {
-                if (!System.IO.Directory.Exists(fullPath)) return;
+                bool showHidden = App.Current.Services.GetService(typeof(Services.SettingsService)) is Services.SettingsService settings
+                                  && settings.ShowHiddenFiles;
 
-                string[] dirs;
-                try { dirs = System.IO.Directory.GetDirectories(fullPath); }
-                catch (UnauthorizedAccessException) { return; }
+                // \uB514\uB809\uD130\uB9AC \uC5F4\uAC70\uB294 \uB124\uD2B8\uC6CC\uD06C/\uB300\uB7C9 \uD3F4\uB354\uC5D0\uC11C \uB290\uB9B4 \uC218 \uC788\uC5B4 UI \uC2A4\uB808\uB4DC \uBC16\uC5D0\uC11C \uC218\uD589\uD55C\uB2E4.
+                var subfolders = await Task.Run(() => EnumerateBreadcrumbSubfolders(fullPath, showHidden));
+                if (subfolders == null || subfolders.Count == 0) return;
 
-                if (dirs.Length == 0) return;
-                Array.Sort(dirs, StringComparer.OrdinalIgnoreCase);
-
+                // \uD604\uC7AC \uACBD\uB85C\uAC00 \uC18D\uD55C \uD558\uC704 \uD3F4\uB354 (\uC120\uD0DD \uD45C\uC2DC\uC6A9)
                 string? currentChildPath = null;
                 if (!string.IsNullOrEmpty(explorer.CurrentPath) &&
                     explorer.CurrentPath.StartsWith(fullPath, StringComparison.OrdinalIgnoreCase) &&
@@ -1257,27 +1256,107 @@ namespace Span
                     currentChildPath = System.IO.Path.Combine(fullPath, childName);
                 }
 
-                var flyout = new MenuFlyout();
-                foreach (var dir in dirs)
+                // Explorer \uBC29\uC2DD: \uD3F4\uB354 \uC544\uC774\uCF58 + \uC774\uB984 \uBAA9\uB85D, \uB192\uC774 \uC81C\uD55C \uD6C4 \uC2A4\uD06C\uB864, \uD604\uC7AC \uD558\uC704 \uD3F4\uB354 \uAC15\uC870.
+                var list = new ListView
                 {
-                    var item = new MenuFlyoutItem { Text = System.IO.Path.GetFileName(dir) };
-                    string dirPath = dir;
+                    SelectionMode = ListViewSelectionMode.Single,
+                    IsItemClickEnabled = true,
+                    MinWidth = 220,
+                    MaxWidth = 420,
+                    MaxHeight = 360,
+                    Padding = new Thickness(0),
+                };
 
-                    if (currentChildPath != null &&
-                        dir.Equals(currentChildPath, StringComparison.OrdinalIgnoreCase))
+                ListViewItem? currentItem = null;
+                foreach (var (name, path) in subfolders)
+                {
+                    var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                    row.Children.Add(new FontIcon
                     {
-                        item.Icon = new FontIcon { Glyph = "\uE73E" };
-                    }
+                        Glyph = Services.IconService.Current?.FolderIcon ?? "\uED53",
+                        FontFamily = (Microsoft.UI.Xaml.Media.FontFamily)Application.Current.Resources["RemixIcons"],
+                        Foreground = Services.IconService.Current?.FolderBrush,
+                        FontSize = 14,
+                        VerticalAlignment = VerticalAlignment.Center,
+                    });
+                    row.Children.Add(new TextBlock
+                    {
+                        Text = name,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        VerticalAlignment = VerticalAlignment.Center,
+                    });
 
-                    item.Click += (s, args) => _ = explorer.NavigateToPath(dirPath);
-                    flyout.Items.Add(item);
+                    var item = new ListViewItem
+                    {
+                        Content = row,
+                        Tag = path,
+                        Padding = new Thickness(10, 4, 14, 4),
+                        MinHeight = 28,
+                    };
+                    ToolTipService.SetToolTip(item, path);
+                    list.Items.Add(item);
+
+                    if (currentChildPath != null && path.Equals(currentChildPath, StringComparison.OrdinalIgnoreCase))
+                        currentItem = item;
                 }
+
+                var flyout = new Flyout
+                {
+                    Content = list,
+                    Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedLeft,
+                };
+
+                list.ItemClick += (s, args) =>
+                {
+                    if (args.ClickedItem is ListViewItem clicked && clicked.Tag is string dirPath)
+                    {
+                        flyout.Hide();
+                        _ = explorer.NavigateToPath(dirPath);
+                    }
+                };
+
+                flyout.Opened += (s, args) =>
+                {
+                    if (currentItem != null)
+                    {
+                        list.SelectedItem = currentItem;
+                        list.ScrollIntoView(currentItem);
+                    }
+                    list.Focus(FocusState.Keyboard);
+                };
 
                 flyout.ShowAt(btn);
             }
             catch (Exception ex)
             {
                 Helpers.DebugLogger.Log($"[Breadcrumb] Chevron error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// \uBE0C\uB808\uB4DC\uD06C\uB7FC \uB4DC\uB86D\uB2E4\uC6B4\uC6A9 \uD558\uC704 \uD3F4\uB354 \uBAA9\uB85D. \uC228\uAE40 \uC124\uC815\uC744 \uB530\uB974\uACE0 \uC790\uC5F0 \uC815\uB82C(1, 2, 10)\uD55C\uB2E4.
+        /// \uC811\uADFC \uBD88\uAC00/\uC874\uC7AC\uD558\uC9C0 \uC54A\uC73C\uBA74 null.
+        /// </summary>
+        private static List<(string Name, string Path)>? EnumerateBreadcrumbSubfolders(string fullPath, bool showHidden)
+        {
+            try
+            {
+                var root = new System.IO.DirectoryInfo(Helpers.LongPathHelper.ForIo(fullPath));
+                if (!root.Exists) return null;
+
+                var result = new List<(string Name, string Path)>();
+                foreach (var dir in root.EnumerateDirectories())
+                {
+                    if (Helpers.FileVisibility.ShouldHide(dir.Attributes, showHidden)) continue;
+                    result.Add((dir.Name, Helpers.LongPathHelper.StripPrefix(dir.FullName)));
+                }
+
+                result.Sort((a, b) => Helpers.NaturalStringComparer.Instance.Compare(a.Name, b.Name));
+                return result;
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or System.IO.IOException)
+            {
+                return null;
             }
         }
 

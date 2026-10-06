@@ -79,7 +79,8 @@ namespace Span.Services
                             // (이전엔 FileName|DirectoryName만 감시하여 "파일이 변경됐을 때"는
                             //  다른 폴더로 이동했다 돌아와야 반영되던 문제.)
                             NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName
-                                | NotifyFilters.LastWrite | NotifyFilters.Size,
+                                | NotifyFilters.LastWrite | NotifyFilters.Size
+                                | NotifyFilters.Attributes | NotifyFilters.CreationTime,
                             IncludeSubdirectories = false,
                             InternalBufferSize = BufferSize,
                         };
@@ -247,7 +248,8 @@ namespace Span.Services
                     var newWatcher = new FileSystemWatcher(path)
                     {
                         NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName
-                            | NotifyFilters.LastWrite | NotifyFilters.Size,
+                            | NotifyFilters.LastWrite | NotifyFilters.Size
+                            | NotifyFilters.Attributes | NotifyFilters.CreationTime,
                         IncludeSubdirectories = false,
                         InternalBufferSize = BufferSize,
                     };

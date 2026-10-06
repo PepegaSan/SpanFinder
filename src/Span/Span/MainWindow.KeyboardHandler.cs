@@ -1652,53 +1652,45 @@ namespace Span
         }
 
         /// <summary>
-        /// Explorer-style type-ahead: repeat letter cycles matches; another letter extends prefix.
+        /// 입력 버퍼 갱신: 타이머(짧은 간격) 안에 친 문자는 이어 붙이고, 아니면 새로 시작한다.
         /// </summary>
         private void AdvanceTypeAheadBuffer(char ch)
         {
-            bool timerActive = _typeAheadTimer?.IsEnabled == true;
-
-            if (timerActive
-                && _typeAheadBuffer.Length == 1
-                && char.ToLowerInvariant(_typeAheadBuffer[0]) == char.ToLowerInvariant(ch))
-            {
-                _typeAheadCycleIndex++;
-            }
-            else if (timerActive)
-            {
+            if (_typeAheadTimer?.IsEnabled == true)
                 _typeAheadBuffer += ch;
-                _typeAheadCycleIndex = 0;
-            }
             else
-            {
                 _typeAheadBuffer = ch.ToString();
-                _typeAheadCycleIndex = 0;
-            }
 
             _typeAheadTimer?.Stop();
             _typeAheadTimer?.Start();
         }
 
         /// <summary>
-        /// Returns the type-ahead match at the current cycle index (wraps at end of list).
+        /// Windows Explorer와 같은 타입 어헤드 매칭.
+        /// - 같은 문자 반복("h", "hh", "hhh"…): 현재 선택 다음의 그 문자로 시작하는 항목으로 이동,
+        ///   끝에 닿으면 처음부터 순환. 시간 간격과 무관하게 누를 때마다 다음 항목.
+        /// - 서로 다른 문자("hel"): 접두사 검색. 현재 항목이 여전히 맞으면 유지, 아니면 다음 일치 항목.
         /// </summary>
-        private FileSystemViewModel? FindTypeAheadMatch(IList<FileSystemViewModel> children)
+        private FileSystemViewModel? FindTypeAheadMatch(IList<FileSystemViewModel> children, FileSystemViewModel? current)
         {
             if (children == null || children.Count == 0 || string.IsNullOrEmpty(_typeAheadBuffer))
                 return null;
 
-            var matches = new List<FileSystemViewModel>();
-            foreach (var child in children)
+            bool repeatedChar = _typeAheadBuffer.All(c =>
+                char.ToLowerInvariant(c) == char.ToLowerInvariant(_typeAheadBuffer[0]));
+            string prefix = repeatedChar ? _typeAheadBuffer.Substring(0, 1) : _typeAheadBuffer;
+
+            int currentIndex = current != null ? children.IndexOf(current) : -1;
+            // 반복 문자는 현재 다음부터, 접두사 확장은 현재 항목 포함해서 검색
+            int start = repeatedChar ? currentIndex + 1 : Math.Max(currentIndex, 0);
+
+            for (int i = 0; i < children.Count; i++)
             {
-                if (child.Name.StartsWith(_typeAheadBuffer, StringComparison.OrdinalIgnoreCase))
-                    matches.Add(child);
+                var candidate = children[(start + i) % children.Count];
+                if (candidate.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return candidate;
             }
-
-            if (matches.Count == 0)
-                return null;
-
-            _typeAheadCycleIndex %= matches.Count;
-            return matches[_typeAheadCycleIndex];
+            return null;
         }
 
         /// <summary>
@@ -1712,7 +1704,7 @@ namespace Span
             if (columns == null || activeIndex < 0 || activeIndex >= columns.Count) return;
 
             var column = columns[activeIndex];
-            var match = FindTypeAheadMatch(column.Children);
+            var match = FindTypeAheadMatch(column.Children, column.SelectedChild);
             if (match == null) return;
 
             column.SelectedChild = match;
@@ -1720,7 +1712,7 @@ namespace Span
             if (listView != null)
             {
                 ApplyMillerListViewSelection(listView, new[] { match });
-                listView.ScrollIntoView(match);
+                Helpers.ListScrollHelper.ScrollIntoViewWithMargin(listView, match);
             }
         }
 
@@ -2120,19 +2112,22 @@ namespace Span
         /// Details/List/Icon 뷰에서 타입 어헤드 검색을 수행한다.
         /// Miller Columns의 DoTypeAheadSearch와 동일한 버퍼/타이머를 공유한다.
         /// </summary>
-        public void HandleViewTypeAhead(char ch, ViewModels.ExplorerViewModel? explorer)
+        public void HandleViewTypeAhead(char ch, ViewModels.ExplorerViewModel? explorer, ListViewBase? listHost = null)
         {
             if (explorer?.CurrentFolder == null) return;
 
             AdvanceTypeAheadBuffer(ch);
 
             var children = explorer.CurrentFolder.Children;
-            var match = FindTypeAheadMatch(children);
+            var match = FindTypeAheadMatch(children, explorer.CurrentFolder.SelectedChild);
             if (match == null) return;
 
             explorer.CurrentFolder.SelectedChild = match;
             explorer.CurrentFolder.SyncSelectedItems(new List<object> { match });
-            GetActiveListView()?.SelectItemForTypeAhead(match);
+            if (listHost != null)
+                Helpers.ListScrollHelper.ScrollIntoViewWithMargin(listHost, match);
+            else
+                GetActiveListView()?.SelectItemForTypeAhead(match);
         }
 
         /// <summary>

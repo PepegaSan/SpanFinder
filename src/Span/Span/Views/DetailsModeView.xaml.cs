@@ -831,7 +831,7 @@ namespace Span.Views
                         var spCh = MainWindow.KeyToChar(e.Key);
                         if (spCh != '\0')
                         {
-                            (ContextMenuHost as MainWindow)?.HandleViewTypeAhead(spCh, ViewModel);
+                            (ContextMenuHost as MainWindow)?.HandleViewTypeAhead(spCh, ViewModel, DetailsListView);
                             e.Handled = true;
                         }
                     }
@@ -844,7 +844,7 @@ namespace Span.Views
                     var ch = MainWindow.KeyToChar(e.Key);
                     if (ch != '\0')
                     {
-                        (ContextMenuHost as MainWindow)?.HandleViewTypeAhead(ch, ViewModel);
+                        (ContextMenuHost as MainWindow)?.HandleViewTypeAhead(ch, ViewModel, DetailsListView);
                         e.Handled = true;
                     }
                     break;
