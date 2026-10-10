@@ -2171,8 +2171,12 @@ namespace Span
         /// <summary>
         /// LocalSettings에 저장된 미리보기 패널 너비를 읽는다. 미저장 시 기본 320px.
         /// </summary>
-        private static double GetSavedPreviewWidth(string key)
+        private double GetSavedPreviewWidth(string key)
         {
+            // Zuletzt tatsächlich angezeigte Breite (Drag am Splitter, Layout-Vorlage) hat Vorrang vor dem
+            // beim Beenden gespeicherten Wert — sonst springt das Panel nach Tab-Wechseln zurück.
+            double last = key == "RightPreviewWidth" ? _lastRightPreviewWidth : _lastLeftPreviewWidth;
+            if (last >= 100) return last;
             try
             {
                 var settings = Windows.Storage.ApplicationData.Current.LocalSettings;

@@ -673,6 +673,16 @@ public class SettingsService : ISettingsService
         set => Set("AutoFitColumnWidth", value);
     }
 
+    /// <summary>
+    /// Ältere Miller-Spalten (alles links vom Vorgänger der aktiven Spalte) werden zu einem
+    /// schmalen Streifen eingeklappt; ein Klick darauf klappt sie wieder auf. Für Ultrawide-Monitore.
+    /// </summary>
+    public bool CollapseInactiveColumns
+    {
+        get => Get("CollapseInactiveColumns", false);
+        set => Set("CollapseInactiveColumns", value);
+    }
+
     // ── Per-tab startup settings ──
 
     public int Tab1StartupBehavior

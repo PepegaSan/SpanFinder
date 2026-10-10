@@ -1021,7 +1021,16 @@
                                                         BorderThickness="{Binding IsActive, Converter={StaticResource MillerColumnBorderConverter}}"
                                                         Background="{ThemeResource SpanBgMicaBrush}">
                                                     <Grid Loaded="OnMillerColumnContentGridLoaded" Unloaded="OnMillerColumnContentGridUnloaded"
+                                                          Background="Transparent"
                                                           PointerPressed="OnMillerColumnPointerPressed">
+                                                            <TextBlock x:Name="CollapsedColumnLabel" Text="{x:Bind Name, Mode=OneWay}"
+                                                                       Visibility="Collapsed" IsHitTestVisible="False"
+                                                                       Margin="24,8,0,0" MaxWidth="400" TextTrimming="CharacterEllipsis"
+                                                                       Opacity="0.75" RenderTransformOrigin="0,0">
+                                                                <TextBlock.RenderTransform>
+                                                                    <RotateTransform Angle="90"/>
+                                                                </TextBlock.RenderTransform>
+                                                            </TextBlock>
                                                             <ListView ItemsSource="{x:Bind Children, Mode=OneWay}"
                                                                       SelectionMode="Extended" IsItemClickEnabled="False"
                                                                       CanDragItems="True" AllowDrop="True"
@@ -1509,7 +1518,16 @@
                                                         BorderThickness="{Binding IsActive, Converter={StaticResource MillerColumnBorderConverter}}"
                                                         Background="{ThemeResource SpanBgMicaBrush}">
                                                     <Grid Loaded="OnMillerColumnContentGridLoaded" Unloaded="OnMillerColumnContentGridUnloaded"
+                                                          Background="Transparent"
                                                           PointerPressed="OnMillerColumnPointerPressed">
+                                                            <TextBlock x:Name="CollapsedColumnLabel" Text="{x:Bind Name, Mode=OneWay}"
+                                                                       Visibility="Collapsed" IsHitTestVisible="False"
+                                                                       Margin="24,8,0,0" MaxWidth="400" TextTrimming="CharacterEllipsis"
+                                                                       Opacity="0.75" RenderTransformOrigin="0,0">
+                                                                <TextBlock.RenderTransform>
+                                                                    <RotateTransform Angle="90"/>
+                                                                </TextBlock.RenderTransform>
+                                                            </TextBlock>
                                                             <ListView ItemsSource="{x:Bind Children, Mode=OneWay}"
                                                                       SelectionMode="Extended" IsItemClickEnabled="False"
                                                                       CanDragItems="True" AllowDrop="True"

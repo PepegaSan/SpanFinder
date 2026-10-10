@@ -284,6 +284,18 @@ namespace Span.ViewModels
         [ObservableProperty]
         private bool _isActive = false; // Indicates if this column has focus
 
+        /// <summary>Wird ausgelöst, wenn eine Spalte aktiv wird (für das Einklappen älterer Spalten).</summary>
+        public static event Action<FolderViewModel>? ColumnActivated;
+
+        partial void OnIsActiveChanged(bool value)
+        {
+            if (value) ColumnActivated?.Invoke(this);
+        }
+
+        /// <summary>Spalte ist zu einem schmalen Streifen eingeklappt (reiner Ansichtszustand).</summary>
+        [ObservableProperty]
+        private bool _isCollapsed = false;
+
         /// <summary>
         /// 정렬 중 플래그 - true일 때 PropertyChanged 이벤트 무시
         /// </summary>

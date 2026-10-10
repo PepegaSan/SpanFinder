@@ -46,6 +46,15 @@ namespace Span.Models
         public const string TogglePreview = "span.view.preview";
         public const string EqualizeColumns = "span.view.equalizeColumns";
         public const string AutoFitColumns = "span.view.autoFitColumns";
+        // Layout-Vorlagen (Ansichtszustand: Split-Modus, Vorschau, Spalten einklappen, Spaltenbreite)
+        public const string LayoutPreset1 = "span.view.layoutPreset1";
+        public const string LayoutPreset2 = "span.view.layoutPreset2";
+        public const string LayoutPreset3 = "span.view.layoutPreset3";
+        public const string LayoutPreset4 = "span.view.layoutPreset4";
+        public const string SaveLayoutPreset1 = "span.view.saveLayoutPreset1";
+        public const string SaveLayoutPreset2 = "span.view.saveLayoutPreset2";
+        public const string SaveLayoutPreset3 = "span.view.saveLayoutPreset3";
+        public const string SaveLayoutPreset4 = "span.view.saveLayoutPreset4";
         public const string Refresh = "span.view.refresh";
         public const string ToggleHidden = "span.view.toggleHidden";
         public const string ToggleExtensions = "span.view.toggleExtensions";
@@ -183,6 +192,14 @@ namespace Span.Models
             { TogglePreview, "View" },
             { EqualizeColumns, "View" },
             { AutoFitColumns, "View" },
+            { LayoutPreset1, "View" },
+            { LayoutPreset2, "View" },
+            { LayoutPreset3, "View" },
+            { LayoutPreset4, "View" },
+            { SaveLayoutPreset1, "View" },
+            { SaveLayoutPreset2, "View" },
+            { SaveLayoutPreset3, "View" },
+            { SaveLayoutPreset4, "View" },
             { Refresh, "View" },
             { ToggleHidden, "View" },
             { ToggleExtensions, "View" },
@@ -315,6 +332,14 @@ namespace Span.Models
             { TogglePreview, "Shortcut_TogglePreview" },
             { EqualizeColumns, "Shortcut_EqualizeColumns" },
             { AutoFitColumns, "Shortcut_AutoFitColumns" },
+            { LayoutPreset1, "Shortcut_LayoutPreset1" },
+            { LayoutPreset2, "Shortcut_LayoutPreset2" },
+            { LayoutPreset3, "Shortcut_LayoutPreset3" },
+            { LayoutPreset4, "Shortcut_LayoutPreset4" },
+            { SaveLayoutPreset1, "Shortcut_SaveLayoutPreset1" },
+            { SaveLayoutPreset2, "Shortcut_SaveLayoutPreset2" },
+            { SaveLayoutPreset3, "Shortcut_SaveLayoutPreset3" },
+            { SaveLayoutPreset4, "Shortcut_SaveLayoutPreset4" },
             { Refresh, "Shortcut_Refresh" },
             { ToggleHidden, "Shortcut_ToggleHidden" },
             { ToggleExtensions, "Shortcut_ToggleExtensions" },

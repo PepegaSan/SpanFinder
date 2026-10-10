@@ -157,6 +157,7 @@ public sealed partial class SettingsModeView : UserControl
 
             // Auto-fit column width (Issue #45)
             AutoFitColumnToggle.IsOn = _settings.AutoFitColumnWidth;
+            CollapseColumnsToggle.IsOn = _settings.CollapseInactiveColumns;
 
             // Default preview
             DefaultPreviewToggle.IsOn = _settings.DefaultPreviewEnabled;
@@ -349,6 +350,7 @@ public sealed partial class SettingsModeView : UserControl
 
         // Auto-fit column width (Issue #45)
         AutoFitColumnToggle.Toggled += (s, e) => { if (!_isLoading) _settings.AutoFitColumnWidth = AutoFitColumnToggle.IsOn; };
+        CollapseColumnsToggle.Toggled += (s, e) => { if (!_isLoading) _settings.CollapseInactiveColumns = CollapseColumnsToggle.IsOn; };
 
         // Default preview
         DefaultPreviewToggle.Toggled += (s, e) => { if (!_isLoading) _settings.DefaultPreviewEnabled = DefaultPreviewToggle.IsOn; };
@@ -688,6 +690,8 @@ public sealed partial class SettingsModeView : UserControl
             // Auto-fit Miller columns
             AutoFitColumnLabel.Text = _loc.Get("Settings_AutoFitColumn");
             AutoFitColumnDesc.Text = _loc.Get("Settings_AutoFitColumnDesc");
+            CollapseColumnsLabel.Text = _loc.Get("Settings_CollapseColumns");
+            CollapseColumnsDesc.Text = _loc.Get("Settings_CollapseColumnsDesc");
             StartupLabel.Text = _loc.Get("Settings_StartupBehavior");
             StartupDesc.Text = _loc.Get("Settings_StartupBehaviorDesc");
             // Tab 1

@@ -552,6 +552,25 @@
                                 </Grid>
                             </Border>
 
+                            <!-- Collapse inactive Miller columns -->
+                            <Border Style="{StaticResource SettingsCardBorder}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0" Style="{StaticResource CardIconContainer}">
+                                        <FontIcon Glyph="&#xE73F;" Style="{StaticResource CardIconStyle}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock x:Name="CollapseColumnsLabel" Text="Ältere Spalten einklappen" Style="{StaticResource SettingsCardLabel}" />
+                                        <TextBlock x:Name="CollapseColumnsDesc" Text="Klappt Spalten links vom Vorgänger der aktiven Spalte zu einem schmalen Streifen ein. Klick auf den Streifen klappt sie wieder auf." Style="{StaticResource SettingsCardDesc}" />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="CollapseColumnsToggle" Grid.Column="2" VerticalAlignment="Center" IsOn="False" OnContent="" OffContent="" />
+                                </Grid>
+                            </Border>
+
                             <!-- Split View Settings (Left/Right side-by-side) -->
                             <Border Style="{StaticResource SettingsCardBorder}">
                                 <StackPanel Spacing="12">

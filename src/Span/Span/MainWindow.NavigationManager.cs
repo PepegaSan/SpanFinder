@@ -544,6 +544,15 @@ namespace Span
 
                 var column = columns[columnIndex];
 
+                // Eingeklappte Spalte (Option "Ältere Spalten einklappen"): erst aktivieren und aufklappen,
+                // sonst ist der ListView ausgeblendet und der Fokus kann nicht dorthin wechseln.
+                if (column.IsCollapsed)
+                {
+                    ViewModel.ActiveExplorer.SetActiveColumn(column);
+                    var miller = FindMillerControlContaining(column);
+                    if (miller != null) ApplyColumnCollapse(miller);
+                }
+
                 // 첫 항목 자동 선택 — Finder처럼 선택 = 네비게이션
                 // (폴더면 다음 컬럼이 자동 생성됨)
                 // autoSelect=false: 패인 전환 시 자동 선택을 억제하여 컬럼 연쇄 생성 방지

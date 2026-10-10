@@ -846,6 +846,14 @@ namespace Span
                 case ShortcutCommands.TogglePreview: TogglePreviewPanel(); return true;
                 case ShortcutCommands.EqualizeColumns: ExecuteEqualizeColumns(); return true;
                 case ShortcutCommands.AutoFitColumns: ExecuteAutoFitColumns(); return true;
+                case ShortcutCommands.LayoutPreset1: ApplyLayoutPreset(1); return true;
+                case ShortcutCommands.LayoutPreset2: ApplyLayoutPreset(2); return true;
+                case ShortcutCommands.LayoutPreset3: ApplyLayoutPreset(3); return true;
+                case ShortcutCommands.LayoutPreset4: ApplyLayoutPreset(4); return true;
+                case ShortcutCommands.SaveLayoutPreset1: SaveLayoutPreset(1); return true;
+                case ShortcutCommands.SaveLayoutPreset2: SaveLayoutPreset(2); return true;
+                case ShortcutCommands.SaveLayoutPreset3: SaveLayoutPreset(3); return true;
+                case ShortcutCommands.SaveLayoutPreset4: SaveLayoutPreset(4); return true;
                 case ShortcutCommands.Refresh: HandleRefresh(); return true;
                 case ShortcutCommands.ToggleHidden: ExecuteToggleHidden(); return true;
                 case ShortcutCommands.ToggleExtensions: ExecuteToggleExtensions(); return true;
@@ -1184,7 +1192,8 @@ namespace Span
             {
                 if (current == MillerTabsHost || current == DetailsTabsHost
                     || current == ListTabsHost || current == IconTabsHost
-                    || current == RightPaneContainer)
+                    || current == RightPaneContainer
+                    || current == TopRightPaneContainer || current == BottomRightPaneContainer)
                     return true;
                 current = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(current);
             }

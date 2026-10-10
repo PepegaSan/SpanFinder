@@ -56,6 +56,25 @@ namespace Span
         [DllImport("comctl32.dll", SetLastError = true)]
         private static extern IntPtr DefSubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
 
+        private delegate bool EnumChildProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumChildWindows(IntPtr hWndParent, EnumChildProc lpEnumFunc, IntPtr lParam);
+
+        // WinUI 3 liefert Tastatur-Nachrichten an Unterfenster (Content-Bridge) — dort ebenfalls filtern.
+        private readonly HashSet<IntPtr> _subclassedChildren = new();
+
+        private void EnsureChildSubclasses()
+        {
+            if (_subclassProc == null || _hwnd == IntPtr.Zero || _isClosed) return;
+            EnumChildWindows(_hwnd, (h, _) =>
+            {
+                if (_subclassedChildren.Add(h))
+                    SetWindowSubclass(h, _subclassProc, IntPtr.Zero, IntPtr.Zero);
+                return true;
+            }, IntPtr.Zero);
+        }
+
 
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -411,6 +430,8 @@ namespace Span
 
         private void SaveMillerColumnWidth(double width)
         {
+            // Eingeklappte Streifen (< Mindestbreite) dürfen die gespeicherte Breite nicht überschreiben.
+            if (width < MillerColumnMinWidth) return;
             width = Math.Clamp(width, MillerColumnMinWidth, MillerColumnMaxWidth);
             _settings.MillerColumnWidth = (int)Math.Round(width);
         }
@@ -431,10 +452,97 @@ namespace Span
                 if (container == null) continue;
                 var grid = VisualTreeHelpers.FindChild<Grid>(container);
                 if (grid == null) continue;
+                if (grid.Tag is double) continue; // eingeklappte Spalte behält ihren Streifen
                 grid.ClearValue(FrameworkElement.WidthProperty);
                 grid.Width = width;
             }
 
+            control.InvalidateMeasure();
+        }
+
+        private const double CollapsedColumnWidth = 36;
+
+        // Zuletzt angezeigte Breite der Vorschau-Panels (0 = unbekannt).
+        private double _lastLeftPreviewWidth;
+        private double _lastRightPreviewWidth;
+
+        private void OnColumnActivatedForCollapse(ViewModels.FolderViewModel column)
+        {
+            if (_isClosed) return;
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                if (_isClosed) return;
+                try
+                {
+                    var control = FindMillerControlContaining(column);
+                    if (control != null) ApplyColumnCollapse(control);
+                }
+                catch (System.Runtime.InteropServices.COMException) { }
+            });
+        }
+
+        private ItemsControl? FindMillerControlContaining(ViewModels.FolderViewModel column)
+        {
+            foreach (var kvp in _tabMillerPanels)
+                if (kvp.Value.items.Items.Contains(column)) return kvp.Value.items;
+            ItemsControl[] fixedControls = { MillerColumnsControl, MillerColumnsControlRight, MillerColumnsControlTopRight, MillerColumnsControlBottomRight };
+            foreach (var c in fixedControls)
+                if (c?.Items != null && c.Items.Contains(column)) return c;
+            return null;
+        }
+
+        /// <summary>
+        /// Klappt Spalten links vom Vorgänger der aktiven Spalte zu einem Streifen ein (Option
+        /// CollapseInactiveColumns); ist die Option aus, werden alle wieder aufgeklappt.
+        /// Reiner Ansichtszustand — Pfade und Auswahl der Spalten bleiben unberührt.
+        /// </summary>
+        private void ApplyColumnCollapse(ItemsControl control)
+        {
+            bool enabled = _settings.CollapseInactiveColumns;
+            int active = -1;
+            for (int i = 0; i < control.Items.Count; i++)
+                if (control.Items[i] is ViewModels.FolderViewModel f && f.IsActive) { active = i; break; }
+
+            for (int i = 0; i < control.Items.Count; i++)
+            {
+                if (control.Items[i] is not ViewModels.FolderViewModel col) continue;
+                bool collapse = enabled && active >= 0 && i < active - 1;
+                col.IsCollapsed = collapse;
+
+                var container = control.ContainerFromIndex(i) as ContentPresenter;
+                var grid = container == null ? null : VisualTreeHelpers.FindChild<Grid>(container);
+                if (grid == null) continue;
+                bool isCollapsedNow = grid.Tag is double;
+                if (collapse == isCollapsedNow) continue;
+
+                var listView = VisualTreeHelpers.FindChild<ListView>(grid);
+                var label = VisualTreeHelpers.FindChild<TextBlock>(grid, "CollapsedColumnLabel");
+                if (collapse)
+                {
+                    grid.Tag = grid.ActualWidth > 0 ? grid.ActualWidth : GetEffectiveMillerColumnWidth();
+                    grid.MinWidth = 0;
+                    grid.Width = CollapsedColumnWidth;
+                    if (listView != null) listView.Visibility = Visibility.Collapsed;
+                    if (label != null) label.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    double width = (double)grid.Tag;
+                    grid.Tag = null;
+                    grid.MinWidth = MillerColumnMinWidth;
+                    grid.Width = width;
+                    if (listView != null) listView.Visibility = Visibility.Visible;
+                    if (label != null) label.Visibility = Visibility.Collapsed;
+                    if (listView != null)
+                    {
+                        // Ein ausgeblendeter ListView hat keine realisierten Items und kann keinen Fokus halten —
+                        // Layout sofort erzwingen, damit Pfeiltasten-Navigation die Container findet.
+                        listView.UpdateLayout();
+                        if (col.IsActive)
+                            listView.Focus(FocusState.Programmatic);
+                    }
+                }
+            }
             control.InvalidateMeasure();
         }
 
@@ -550,6 +658,16 @@ namespace Span
             // window is the last thing keeping the app visible.
             this.AppWindow.Closing += (s, e) =>
             {
+                // Layout-Vorlagen mit Fokus-Anker haben Ordner vertauscht: vor dem Schließen zurücktauschen,
+                // sonst würden die vertauschten Pfade gespeichert und beim Neustart angezeigt.
+                if (_anchorSwaps.Count > 0)
+                {
+                    e.Cancel = true;
+                    if (!_undoOnCloseRunning)
+                        _ = UndoSwapsThenCloseAsync();
+                    return;
+                }
+
                 if (!_settings.MinimizeToTray || _forceClose) return;
 
                 // If other windows remain, let this one close normally.
@@ -584,6 +702,8 @@ namespace Span
             // Passthrough 영역은 Loaded 후 SetRegionRects로 별도 설정 (탭 영역만)
             SetTitleBar(AppTitleBar);
 
+            ViewModels.FolderViewModel.ColumnActivated += OnColumnActivatedForCollapse;
+
             // Auto-scroll on column change (both panes)
             _subscribedLeftExplorer = ViewModel.Explorer;
             ViewModel.Explorer.Columns.CollectionChanged += OnColumnsChanged;
@@ -613,6 +733,10 @@ namespace Span
             // v1.4.19: 자식 컨트롤(ListView 등)의 자동 BringIntoView 요청을 부모 ScrollViewer가
             // 가로 스크롤로 처리하지 않도록 차단. 가로 스크롤은 ScrollToLastColumn / ChangeView
             // 명시 호출로만 제어 → 형제 폴더 토글 시 위치 점프·어중간 정렬 등 자동 동작 원천 차단.
+            // Spaltenbreite statt Panel-Breite merken: das Panel hat MinWidth=320 und meldet auch bei
+            // eingeklappter Spalte (Breite 0) 320, was die gemerkte Breite überschreiben würde.
+            LeftPreviewPanel.SizeChanged += (s, e) => { if (LeftPreviewCol.ActualWidth >= 100) _lastLeftPreviewWidth = LeftPreviewCol.ActualWidth; };
+            RightPreviewPanel.SizeChanged += (s, e) => { if (RightPreviewCol.ActualWidth >= 100) _lastRightPreviewWidth = RightPreviewCol.ActualWidth; };
             MillerScrollViewer.BringIntoViewRequested += OnMillerBringIntoViewRequested;
             MillerScrollViewerRight.BringIntoViewRequested += OnMillerBringIntoViewRequested;
             MillerScrollViewerTopRight.BringIntoViewRequested += OnMillerBringIntoViewRequested;
@@ -807,6 +931,8 @@ namespace Span
             // WM_DEVICECHANGE: detect USB drive plug/unplug
             _subclassProc = new SUBCLASSPROC(WndProc);
             SetWindowSubclass(_hwnd, _subclassProc, IntPtr.Zero, IntPtr.Zero);
+            EnsureChildSubclasses();
+            this.Activated += (s, e) => EnsureChildSubclasses();
 
 
             _deviceChangeDebounceTimer = new DispatcherTimer();
@@ -1412,6 +1538,7 @@ namespace Span
 
                 // STEP 0: Block all queued DispatcherQueue callbacks and async continuations
                 _isClosed = true;
+                ViewModels.FolderViewModel.ColumnActivated -= OnColumnActivatedForCollapse;
 
                 // STEP 0.1: 드래그 타이머 즉시 중지 (타이머 콜백이 teardown 중 UI 접근 방지)
                 try { _tearOffDragTimer?.Stop(); _tearOffDragTimer = null; } catch { }
@@ -1631,6 +1758,9 @@ namespace Span
                     if (_subclassProc != null)
                     {
                         RemoveWindowSubclass(_hwnd, _subclassProc, IntPtr.Zero);
+                        foreach (var child in _subclassedChildren)
+                            RemoveWindowSubclass(child, _subclassProc, IntPtr.Zero);
+                        _subclassedChildren.Clear();
                     }
                     if (_deviceChangeDebounceTimer != null)
                     {
@@ -1670,8 +1800,15 @@ namespace Span
         /// <summary>
         /// Win32 subclass procedure to intercept WM_DEVICECHANGE for USB hotplug detection.
         /// </summary>
+        private const uint WM_SYSCHAR = 0x0106;
+
         private IntPtr WndProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData)
         {
+            // Alt+Ziffer (Layout-Vorlagen): Das Fenster hat kein Menü mit passendem Kürzel, daher würde Windows
+            // das WM_SYSCHAR mit einem Warnton quittieren, obwohl der Tastendruck bereits verarbeitet wurde.
+            if (uMsg == WM_SYSCHAR && (long)wParam >= '0' && (long)wParam <= '9')
+                return IntPtr.Zero;
+
             if (uMsg == WM_DEVICECHANGE && wParam == (IntPtr)DBT_DEVNODES_CHANGED)
             {
                 // Debounce: multiple WM_DEVICECHANGE messages fire in quick succession
@@ -3388,14 +3525,7 @@ namespace Span
                     LeftPreviewSplitterCol.Width = new GridLength(2, GridUnitType.Pixel);
                     if (LeftPreviewCol.Width.Value < 1)
                     {
-                        double savedWidth = 320;
-                        try
-                        {
-                            var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
-                            if (settings.Values.TryGetValue("LeftPreviewWidth", out var lw))
-                                savedWidth = Math.Max(320, (double)lw);
-                        }
-                        catch { }
+                        double savedWidth = GetSavedPreviewWidth("LeftPreviewWidth");
                         LeftPreviewCol.Width = new GridLength(savedWidth, GridUnitType.Pixel);
                     }
                 }
