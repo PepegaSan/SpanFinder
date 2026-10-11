@@ -7,7 +7,8 @@
     xmlns:vm="using:Span.ViewModels"
     mc:Ignorable="d">
 
-    <Grid x:Name="RootGrid" Tapped="OnRootTapped" RightTapped="OnEmptyAreaRightTapped" Background="Transparent">
+    <Grid x:Name="RootGrid" Tapped="OnRootTapped" RightTapped="OnEmptyAreaRightTapped"
+          Margin="4,6,4,6" CornerRadius="{StaticResource CardRadius}" Background="{ThemeResource SpanBgLayer1Brush}" BorderBrush="{ThemeResource SpanBorderCardBrush}" BorderThickness="1">
 
         <!-- Items GridView with vertical wrapping -->
         <Grid x:Name="ListViewWrapper"
@@ -64,6 +65,7 @@
 <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="20"/>
                             <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
@@ -130,6 +132,15 @@
                                    TextAlignment="Right"
                                    MinWidth="40"
                                    Padding="4,0,4,0"/>
+
+                        <!-- Relative age badge (same colours as Miller) -->
+                        <Border Background="{x:Bind RelativeAgeBrush, Mode=OneWay}"
+                                CornerRadius="2" Padding="4,1" Grid.Column="3" Margin="0,0,4,0" VerticalAlignment="Center"
+                                IsHitTestVisible="False"
+                                Visibility="{x:Bind vm:FileSystemViewModel.ShowIfTrue(HasRelativeAge), Mode=OneWay}">
+                            <TextBlock Text="{x:Bind RelativeAgeText, Mode=OneWay}" FontSize="10" FontWeight="SemiBold"
+                                       Foreground="#FF1A1A1A" VerticalAlignment="Center"/>
+                        </Border>
                     </Grid>
                 </DataTemplate>
             </GridView.ItemTemplate>

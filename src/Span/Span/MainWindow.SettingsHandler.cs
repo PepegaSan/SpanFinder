@@ -150,6 +150,7 @@ namespace Span
                     && conv is Helpers.BoolToBrushConverter btb)
                 {
                     btb.TrueBrush = accentDimBrush;
+                    btb.FalseBrush = GetThemeBrush("SpanBorderCardBrush");
                 }
 
                 // 모든 탭의 IsActive 바인딩 재평가 (토글로 PropertyChanged 강제 발생)
@@ -211,8 +212,8 @@ namespace Span
                 bool isLight = theme == "light" ||
                                (theme == "system" && App.Current.RequestedTheme == ApplicationTheme.Light);
                 bgColor = isLight
-                    ? Windows.UI.Color.FromArgb(255, 243, 243, 243)   // #F3F3F3
-                    : Windows.UI.Color.FromArgb(255, 32, 32, 32);     // #202020
+                    ? Windows.UI.Color.FromArgb(255, 236, 238, 242)   // #ECEEF2 (SpanBgMicaColor)
+                    : Windows.UI.Color.FromArgb(255, 26, 27, 31);     // #1A1B1F (SpanBgMicaColor)
             }
 
             // COLORREF = 0x00BBGGRR (BGR 순서)
@@ -223,6 +224,13 @@ namespace Span
             Helpers.NativeMethods.DwmSetWindowAttribute(
                 _hwnd, Helpers.NativeMethods.DWMWA_CAPTION_COLOR, ref colorRef, sizeof(int));
         }
+
+        /// <summary>
+        /// 중립 hover 색상 (액센트 틴트 없이 밝기만 살짝 변경) — 선택 상태와 시각적으로 구분.
+        /// </summary>
+        private static Windows.UI.Color NeutralHover(bool isLight) => isLight
+            ? Windows.UI.Color.FromArgb(0x0A, 0, 0, 0)
+            : Windows.UI.Color.FromArgb(0x0D, 255, 255, 255);
 
         internal static void ApplyCustomThemeOverrides(FrameworkElement root, string theme)
         {
@@ -270,11 +278,11 @@ namespace Span
             darkDict["SpanAccentDimColor"] = accentDim;
             darkDict["SpanAccentDimBrush"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(accentDim);
 
-            // Accent-tinted selection (Windows Explorer 스타일 통일)
-            var accentHover = Windows.UI.Color.FromArgb(0x0F, p.accent.R, p.accent.G, p.accent.B);
+            // Neutral hover + accent-tinted selection (App.xaml 기본 테마와 동일 규칙)
+            var accentHover = NeutralHover(theme == "solarized-light");
             var accentActive = Windows.UI.Color.FromArgb(0x1A, p.accent.R, p.accent.G, p.accent.B);
-            var accentSelected = Windows.UI.Color.FromArgb(0x25, p.accent.R, p.accent.G, p.accent.B);
-            var accentSelHover = Windows.UI.Color.FromArgb(0x30, p.accent.R, p.accent.G, p.accent.B);
+            var accentSelected = Windows.UI.Color.FromArgb(0x2E, p.accent.R, p.accent.G, p.accent.B);
+            var accentSelHover = Windows.UI.Color.FromArgb(0x3A, p.accent.R, p.accent.G, p.accent.B);
             var pathHighlight = Windows.UI.Color.FromArgb(0x20, p.accent.R, p.accent.G, p.accent.B);
             darkDict["SpanBgHoverBrush"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(accentHover);
             darkDict["SpanBgActiveBrush"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(accentActive);
@@ -417,10 +425,10 @@ namespace Span
 
             var accentHover = DeriveAccentHover(accent);
             var accentDim = Windows.UI.Color.FromArgb(0xB3, accent.R, accent.G, accent.B);
-            var bgHover = Windows.UI.Color.FromArgb(0x0F, accent.R, accent.G, accent.B);
+            var bgHover = NeutralHover(dictKey == "Light");
             var bgActive = Windows.UI.Color.FromArgb(0x1A, accent.R, accent.G, accent.B);
-            var bgSelected = Windows.UI.Color.FromArgb(0x25, accent.R, accent.G, accent.B);
-            var bgSelHover = Windows.UI.Color.FromArgb(0x30, accent.R, accent.G, accent.B);
+            var bgSelected = Windows.UI.Color.FromArgb(0x2E, accent.R, accent.G, accent.B);
+            var bgSelHover = Windows.UI.Color.FromArgb(0x3A, accent.R, accent.G, accent.B);
             var pathHighlight = Windows.UI.Color.FromArgb(0x20, accent.R, accent.G, accent.B);
 
             dict["SpanAccent"] = accent;

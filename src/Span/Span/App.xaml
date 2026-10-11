@@ -19,11 +19,11 @@
                 <!-- ==================== DARK THEME ==================== -->
                 <ResourceDictionary x:Key="Dark">
                     <!-- Backgrounds -->
-                    <Color x:Key="SpanBgMicaColor">#202020</Color>
-                    <Color x:Key="SpanBgLayer1Color">#2d2d2d</Color>
-                    <Color x:Key="SpanBgLayer2Color">#383838</Color>
-                    <Color x:Key="SpanBgLayer3Color">#484848</Color>
-                    <Color x:Key="SpanBgLayer2TransparentColor">#00383838</Color>
+                    <Color x:Key="SpanBgMicaColor">#1A1B1F</Color>
+                    <Color x:Key="SpanBgLayer1Color">#232429</Color>
+                    <Color x:Key="SpanBgLayer2Color">#2C2D33</Color>
+                    <Color x:Key="SpanBgLayer3Color">#3A3B42</Color>
+                    <Color x:Key="SpanBgLayer2TransparentColor">#002C2D33</Color>
 
                     <!-- Accent -->
                     <Color x:Key="SpanAccentColor">#60cdff</Color>
@@ -31,10 +31,10 @@
                     <Color x:Key="SpanAccentDimColor">#B360CDFF</Color>
 
                     <!-- Text -->
-                    <Color x:Key="SpanTextPrimaryColor">#ffffff</Color>
-                    <Color x:Key="SpanTextSecondaryColor">#ababab</Color>
-                    <Color x:Key="SpanTextTertiaryColor">#787878</Color>
-                    <Color x:Key="SpanTextDisabledColor">#555555</Color>
+                    <Color x:Key="SpanTextPrimaryColor">#F2F3F5</Color>
+                    <Color x:Key="SpanTextSecondaryColor">#A9ABB3</Color>
+                    <Color x:Key="SpanTextTertiaryColor">#767882</Color>
+                    <Color x:Key="SpanTextDisabledColor">#52545B</Color>
 
                     <!-- Solid Brushes -->
                     <SolidColorBrush x:Key="SpanBgMicaBrush" Color="{StaticResource SpanBgMicaColor}" />
@@ -50,20 +50,20 @@
                     <SolidColorBrush x:Key="SpanTextTertiaryBrush" Color="{StaticResource SpanTextTertiaryColor}" />
                     <SolidColorBrush x:Key="SpanTextDisabledBrush" Color="{StaticResource SpanTextDisabledColor}" />
 
-                    <!-- Translucent Brushes (accent-tinted, Windows Explorer style) -->
-                    <SolidColorBrush x:Key="SpanBgHoverBrush" Color="#0F60CDFF" />
+                    <!-- Translucent Brushes: neutral hover, accent-tinted selection -->
+                    <SolidColorBrush x:Key="SpanBgHoverBrush" Color="#0DFFFFFF" />
                     <SolidColorBrush x:Key="SpanBgActiveBrush" Color="#1A60CDFF" />
-                    <SolidColorBrush x:Key="SpanBgSelectedBrush" Color="#2560CDFF" />
-                    <SolidColorBrush x:Key="SpanBgSelectedHoverBrush" Color="#3060CDFF" />
+                    <SolidColorBrush x:Key="SpanBgSelectedBrush" Color="#2E60CDFF" />
+                    <SolidColorBrush x:Key="SpanBgSelectedHoverBrush" Color="#3A60CDFF" />
                     <!-- Path highlight: border line for navigation breadcrumb items (not background fill) -->
                     <SolidColorBrush x:Key="SpanPathHighlightBrush" Color="#6060CDFF" />
 
                     <!-- Override WinUI system ListView/GridView selection colors -->
-                    <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#2560CDFF" />
-                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#3060CDFF" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#2E60CDFF" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#3A60CDFF" />
                     <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="#1A60CDFF" />
-                    <SolidColorBrush x:Key="GridViewItemBackgroundSelected" Color="#2560CDFF" />
-                    <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPointerOver" Color="#3060CDFF" />
+                    <SolidColorBrush x:Key="GridViewItemBackgroundSelected" Color="#2E60CDFF" />
+                    <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPointerOver" Color="#3A60CDFF" />
                     <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPressed" Color="#1A60CDFF" />
 
                     <!-- Override WinUI TextBox/AutoSuggestBox focus bottom line -->
@@ -75,32 +75,22 @@
 
                     <!-- Borders (white overlay for dark) -->
                     <SolidColorBrush x:Key="SpanBorderSubtleBrush" Color="#0FFFFFFF" />
-                    <SolidColorBrush x:Key="SpanBorderCardBrush" Color="#14FFFFFF" />
-                    <SolidColorBrush x:Key="SpanBorderControlBrush" Color="#1AFFFFFF" />
+                    <SolidColorBrush x:Key="SpanBorderCardBrush" Color="#12FFFFFF" />
+                    <SolidColorBrush x:Key="SpanBorderControlBrush" Color="#1CFFFFFF" />
 
                     <!-- Global FocusVisual: 액센트 톤 얇은 포커스 링 (기본 흰+검 2px → 액센트 1px) -->
                     <SolidColorBrush x:Key="SystemControlFocusVisualPrimaryBrush" Color="{StaticResource SpanAccentDimColor}" />
                     <SolidColorBrush x:Key="SystemControlFocusVisualSecondaryBrush" Color="Transparent" />
-
-                    <!-- Depth shadows (Miller column + sidebar edge) -->
-                    <LinearGradientBrush x:Key="SpanColumnShadowBrush" StartPoint="0,0" EndPoint="1,0">
-                        <GradientStop Color="Transparent" Offset="0"/>
-                        <GradientStop Color="#1C000000" Offset="1"/>
-                    </LinearGradientBrush>
-                    <LinearGradientBrush x:Key="SpanSidebarShadowBrush" StartPoint="0,0" EndPoint="1,0">
-                        <GradientStop Color="#1C000000" Offset="0"/>
-                        <GradientStop Color="Transparent" Offset="1"/>
-                    </LinearGradientBrush>
                 </ResourceDictionary>
 
                 <!-- ==================== LIGHT THEME ==================== -->
                 <ResourceDictionary x:Key="Light">
                     <!-- Backgrounds (WinUI 3 Fluent tone-matched) -->
-                    <Color x:Key="SpanBgMicaColor">#F3F3F3</Color>
-                    <Color x:Key="SpanBgLayer1Color">#F9F9F9</Color>
-                    <Color x:Key="SpanBgLayer2Color">#F3F3F3</Color>
-                    <Color x:Key="SpanBgLayer3Color">#E6E6E6</Color>
-                    <Color x:Key="SpanBgLayer2TransparentColor">#00F3F3F3</Color>
+                    <Color x:Key="SpanBgMicaColor">#ECEEF2</Color>
+                    <Color x:Key="SpanBgLayer1Color">#FCFCFD</Color>
+                    <Color x:Key="SpanBgLayer2Color">#F3F4F7</Color>
+                    <Color x:Key="SpanBgLayer3Color">#E3E5EA</Color>
+                    <Color x:Key="SpanBgLayer2TransparentColor">#00F3F4F7</Color>
 
                     <!-- Accent -->
                     <Color x:Key="SpanAccentColor">#0078D4</Color>
@@ -127,11 +117,11 @@
                     <SolidColorBrush x:Key="SpanTextTertiaryBrush" Color="{StaticResource SpanTextTertiaryColor}" />
                     <SolidColorBrush x:Key="SpanTextDisabledBrush" Color="{StaticResource SpanTextDisabledColor}" />
 
-                    <!-- Translucent Brushes (accent-tinted, Windows Explorer style) -->
-                    <SolidColorBrush x:Key="SpanBgHoverBrush" Color="#0F0078D4" />
+                    <!-- Translucent Brushes: neutral hover, accent-tinted selection -->
+                    <SolidColorBrush x:Key="SpanBgHoverBrush" Color="#0A000000" />
                     <SolidColorBrush x:Key="SpanBgActiveBrush" Color="#1A0078D4" />
-                    <SolidColorBrush x:Key="SpanBgSelectedBrush" Color="#250078D4" />
-                    <SolidColorBrush x:Key="SpanBgSelectedHoverBrush" Color="#300078D4" />
+                    <SolidColorBrush x:Key="SpanBgSelectedBrush" Color="#260078D4" />
+                    <SolidColorBrush x:Key="SpanBgSelectedHoverBrush" Color="#320078D4" />
                     <!-- Path highlight: border line for navigation breadcrumb items (not background fill) -->
                     <SolidColorBrush x:Key="SpanPathHighlightBrush" Color="#600078D4" />
 
@@ -152,22 +142,12 @@
 
                     <!-- Borders (black overlay for light) -->
                     <SolidColorBrush x:Key="SpanBorderSubtleBrush" Color="#0F000000" />
-                    <SolidColorBrush x:Key="SpanBorderCardBrush" Color="#14000000" />
+                    <SolidColorBrush x:Key="SpanBorderCardBrush" Color="#12000000" />
                     <SolidColorBrush x:Key="SpanBorderControlBrush" Color="#1A000000" />
 
                     <!-- Global FocusVisual: 액센트 톤 얇은 포커스 링 -->
                     <SolidColorBrush x:Key="SystemControlFocusVisualPrimaryBrush" Color="{StaticResource SpanAccentDimColor}" />
                     <SolidColorBrush x:Key="SystemControlFocusVisualSecondaryBrush" Color="Transparent" />
-
-                    <!-- Depth shadows (Miller column + sidebar edge) -->
-                    <LinearGradientBrush x:Key="SpanColumnShadowBrush" StartPoint="0,0" EndPoint="1,0">
-                        <GradientStop Color="Transparent" Offset="0"/>
-                        <GradientStop Color="#0C000000" Offset="1"/>
-                    </LinearGradientBrush>
-                    <LinearGradientBrush x:Key="SpanSidebarShadowBrush" StartPoint="0,0" EndPoint="1,0">
-                        <GradientStop Color="#0C000000" Offset="0"/>
-                        <GradientStop Color="Transparent" Offset="1"/>
-                    </LinearGradientBrush>
                 </ResourceDictionary>
 
             </ResourceDictionary.ThemeDictionaries>
@@ -196,6 +176,11 @@
             <CornerRadius x:Key="RadiusLg">8</CornerRadius>
             <CornerRadius x:Key="RadiusXl">12</CornerRadius>
 
+            <!-- Surface geometry: floating cards on the window base, inset pill rows -->
+            <CornerRadius x:Key="CardRadius">8</CornerRadius>
+            <CornerRadius x:Key="ItemRadius">5</CornerRadius>
+            <Thickness x:Key="ItemInset">4,1,4,1</Thickness>
+
             <!-- Fonts -->
             <FontFamily x:Key="FluentIcons">Segoe Fluent Icons</FontFamily>
             <FontFamily x:Key="RemixIcons">/Assets/Fonts/remixicon.ttf#RemixIcon, /Assets/Fonts/remixicon.ttf#remixicon</FontFamily>
@@ -208,9 +193,9 @@
             <Style x:Key="UnifiedButtonStyle" TargetType="Button">
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
-                <Setter Property="Padding" Value="8,4" />
+                <Setter Property="Padding" Value="8,5" />
                 <Setter Property="VerticalAlignment" Value="Center" />
-                <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}" />
+                <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}" />
                 <Setter Property="Foreground" Value="{ThemeResource SpanTextSecondaryBrush}" />
                 <Setter Property="helpers:CursorHelper.IsHandCursor" Value="True" />
                 <Setter Property="Template">
@@ -282,6 +267,12 @@
                 <Setter Property="FontWeight" Value="SemiBold"/>
             </Style>
 
+            <!-- Sidebar section header: small, letter-spaced label -->
+            <Style x:Key="SidebarSectionTextStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="CharacterSpacing" Value="40"/>
+            </Style>
+
             <!-- Miller Column Item Style -->
             <Style x:Key="MillerColumnItemStyle" TargetType="ListViewItem">
                 <Setter Property="Background" Value="Transparent" />
@@ -293,7 +284,8 @@
                 <Setter Property="FocusVisualPrimaryThickness" Value="1" />
                 <Setter Property="FocusVisualSecondaryThickness" Value="0" />
                 <Setter Property="UseSystemFocusVisuals" Value="True" />
-                <Setter Property="CornerRadius" Value="0" />
+                <Setter Property="FocusVisualMargin" Value="{StaticResource ItemInset}" />
+                <Setter Property="CornerRadius" Value="{StaticResource ItemRadius}" />
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="VerticalContentAlignment" Value="Center" />
                 <Setter Property="MinHeight" Value="24" />
@@ -387,7 +379,8 @@
                                         <VisualState x:Name="DragOver" />
                                     </VisualStateGroup>
                                 </VisualStateManager.VisualStateGroups>
-                                <Border x:Name="StateOverlay" Background="Transparent" Opacity="0" />
+                                <Border x:Name="StateOverlay" Background="Transparent" Opacity="0"
+                                        Margin="{StaticResource ItemInset}" CornerRadius="{StaticResource ItemRadius}" />
                                 <ContentPresenter x:Name="ContentPresenter"
                                                   Content="{TemplateBinding Content}"
                                                   ContentTemplate="{TemplateBinding ContentTemplate}"
@@ -408,7 +401,8 @@
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="Padding" Value="0" />
                 <Setter Property="Margin" Value="0" />
-                <Setter Property="CornerRadius" Value="0" />
+                <Setter Property="FocusVisualMargin" Value="{StaticResource ItemInset}" />
+                <Setter Property="CornerRadius" Value="{StaticResource ItemRadius}" />
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="VerticalContentAlignment" Value="Center" />
                 <Setter Property="MinHeight" Value="24" />
@@ -468,7 +462,8 @@
                                         <VisualState x:Name="MultiSelectDisabled" /><VisualState x:Name="MultiSelectEnabled" />
                                     </VisualStateGroup>
                                 </VisualStateManager.VisualStateGroups>
-                                <Border x:Name="StateOverlay" Background="Transparent" Opacity="0" />
+                                <Border x:Name="StateOverlay" Background="Transparent" Opacity="0"
+                                        Margin="{StaticResource ItemInset}" CornerRadius="{StaticResource ItemRadius}" />
                                 <ContentPresenter x:Name="ContentPresenter"
                                                   Content="{TemplateBinding Content}"
                                                   ContentTemplate="{TemplateBinding ContentTemplate}"
@@ -488,7 +483,8 @@
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="Padding" Value="0" />
                 <Setter Property="Margin" Value="0" />
-                <Setter Property="CornerRadius" Value="0" />
+                <Setter Property="FocusVisualMargin" Value="{StaticResource ItemInset}" />
+                <Setter Property="CornerRadius" Value="{StaticResource ItemRadius}" />
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="VerticalContentAlignment" Value="Center" />
                 <Setter Property="MinHeight" Value="24" />
@@ -548,7 +544,8 @@
                                         <VisualState x:Name="MultiSelectDisabled" /><VisualState x:Name="MultiSelectEnabled" />
                                     </VisualStateGroup>
                                 </VisualStateManager.VisualStateGroups>
-                                <Border x:Name="StateOverlay" Background="Transparent" Opacity="0" />
+                                <Border x:Name="StateOverlay" Background="Transparent" Opacity="0"
+                                        Margin="{StaticResource ItemInset}" CornerRadius="{StaticResource ItemRadius}" />
                                 <ContentPresenter x:Name="ContentPresenter"
                                                   Content="{TemplateBinding Content}"
                                                   ContentTemplate="{TemplateBinding ContentTemplate}"
@@ -566,9 +563,9 @@
              <!-- Sidebar Item Style -->
             <Style x:Key="SidebarItemStyle" TargetType="ListViewItem">
                 <Setter Property="Background" Value="Transparent" />
-                <Setter Property="Padding" Value="16,6" />
-                <Setter Property="Margin" Value="4,0" />
-                <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}" />
+                <Setter Property="Padding" Value="12,6" />
+                <Setter Property="Margin" Value="8,1" />
+                <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}" />
                 <Setter Property="HorizontalContentAlignment" Value="Left" />
                 <Setter Property="VerticalContentAlignment" Value="Center" />
                 <Setter Property="MinHeight" Value="32" />

@@ -135,10 +135,11 @@ namespace Span.Helpers
             new(Windows.UI.Color.FromArgb(255, 140, 210, 205)); // aqua / cyan
         private static readonly SolidColorBrush WeeksBrush =
             new(Windows.UI.Color.FromArgb(255, 230, 175, 120)); // soft orange
+        // Older ages stay cool-toned but keep a distinct hue — plain grays vanished on gray-blue cards.
         private static readonly SolidColorBrush MonthsBrush =
-            new(Windows.UI.Color.FromArgb(255, 170, 175, 185)); // muted gray-blue
+            new(Windows.UI.Color.FromArgb(255, 196, 178, 240)); // soft lilac
         private static readonly SolidColorBrush YearsBrush =
-            new(Windows.UI.Color.FromArgb(255, 140, 145, 155)); // darker muted
+            new(Windows.UI.Color.FromArgb(255, 150, 180, 226)); // steel blue
 
         public readonly record struct RelativeAge(string Text, Brush Brush);
 

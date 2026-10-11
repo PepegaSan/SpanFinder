@@ -160,12 +160,6 @@ namespace Span
             => (mode == Models.ViewMode.Settings || mode == Models.ViewMode.ActionLog) ? Visibility.Visible : Visibility.Collapsed;
 
         /// <summary>
-        /// Unified Bar 하단 border: 분할뷰에서는 LeftPathHeader border와 중복되므로 제거
-        /// </summary>
-        public Thickness UnifiedBarBorderThickness(bool isSplitViewEnabled)
-            => isSplitViewEnabled ? new Thickness(0) : new Thickness(0, 0, 0, 1);
-
-        /// <summary>
         /// Single mode toolbar/address bar: visible when NOT split AND NOT Home mode
         /// </summary>
         public Visibility IsSingleNonHomeVisible(bool isSplitViewEnabled, Models.ViewMode mode)

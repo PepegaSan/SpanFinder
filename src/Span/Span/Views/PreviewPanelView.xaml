@@ -9,7 +9,8 @@
         <helpers:VisibilityConverter x:Key="VisConv"/>
     </UserControl.Resources>
 
-    <Grid x:Name="RootPanel" Background="{ThemeResource SpanBgLayer1Brush}">
+    <Grid x:Name="RootPanel" Margin="0,6,4,6" CornerRadius="{StaticResource CardRadius}"
+          Background="{ThemeResource SpanBgLayer1Brush}" BorderBrush="{ThemeResource SpanBorderCardBrush}" BorderThickness="1">
         <!-- Loading indicator -->
         <ProgressBar IsIndeterminate="True"
                      Visibility="{Binding IsLoading, Converter={StaticResource VisConv}}"

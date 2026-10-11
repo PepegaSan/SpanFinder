@@ -6279,7 +6279,7 @@ namespace Span
                 Width = 3,
                 Height = 16,
                 CornerRadius = new CornerRadius(1.5),
-                Margin = new Thickness(3, 0, 0, 0),
+                Margin = new Thickness(6, 0, 0, 0), // inside the inset selection pill
                 Background = GetThemeBrush("SpanAccentBrush"),
                 Opacity = 0,
                 IsHitTestVisible = false,

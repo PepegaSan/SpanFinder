@@ -34,7 +34,8 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid x:Name="RootGrid" Tapped="OnRootTapped" RightTapped="OnEmptyAreaRightTapped" Background="Transparent">
+    <Grid x:Name="RootGrid" Tapped="OnRootTapped" RightTapped="OnEmptyAreaRightTapped"
+          Margin="4,6,4,6" CornerRadius="{StaticResource CardRadius}" Background="{ThemeResource SpanBgLayer1Brush}" BorderBrush="{ThemeResource SpanBorderCardBrush}" BorderThickness="1">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -43,7 +44,7 @@
         <!-- Header Row -->
         <Grid Grid.Row="0" Height="24"
               x:Name="HeaderGrid" AutomationProperties.AutomationId="Details_Header"
-              Background="{ThemeResource SpanBgLayer2Brush}"
+              Background="Transparent"
               BorderBrush="{ThemeResource SpanBorderSubtleBrush}"
               BorderThickness="0,0,0,1"
               RightTapped="OnHeaderRightTapped">
@@ -293,13 +294,26 @@
                                        Padding="6,0"/>
                         </Border>
 
-                        <!-- Date Modified -->
+                        <!-- Date Modified (+ relative age badge, same colours as Miller) -->
                         <Border Grid.Column="3" x:Name="DateCell" Width="200">
-                            <TextBlock Text="{x:Bind DateModified, Mode=OneWay}"
-                                       VerticalAlignment="Center"
-                                       TextTrimming="CharacterEllipsis"
-                                       FontSize="{Binding SecondaryFontSize, Source={StaticResource FontScale}}"
-                                       Padding="6,0"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Background="{x:Bind RelativeAgeBrush, Mode=OneWay}"
+                                        CornerRadius="2" Padding="4,1" Margin="6,0,0,0" VerticalAlignment="Center"
+                                        IsHitTestVisible="False"
+                                        Visibility="{x:Bind vm:FileSystemViewModel.ShowIfTrue(HasRelativeAge), Mode=OneWay}">
+                                    <TextBlock Text="{x:Bind RelativeAgeText, Mode=OneWay}" FontSize="10" FontWeight="SemiBold"
+                                               Foreground="#FF1A1A1A" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Grid.Column="1" Text="{x:Bind DateModified, Mode=OneWay}"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"
+                                           FontSize="{Binding SecondaryFontSize, Source={StaticResource FontScale}}"
+                                           Padding="6,0"/>
+                            </Grid>
                         </Border>
                         <!-- Type -->
                         <Border Grid.Column="4" x:Name="TypeCell" Width="150">

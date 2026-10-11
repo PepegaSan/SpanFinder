@@ -19,7 +19,7 @@
             <!-- FileIconConverter removed: icons are now in ViewModels -->
             <helpers:BoolToBrushConverter x:Key="BoolToBrushConverter"
                                           TrueBrush="{ThemeResource SpanAccentDimBrush}"
-                                          FalseBrush="Transparent"/>
+                                          FalseBrush="{ThemeResource SpanBorderCardBrush}"/>
             <helpers:BoolToThicknessConverter x:Key="BoolToThicknessConverter"
                                               TrueThickness="0,2,1,0"
                                               FalseThickness="0,2,1,0"/>
@@ -39,25 +39,21 @@
             <RowDefinition Height="Auto"/> <!-- Status Bar -->
         </Grid.RowDefinitions>
 
-        <!-- 1. Title Bar -->
-        <Grid x:Name="AppTitleBar" Height="{StaticResource TitleBarHeight}" Background="{ThemeResource SpanBgLayer1Brush}">
+        <!-- 1. Title Bar (shares the window base color with toolbar + sidebar: one calm chrome surface) -->
+        <Grid x:Name="AppTitleBar" Height="{StaticResource TitleBarHeight}" Background="{ThemeResource SpanBgMicaBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition x:Name="RightPaddingColumn" Width="0"/> <!-- 캡션 버튼 여백 (코드에서 설정) -->
             </Grid.ColumnDefinitions>
 
-            <!-- Bottom border line: spans full width, active tab background covers it -->
-            <Rectangle Grid.ColumnSpan="3" Height="1" VerticalAlignment="Bottom"
-                       Fill="{ThemeResource SpanAccentDimBrush}"/>
-
             <!-- App Icon & Title -->
-            <StackPanel Orientation="Horizontal" Grid.Column="0" VerticalAlignment="Center" Margin="16,0,16,0" Spacing="8">
+            <StackPanel Orientation="Horizontal" Grid.Column="0" VerticalAlignment="Center" Margin="14,0,14,0" Spacing="8">
                 <Image Source="/Assets/Square44x44Logo.png" Height="16" Width="16"/>
                 <TextBlock x:Name="AppTitleText" Text="SPAN Finder" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource SpanTextSecondaryBrush}"/>
             </StackPanel>
-            
-            <!-- Dynamic Tabs -->
+
+            <!-- Dynamic Tabs: floating pills, the active tab is lifted onto the card surface -->
             <ScrollViewer x:Name="TabScrollViewer" Grid.Column="1" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
                           HorizontalScrollMode="Auto" VerticalScrollMode="Disabled">
                 <Grid>
@@ -68,8 +64,8 @@
                         </ItemsRepeater.Layout>
                         <ItemsRepeater.ItemTemplate>
                             <DataTemplate x:DataType="models:TabItem">
-                                <Grid Height="34" VerticalAlignment="Bottom"
-                                      Background="Transparent" CornerRadius="6,6,0,0"
+                                <Grid Height="32" VerticalAlignment="Center"
+                                      Background="Transparent"
                                       PointerPressed="OnTabItemPointerPressed"
                                       PointerMoved="OnTabItemPointerMoved"
                                       PointerReleased="OnTabItemPointerReleased"
@@ -82,11 +78,18 @@
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <!-- Active tab background: fills tab and covers title bar bottom line -->
-                                    <Border Grid.ColumnSpan="2" Background="{ThemeResource SpanBgLayer1Brush}"
-                                            CornerRadius="6,6,0,0"
+                                    <!-- Active tab: raised pill on the card surface -->
+                                    <Border Grid.ColumnSpan="2" Margin="2,0"
+                                            Background="{ThemeResource SpanBgLayer1Brush}"
+                                            BorderBrush="{ThemeResource SpanBorderControlBrush}" BorderThickness="1"
+                                            CornerRadius="{StaticResource CardRadius}"
                                             Visibility="{x:Bind IsActiveVisible, Mode=OneWay}"/>
-                                    <Grid Grid.Column="0" VerticalAlignment="Center" Padding="12,0,0,0">
+                                    <!-- Inactive tab: hairline separator on the right -->
+                                    <Rectangle Grid.Column="1" Width="1" Height="14"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"
+                                               Fill="{ThemeResource SpanBorderControlBrush}" IsHitTestVisible="False"
+                                               Visibility="{x:Bind IsInactiveVisible, Mode=OneWay}"/>
+                                    <Grid Grid.Column="0" VerticalAlignment="Center" Padding="14,0,0,0">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
@@ -106,7 +109,7 @@
                                                       Foreground="#FFD54F"
                                                       Visibility="{x:Bind IsNotHomeModeVisible, Mode=OneWay}"/>
                                         </StackPanel>
-                                        <!-- Tab name (Star width → TextTrimming works) -->
+                                        <!-- Tab name (Star width: TextTrimming works) -->
                                         <TextBlock Grid.Column="1" Text="{x:Bind Header, Mode=OneWay}"
                                                    FontSize="12" Foreground="{ThemeResource SpanTextPrimaryBrush}"
                                                    VerticalAlignment="Center"
@@ -114,36 +117,33 @@
                                     </Grid>
                                     <!-- Close button -->
                                     <Button Grid.Column="1" Style="{StaticResource UnifiedButtonStyle}"
-                                            Width="24" Height="24" Padding="0" MinWidth="0" MinHeight="0"
-                                            Margin="0,0,4,0" VerticalAlignment="Center"
+                                            Width="22" Height="22" Padding="0" MinWidth="0" MinHeight="0"
+                                            Margin="2,0,8,0" VerticalAlignment="Center"
                                             Click="OnTabCloseClick" Tag="{x:Bind}">
                                         <FontIcon Glyph="&#xE711;" FontSize="9"/>
                                     </Button>
-                                    <!-- Inactive tab: full box border -->
-                                    <Border Grid.ColumnSpan="2" BorderBrush="{ThemeResource SpanAccentDimBrush}"
-                                            BorderThickness="1" CornerRadius="6,6,0,0" IsHitTestVisible="False"
-                                            Visibility="{x:Bind IsInactiveVisible, Mode=OneWay}"/>
-                                    <!-- Active tab: no bottom border → connects seamlessly to toolbar -->
-                                    <Border Grid.ColumnSpan="2" BorderBrush="{ThemeResource SpanAccentDimBrush}"
-                                            BorderThickness="1,1,1,0" CornerRadius="6,6,0,0" IsHitTestVisible="False"
+                                    <!-- Active tab: short accent underline inside the pill -->
+                                    <Border Grid.ColumnSpan="2" Height="2" Width="18" CornerRadius="1"
+                                            HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,2"
+                                            Background="{ThemeResource SpanAccentBrush}" IsHitTestVisible="False"
                                             Visibility="{x:Bind IsActiveVisible, Mode=OneWay}"/>
                                 </Grid>
                             </DataTemplate>
                         </ItemsRepeater.ItemTemplate>
                     </ItemsRepeater>
                     <!-- New Tab button -->
-                    <Button x:Name="NewTabButton" AutomationProperties.AutomationId="Button_NewTab" Style="{StaticResource UnifiedButtonStyle}" Width="34" Height="34" VerticalAlignment="Bottom"
-                            Margin="2,0,0,0" Click="OnNewTabClick" ToolTipService.ToolTip="New Tab (Ctrl+T)">
+                    <Button x:Name="NewTabButton" AutomationProperties.AutomationId="Button_NewTab" Style="{StaticResource UnifiedButtonStyle}" Width="30" Height="30" VerticalAlignment="Center"
+                            Margin="4,0,0,0" Padding="0" Click="OnNewTabClick" ToolTipService.ToolTip="New Tab (Ctrl+T)">
                         <FontIcon Glyph="&#xE710;" FontSize="12"/>
                     </Button>
                 </StackPanel>
                 <!-- Ghost tab indicator for re-docking (overlaid on tab bar) -->
                 <Border x:Name="GhostTabIndicator" Visibility="Collapsed"
-                        Height="34" VerticalAlignment="Bottom"
+                        Height="32" VerticalAlignment="Center"
                         HorizontalAlignment="Left"
                         Background="{ThemeResource SpanAccentBrush}" Opacity="0.15"
                         BorderBrush="{ThemeResource SpanAccentBrush}" BorderThickness="1.5"
-                        CornerRadius="6,6,0,0" IsHitTestVisible="False"/>
+                        CornerRadius="{StaticResource CardRadius}" IsHitTestVisible="False"/>
                 </Grid>
             </ScrollViewer>
         </Grid>
@@ -154,8 +154,7 @@
                 Visibility="{x:Bind IsSettingsOrActionLogMode(ViewModel.CurrentViewMode), Mode=OneWay}"/> -->
 
         <!-- 2. Unified Bar (hidden in Settings mode) -->
-        <Grid Grid.Row="1" Height="{StaticResource CommandBarHeight}" Background="{ThemeResource SpanBgLayer1Brush}" BorderBrush="{ThemeResource SpanBorderSubtleBrush}"
-              BorderThickness="{x:Bind UnifiedBarBorderThickness(ViewModel.IsSplitViewEnabled), Mode=OneWay}" Padding="8,0"
+        <Grid Grid.Row="1" Height="{StaticResource CommandBarHeight}" Background="{ThemeResource SpanBgMicaBrush}" Padding="10,0"
               Visibility="{x:Bind IsNotSettingsMode(ViewModel.CurrentViewMode), Mode=OneWay}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/> <!-- Nav Buttons -->
@@ -183,9 +182,10 @@
 
             <!-- Address Bar (single mode, hidden in Settings) -->
             <Grid x:Name="AddressBarContainer" AutomationProperties.AutomationId="AddressBar" Grid.Column="1" Height="32"
-                  Background="{ThemeResource SpanBgLayer2Brush}"
-                  CornerRadius="4" VerticalAlignment="Center"
-                  Padding="4,0"
+                  Background="{ThemeResource SpanBgLayer1Brush}"
+                  BorderBrush="{ThemeResource SpanBorderControlBrush}" BorderThickness="1"
+                  CornerRadius="{StaticResource CardRadius}" VerticalAlignment="Center"
+                  Padding="6,0"
                   Visibility="{x:Bind IsSingleNonSettingsVisible(ViewModel.IsSplitViewEnabled, ViewModel.CurrentViewMode), Mode=OneWay}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -365,7 +365,8 @@
 
                 <!-- ═══ Search Box (always visible) ═══ -->
                 <Rectangle Width="1" Height="20" Fill="{ThemeResource SpanBorderSubtleBrush}" Margin="4,0"/>
-                <TextBox x:Name="SearchBox" AutomationProperties.AutomationId="TextBox_Search" Width="220" Height="28" FontSize="12"
+                <TextBox x:Name="SearchBox" AutomationProperties.AutomationId="TextBox_Search" Width="240" Height="32" FontSize="12"
+                         CornerRadius="{StaticResource CardRadius}" VerticalContentAlignment="Center"
                          PlaceholderText="Search (kind: size: ext: date:)"
                          ToolTipService.ToolTip="Type to filter current folder (live)&#x0a;Clear field to reset&#x0a;Enter: recursive search in current folder&#x0a;Ctrl+Enter: search from root&#x0a;&#x0a;Advanced syntax:&#x0a;  kind:image  kind:video  kind:document&#x0a;  size:&gt;1MB  size:&lt;100KB  size:large&#x0a;  date:today  date:thisweek  date:&gt;2024-01-01&#x0a;  ext:.pdf  ext:.txt&#x0a;Combine: kind:image size:&gt;1MB"
                          TextChanged="OnSearchBoxTextChanged"
@@ -382,7 +383,7 @@
             </Grid.ColumnDefinitions>
 
             <!-- Sidebar - Hybrid 3-Section Layout -->
-            <Border x:Name="SidebarBorder" AutomationProperties.AutomationId="Sidebar" Grid.Column="0" Background="{ThemeResource SpanBgLayer1Brush}">
+            <Border x:Name="SidebarBorder" AutomationProperties.AutomationId="Sidebar" Grid.Column="0" Background="{ThemeResource SpanBgMicaBrush}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>
@@ -390,11 +391,11 @@
                     </Grid.RowDefinitions>
                 <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                               RightTapped="OnSidebarEmptyRightTapped">
-                    <StackPanel Padding="0,12">
+                    <StackPanel Padding="0,6,0,12">
 
                         <!-- Section 1: 홈 -->
                         <StackPanel x:Name="SidebarHomeSection">
-                        <Grid Height="28" Padding="12,0" Background="Transparent"
+                        <Grid Height="28" Padding="12,0" Margin="8,1" CornerRadius="6" Background="Transparent"
                               Tapped="OnHomeItemTapped"
                               PointerEntered="OnSidebarItemPointerEntered"
                               PointerExited="OnSidebarItemPointerExited" PointerPressed="OnSidebarItemPointerPressed" PointerReleased="OnSidebarItemPointerReleased">
@@ -406,7 +407,7 @@
                             <TextBlock x:Name="SidebarHomeText" Grid.Column="1" Text="홈" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}" FontWeight="SemiBold" VerticalAlignment="Center"
                                        TextTrimming="CharacterEllipsis"/>
                         </Grid>
-                        <Rectangle Height="1" Fill="{ThemeResource SpanBorderSubtleBrush}" Margin="12,12"/>
+                        <Rectangle Height="1" Fill="{ThemeResource SpanBorderSubtleBrush}" Margin="20,10"/>
                         </StackPanel>
 
                         <!-- Section 2: 즐겨찾기 (Drop Target) -->
@@ -415,10 +416,10 @@
                                     Drop="OnFavoritesDrop"
                                     RightTapped="OnFavoritesSectionRightTapped">
                         <TextBlock x:Name="SidebarFavoritesText" Text="즐겨찾기"
-                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Style="{StaticResource SidebarSectionTextStyle}"
                                    Foreground="{ThemeResource SpanTextTertiaryBrush}"
                                    FontWeight="SemiBold"
-                                   Margin="16,0,16,8"
+                                   Margin="20,4,16,8"
                                    RightTapped="OnFavoritesSectionRightTapped"/>
 
                         <!-- Flat Favorites: one list (ungrouped + section headers + group items) -->
@@ -445,7 +446,7 @@
                                 <helpers:FavoriteSidebarTemplateSelector>
                                     <helpers:FavoriteSidebarTemplateSelector.HeaderTemplate>
                                         <DataTemplate x:DataType="models:FavoriteGroupHeaderRow">
-                                            <Grid Height="24" Padding="12,0" Background="Transparent"
+                                            <Grid Height="24" Padding="12,0" Margin="8,1" CornerRadius="6" Background="Transparent"
                                                   Tag="{x:Bind GroupId}"
                                                   PointerEntered="OnSidebarItemPointerEntered"
                                                   PointerExited="OnSidebarItemPointerExited">
@@ -461,7 +462,7 @@
                                                     </FontIcon.RenderTransform>
                                                 </FontIcon>
                                                 <TextBlock Grid.Column="1" Text="{x:Bind Name, Mode=OneWay}"
-                                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                                           Style="{StaticResource SidebarSectionTextStyle}"
                                                            Foreground="{ThemeResource SpanTextTertiaryBrush}"
                                                            FontWeight="SemiBold"
                                                            VerticalAlignment="Center"
@@ -471,7 +472,7 @@
                                     </helpers:FavoriteSidebarTemplateSelector.HeaderTemplate>
                                     <helpers:FavoriteSidebarTemplateSelector.ItemTemplate>
                                         <DataTemplate x:DataType="models:FavoriteItemRow">
-                                            <Grid Height="26" Padding="12,0,8,0"
+                                            <Grid Height="26" Padding="12,0,8,0" Margin="8,1" CornerRadius="6"
                                                   Background="Transparent"
                                                   ToolTipService.ToolTip="{x:Bind Item.Path}"
                                                   PointerEntered="OnSidebarItemPointerEntered"
@@ -507,6 +508,7 @@
                             <ListView.ItemContainerStyle>
                                 <Style TargetType="ListViewItem">
                                     <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="Margin" Value="0"/>
                                     <Setter Property="MinHeight" Value="0"/>
                                     <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                                     <Setter Property="helpers:CursorHelper.IsHandCursor" Value="True"/>
@@ -562,8 +564,8 @@
 
                         <!-- ═══════ Section 3: 로컬 디스크 ═══════ -->
                         <StackPanel x:Name="SidebarLocalDrivesSection">
-                        <Rectangle Height="1" Fill="{ThemeResource SpanBorderSubtleBrush}" Margin="12,12"/>
-                        <Grid Height="24" Padding="12,0" Background="Transparent"
+                        <Rectangle Height="1" Fill="{ThemeResource SpanBorderSubtleBrush}" Margin="20,10"/>
+                        <Grid Height="24" Padding="12,0" Margin="8,1" CornerRadius="6" Background="Transparent"
                               Tapped="OnSidebarSectionHeaderTapped" Tag="Local"
                               PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited" PointerPressed="OnSidebarItemPointerPressed" PointerReleased="OnSidebarItemPointerReleased">
                             <Grid.ColumnDefinitions>
@@ -578,7 +580,7 @@
                                 </FontIcon.RenderTransform>
                             </FontIcon>
                             <TextBlock x:Name="SidebarLocalDrivesText" Grid.Column="1" Text="로컬 디스크"
-                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Style="{StaticResource SidebarSectionTextStyle}"
                                        Foreground="{ThemeResource SpanTextTertiaryBrush}" FontWeight="SemiBold"
                                        VerticalAlignment="Center"/>
                         </Grid>
@@ -586,7 +588,7 @@
                                       Visibility="{x:Bind ViewModel.IsLocalDrivesExpanded, Mode=OneWay}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="models:DriveItem">
-                                    <Grid Height="26" Padding="12,0,8,0" Background="Transparent"
+                                    <Grid Height="26" Padding="12,0,8,0" Margin="8,1" CornerRadius="6" Background="Transparent"
                                           ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneTime}"
                                           Tapped="OnDriveItemTapped" RightTapped="OnSidebarDriveRightTapped"
                                           PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited" PointerPressed="OnSidebarItemPointerPressed" PointerReleased="OnSidebarItemPointerReleased">
@@ -610,8 +612,8 @@
 
                         <!-- ═══════ Section 4: 클라우드 (CloudDrives 있을 때만) ═══════ -->
                         <StackPanel x:Name="SidebarCloudSection" Visibility="{x:Bind ViewModel.HasCloudDrives, Mode=OneWay}">
-                            <Rectangle Height="1" Fill="{ThemeResource SpanBorderSubtleBrush}" Margin="12,12"/>
-                            <Grid Height="24" Padding="12,0" Background="Transparent"
+                            <Rectangle Height="1" Fill="{ThemeResource SpanBorderSubtleBrush}" Margin="20,10"/>
+                            <Grid Height="24" Padding="12,0" Margin="8,1" CornerRadius="6" Background="Transparent"
                                   Tapped="OnSidebarSectionHeaderTapped" Tag="Cloud"
                                   PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited" PointerPressed="OnSidebarItemPointerPressed" PointerReleased="OnSidebarItemPointerReleased">
                                 <Grid.ColumnDefinitions>
@@ -626,7 +628,7 @@
                                     </FontIcon.RenderTransform>
                                 </FontIcon>
                                 <TextBlock x:Name="SidebarCloudText" Grid.Column="1" Text="클라우드"
-                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Style="{StaticResource SidebarSectionTextStyle}"
                                            Foreground="{ThemeResource SpanTextTertiaryBrush}" FontWeight="SemiBold"
                                            VerticalAlignment="Center"/>
                             </Grid>
@@ -634,7 +636,7 @@
                                           Visibility="{x:Bind ViewModel.IsCloudDrivesExpanded, Mode=OneWay}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="models:DriveItem">
-                                        <Grid Height="26" Padding="12,0,8,0" Background="Transparent"
+                                        <Grid Height="26" Padding="12,0,8,0" Margin="8,1" CornerRadius="6" Background="Transparent"
                                               ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneTime}"
                                               Tapped="OnDriveItemTapped" RightTapped="OnSidebarDriveRightTapped"
                                               PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited" PointerPressed="OnSidebarItemPointerPressed" PointerReleased="OnSidebarItemPointerReleased">
@@ -657,8 +659,8 @@
 
                         <!-- ═══════ Section 5: 네트워크 (NetworkAndRemoteDrives 있을 때만) ═══════ -->
                         <StackPanel x:Name="SidebarNetworkSection" Visibility="{x:Bind ViewModel.HasNetworkDrives, Mode=OneWay}">
-                            <Rectangle Height="1" Fill="{ThemeResource SpanBorderSubtleBrush}" Margin="12,12"/>
-                            <Grid Height="24" Padding="12,0" Background="Transparent"
+                            <Rectangle Height="1" Fill="{ThemeResource SpanBorderSubtleBrush}" Margin="20,10"/>
+                            <Grid Height="24" Padding="12,0" Margin="8,1" CornerRadius="6" Background="Transparent"
                                   Tapped="OnSidebarSectionHeaderTapped" Tag="Network"
                                   PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited" PointerPressed="OnSidebarItemPointerPressed" PointerReleased="OnSidebarItemPointerReleased">
                                 <Grid.ColumnDefinitions>
@@ -673,7 +675,7 @@
                                     </FontIcon.RenderTransform>
                                 </FontIcon>
                                 <TextBlock x:Name="SidebarNetworkText" Grid.Column="1" Text="네트워크"
-                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Style="{StaticResource SidebarSectionTextStyle}"
                                            Foreground="{ThemeResource SpanTextTertiaryBrush}" FontWeight="SemiBold"
                                            VerticalAlignment="Center"/>
                             </Grid>
@@ -681,7 +683,7 @@
                                           Visibility="{x:Bind ViewModel.IsNetworkDrivesExpanded, Mode=OneWay}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="models:DriveItem">
-                                        <Grid Height="26" Padding="12,0,8,0" Background="Transparent"
+                                        <Grid Height="26" Padding="12,0,8,0" Margin="8,1" CornerRadius="6" Background="Transparent"
                                               ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneTime}"
                                               Tapped="OnDriveItemTapped" RightTapped="OnSidebarDriveRightTapped"
                                               PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited" PointerPressed="OnSidebarItemPointerPressed" PointerReleased="OnSidebarItemPointerReleased">
@@ -713,9 +715,9 @@
 
                         <!-- ═══════ Section 6: 휴지통 ═══════ -->
                         <StackPanel x:Name="SidebarRecycleBinSection">
-                        <Rectangle Height="1" Fill="{ThemeResource SpanBorderSubtleBrush}" Margin="12,12"/>
+                        <Rectangle Height="1" Fill="{ThemeResource SpanBorderSubtleBrush}" Margin="20,10"/>
 
-                        <Grid Height="36" Padding="12,0" Background="Transparent"
+                        <Grid Height="36" Padding="12,0" Margin="8,1" CornerRadius="6" Background="Transparent"
                               Tapped="OnRecycleBinTapped"
                               AllowDrop="True"
                               DragOver="OnRecycleBinDragOver"
@@ -758,9 +760,7 @@
                 </ScrollViewer>
 
                 <!-- Sidebar bottom bar: Help, Log (left) | Settings (right) -->
-                <Grid Grid.Row="1"
-                      BorderBrush="{ThemeResource SpanBorderSubtleBrush}" BorderThickness="0,1,0,0"
-                      Padding="8,4">
+                <Grid Grid.Row="1" Padding="10,6">
                     <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Left">
                         <Button x:Name="HelpButton" AutomationProperties.AutomationId="Button_Help" Style="{StaticResource UnifiedButtonStyle}"
                                 ToolTipService.ToolTip="단축키 도움말 (Shift+?)" Click="OnHelpClick"
@@ -791,8 +791,7 @@
 
             <!-- Sidebar Resize Splitter: 6px drag area, visually 1px right border -->
             <Border x:Name="SidebarSplitter" Grid.Column="1" Width="6"
-                    Background="{ThemeResource SpanBgLayer1Brush}"
-                    BorderBrush="{ThemeResource SpanBorderSubtleBrush}" BorderThickness="0,0,1,0"
+                    Background="{ThemeResource SpanBgMicaBrush}"
                     ManipulationMode="TranslateX" ManipulationStarted="OnSidebarSplitterManipulationStarted"
                     ManipulationDelta="OnSidebarSplitterManipulationDelta"
                     PointerEntered="OnSidebarSplitterPointerEntered" PointerExited="OnSidebarSplitterPointerExited"/>
@@ -829,8 +828,7 @@
                     <!-- Left Pane Path Header (split mode, hidden in Home) -->
                     <Grid Grid.Row="0" x:Name="LeftPathHeader" Height="32"
                           Visibility="{x:Bind IsLeftPaneHeaderVisible(ViewModel.IsSplitViewEnabled, ViewModel.CurrentViewMode), Mode=OneWay}"
-                          Background="{ThemeResource SpanBgLayer2Brush}"
-                          BorderBrush="{ThemeResource SpanBorderSubtleBrush}" BorderThickness="0,0,0,1"
+                          Background="Transparent"
                           Tapped="OnLeftPaneHeaderTapped">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>  <!-- Nav buttons -->
@@ -838,7 +836,7 @@
                             <ColumnDefinition Width="Auto"/>  <!-- Copy path -->
                         </Grid.ColumnDefinitions>
                         <!-- Active pane accent bar -->
-                        <Rectangle Height="1" VerticalAlignment="Top" Grid.ColumnSpan="3"
+                        <Rectangle Height="2" RadiusX="1" RadiusY="1" Margin="10,0" VerticalAlignment="Top" Grid.ColumnSpan="3"
                                    Fill="{ThemeResource SpanAccentBrush}"
                                    Opacity="{x:Bind LeftPaneAccentOpacity(ViewModel.ActivePane), Mode=OneWay}"/>
                         <!-- Nav buttons -->
@@ -948,8 +946,9 @@
 
                     <!-- Filter Bar (Ctrl+Shift+F) -->
                     <Grid x:Name="LeftFilterBar" Grid.Row="1" Height="32" Visibility="Collapsed"
-                          Background="{ThemeResource SpanBgLayer2Brush}"
-                          BorderBrush="{ThemeResource SpanBorderSubtleBrush}" BorderThickness="0,0,0,1">
+                          Margin="4,6,4,0" CornerRadius="{StaticResource CardRadius}"
+                          Background="{ThemeResource SpanBgLayer1Brush}"
+                          BorderBrush="{ThemeResource SpanBorderControlBrush}" BorderThickness="1">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>  <!-- Filter icon -->
                             <ColumnDefinition Width="*"/>     <!-- TextBox -->
@@ -1016,10 +1015,12 @@
                                                     <ColumnDefinition Width="*"/>
                                                     <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
-                                                <Border Grid.Column="0"
+                                                <!-- Column card: floats on the window base, active column gets an accent outline -->
+                                                <Border Grid.Column="0" Margin="4,6,0,6"
+                                                        CornerRadius="{StaticResource CardRadius}"
                                                         BorderBrush="{Binding IsActive, Converter={StaticResource BoolToBrushConverter}}"
                                                         BorderThickness="{Binding IsActive, Converter={StaticResource MillerColumnBorderConverter}}"
-                                                        Background="{ThemeResource SpanBgMicaBrush}">
+                                                        Background="{ThemeResource SpanBgLayer1Brush}">
                                                     <Grid Loaded="OnMillerColumnContentGridLoaded" Unloaded="OnMillerColumnContentGridUnloaded"
                                                           Background="Transparent"
                                                           PointerPressed="OnMillerColumnPointerPressed">
@@ -1035,6 +1036,7 @@
                                                                       SelectionMode="Extended" IsItemClickEnabled="False"
                                                                       CanDragItems="True" AllowDrop="True"
                                                                       Background="Transparent"
+                                                                      Padding="0,4"
                                                                       ItemContainerStyle="{StaticResource MillerColumnItemStyle}"
                                                                       DragItemsStarting="OnDragItemsStarting" DragItemsCompleted="OnDragItemsCompleted"
                                                                       DragOver="OnColumnDragOver" Drop="OnColumnDrop"
@@ -1222,9 +1224,6 @@
                                                             </StackPanel>
                                                     </Grid>
                                                 </Border>
-                                                <!-- Column edge shadow (depth) -->
-                                                <Rectangle Grid.Column="1" Width="8" HorizontalAlignment="Left" Margin="-7,0,0,0"
-                                                           Fill="{ThemeResource SpanColumnShadowBrush}" IsHitTestVisible="False"/>
                                                 <!-- Column resize grip -->
                                                 <Rectangle Grid.Column="1" Width="4" Fill="Transparent"
                                                            PointerEntered="OnColumnResizeGripPointerEntered"
@@ -1286,7 +1285,6 @@
                         <!-- Preview Panel (Left) -->
                         <views:PreviewPanelView x:Name="LeftPreviewPanel" Grid.Column="2"
                             MinWidth="320"
-                            BorderBrush="{ThemeResource SpanBorderSubtleBrush}" BorderThickness="1,0,0,0"
                             Visibility="{x:Bind PreviewVisible(ViewModel.IsLeftPreviewEnabled), Mode=OneWay}"/>
                     </Grid>
 
@@ -1362,8 +1360,7 @@
 
                     <!-- Right Pane Path Header -->
                     <Grid Grid.Row="0" x:Name="RightPathHeader" Height="32"
-                          Background="{ThemeResource SpanBgLayer2Brush}"
-                          BorderBrush="{ThemeResource SpanBorderSubtleBrush}" BorderThickness="0,0,0,1"
+                          Background="Transparent"
                           Tapped="OnRightPaneHeaderTapped">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -1371,7 +1368,7 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <!-- Active pane accent bar -->
-                        <Rectangle Height="1" VerticalAlignment="Top" Grid.ColumnSpan="3"
+                        <Rectangle Height="2" RadiusX="1" RadiusY="1" Margin="10,0" VerticalAlignment="Top" Grid.ColumnSpan="3"
                                    Fill="{ThemeResource SpanAccentBrush}"
                                    Opacity="{x:Bind RightPaneAccentOpacity(ViewModel.ActivePane), Mode=OneWay}"/>
                         <!-- Nav buttons -->
@@ -1513,10 +1510,12 @@
                                                     <ColumnDefinition Width="*"/>
                                                     <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
-                                                <Border Grid.Column="0"
+                                                <!-- Column card: floats on the window base, active column gets an accent outline -->
+                                                <Border Grid.Column="0" Margin="4,6,0,6"
+                                                        CornerRadius="{StaticResource CardRadius}"
                                                         BorderBrush="{Binding IsActive, Converter={StaticResource BoolToBrushConverter}}"
                                                         BorderThickness="{Binding IsActive, Converter={StaticResource MillerColumnBorderConverter}}"
-                                                        Background="{ThemeResource SpanBgMicaBrush}">
+                                                        Background="{ThemeResource SpanBgLayer1Brush}">
                                                     <Grid Loaded="OnMillerColumnContentGridLoaded" Unloaded="OnMillerColumnContentGridUnloaded"
                                                           Background="Transparent"
                                                           PointerPressed="OnMillerColumnPointerPressed">
@@ -1532,6 +1531,7 @@
                                                                       SelectionMode="Extended" IsItemClickEnabled="False"
                                                                       CanDragItems="True" AllowDrop="True"
                                                                       Background="Transparent"
+                                                                      Padding="0,4"
                                                                       ItemContainerStyle="{StaticResource MillerColumnItemStyle}"
                                                                       DragItemsStarting="OnDragItemsStarting" DragItemsCompleted="OnDragItemsCompleted"
                                                                       DragOver="OnColumnDragOver" Drop="OnColumnDrop"
@@ -1719,9 +1719,6 @@
                                                             </StackPanel>
                                                     </Grid>
                                                 </Border>
-                                                <!-- Column edge shadow (depth) -->
-                                                <Rectangle Grid.Column="1" Width="8" HorizontalAlignment="Left" Margin="-7,0,0,0"
-                                                           Fill="{ThemeResource SpanColumnShadowBrush}" IsHitTestVisible="False"/>
                                                 <!-- Column resize grip -->
                                                 <Rectangle Grid.Column="1" Width="4" Fill="Transparent"
                                                            PointerEntered="OnColumnResizeGripPointerEntered"
@@ -1764,7 +1761,6 @@
                         <!-- Preview Panel (Right) -->
                         <views:PreviewPanelView x:Name="RightPreviewPanel" Grid.Column="2"
                             MinWidth="320"
-                            BorderBrush="{ThemeResource SpanBorderSubtleBrush}" BorderThickness="1,0,0,0"
                             Visibility="{x:Bind PreviewVisible(ViewModel.IsRightPreviewEnabled), Mode=OneWay}"/>
                     </Grid>
 
@@ -1833,15 +1829,14 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     <Grid Grid.Row="0" x:Name="TopRightPathHeader" Height="32"
-                          Background="{ThemeResource SpanBgLayer2Brush}"
-                          BorderBrush="{ThemeResource SpanBorderSubtleBrush}" BorderThickness="0,0,0,1"
+                          Background="Transparent"
                           Tapped="OnTopRightPaneHeaderTapped">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Rectangle Height="1" VerticalAlignment="Top" Grid.ColumnSpan="3"
+                        <Rectangle Height="2" RadiusX="1" RadiusY="1" Margin="10,0" VerticalAlignment="Top" Grid.ColumnSpan="3"
                                    Fill="{ThemeResource SpanAccentBrush}"
                                    Opacity="{x:Bind PaneAccentOpacity(ViewModel.ActivePane, ViewModel.IsQuadSplit, models:ActivePane.TopRight), Mode=OneWay}"/>
                         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="0" VerticalAlignment="Center" Margin="2,0,0,0">
@@ -1902,15 +1897,14 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     <Grid Grid.Row="0" x:Name="BottomRightPathHeader" Height="32"
-                          Background="{ThemeResource SpanBgLayer2Brush}"
-                          BorderBrush="{ThemeResource SpanBorderSubtleBrush}" BorderThickness="0,0,0,1"
+                          Background="Transparent"
                           Tapped="OnBottomRightPaneHeaderTapped">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Rectangle Height="1" VerticalAlignment="Top" Grid.ColumnSpan="3"
+                        <Rectangle Height="2" RadiusX="1" RadiusY="1" Margin="10,0" VerticalAlignment="Top" Grid.ColumnSpan="3"
                                    Fill="{ThemeResource SpanAccentBrush}"
                                    Opacity="{x:Bind PaneAccentOpacity(ViewModel.ActivePane, ViewModel.IsQuadSplit, models:ActivePane.BottomRight), Mode=OneWay}"/>
                         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="0" VerticalAlignment="Center" Margin="2,0,0,0">
@@ -1964,11 +1958,11 @@
                 <!-- Horizontal split divider (quad) -->
                 <Border x:Name="SplitPaneDividerHorizontal" Grid.Row="1" Grid.ColumnSpan="3" Height="1"
                         VerticalAlignment="Top" IsHitTestVisible="False"
-                        Background="{ThemeResource SpanAccentDimBrush}" Visibility="Collapsed"/>
+                        Background="{ThemeResource SpanBorderControlBrush}" Visibility="Collapsed"/>
 
                 <!-- Split divider -->
                 <Border x:Name="SplitPaneDivider" Grid.Column="2" Width="1" HorizontalAlignment="Left" IsHitTestVisible="False"
-                        Background="{ThemeResource SpanAccentDimBrush}"
+                        Background="{ThemeResource SpanBorderControlBrush}"
                         Visibility="{x:Bind IsSplitVisible(ViewModel.IsSplitViewEnabled), Mode=OneWay}"/>
             </Grid>
 
@@ -1977,7 +1971,7 @@
         </Grid>
 
         <!-- 4. Status Bar -->
-        <Grid Grid.Row="3" AutomationProperties.AutomationId="StatusBar" Height="{StaticResource StatusBarHeight}" Background="{ThemeResource SpanBgMicaBrush}" BorderBrush="{ThemeResource SpanBorderSubtleBrush}" BorderThickness="0,1,0,0">
+        <Grid Grid.Row="3" AutomationProperties.AutomationId="StatusBar" Height="{StaticResource StatusBarHeight}" Background="{ThemeResource SpanBgMicaBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
