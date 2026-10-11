@@ -817,6 +817,7 @@ namespace Span
                 case ShortcutCommands.AddressBarFocus: ExecuteOpenAddressBar(); return true;
                 case ShortcutCommands.Search: SearchBox.Focus(FocusState.Keyboard); return true;
                 case ShortcutCommands.FilterBar: ToggleFilterBar(); return true;
+                case ShortcutCommands.AddFavorite: AddCurrentFolderToFavorites(); return true;
 
                 // Edit
                 case ShortcutCommands.Copy: HandleCopy(); return true;
@@ -2373,7 +2374,7 @@ namespace Span
                             ((Services.IContextMenuHost)this).PerformOpenInNewTab(drive.Path);
                             e.Handled = true;
                             return;
-                        case Models.FavoriteItem fav when !string.IsNullOrEmpty(fav.Path):
+                        case Models.FavoriteItem fav when !string.IsNullOrEmpty(fav.Path) && !fav.IsFile:
                             ((Services.IContextMenuHost)this).PerformOpenInNewTab(fav.Path);
                             e.Handled = true;
                             return;

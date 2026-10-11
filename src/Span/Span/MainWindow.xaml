@@ -413,18 +413,34 @@
                         <!-- Section 2: 즐겨찾기 (Drop Target) -->
                         <StackPanel x:Name="SidebarFavoritesSection" AllowDrop="True"
                                     DragOver="OnFavoritesDragOver"
+                                    DragLeave="OnFavoritesDragLeave"
                                     Drop="OnFavoritesDrop"
                                     RightTapped="OnFavoritesSectionRightTapped">
-                        <TextBlock x:Name="SidebarFavoritesText" Text="즐겨찾기"
-                                   Style="{StaticResource SidebarSectionTextStyle}"
-                                   Foreground="{ThemeResource SpanTextTertiaryBrush}"
-                                   FontWeight="SemiBold"
-                                   Margin="20,4,16,8"
-                                   RightTapped="OnFavoritesSectionRightTapped"/>
+                        <Grid Margin="20,4,12,4" Background="Transparent"
+                              RightTapped="OnFavoritesSectionRightTapped">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="SidebarFavoritesText" Text="즐겨찾기"
+                                       Style="{StaticResource SidebarSectionTextStyle}"
+                                       Foreground="{ThemeResource SpanTextTertiaryBrush}"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                            <!-- Add current folder (Ctrl+Shift+D) -->
+                            <Button x:Name="SidebarFavoritesAddButton" Grid.Column="1"
+                                    Width="22" Height="22" Padding="0"
+                                    Background="Transparent" BorderThickness="0"
+                                    Click="OnFavoritesAddButtonClick">
+                                <FontIcon Glyph="&#xE710;" FontSize="11"
+                                          Foreground="{ThemeResource SpanTextTertiaryBrush}"/>
+                            </Button>
+                        </Grid>
 
                         <!-- Flat Favorites: one list (ungrouped + section headers + group items) -->
                         <StackPanel x:Name="FavoritesFlatPanel"
                                     RightTapped="OnFavoritesSectionRightTapped">
+                        <Grid>
                         <ListView x:Name="FavoritesSidebarList"
                                   ItemsSource="{x:Bind ViewModel.FavoritesSidebarRows, Mode=OneWay}"
                                   SelectionMode="None"
@@ -434,6 +450,7 @@
                                   CanReorderItems="True"
                                   AllowDrop="True"
                                   DragOver="OnFavoritesDragOver"
+                                  DragLeave="OnFavoritesDragLeave"
                                   Drop="OnFavoritesDrop"
                                   DragItemsCompleted="OnFavoritesSidebarDragCompleted"
                                   RightTapped="OnFavoritesSidebarRightTapped"
@@ -515,6 +532,14 @@
                                 </Style>
                             </ListView.ItemContainerStyle>
                         </ListView>
+                        <!-- Drop insertion line (positioned in OnFavoritesDragOver) -->
+                        <Canvas IsHitTestVisible="False">
+                            <Border x:Name="FavoritesDropIndicator"
+                                    Height="2" CornerRadius="1"
+                                    Background="{ThemeResource SpanAccentBrush}"
+                                    Visibility="Collapsed"/>
+                        </Canvas>
+                        </Grid>
                         </StackPanel>
 
                         <!-- Favorites Tree (expandable sidebar tree with lazy-loaded subfolders) -->

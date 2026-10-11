@@ -4928,7 +4928,19 @@ namespace Span
         {
             try
             {
-                if (!string.IsNullOrEmpty(fav.Path) && System.IO.Directory.Exists(fav.Path))
+                if (fav.IsFile)
+                {
+                    ViewModel.NavigateToFavorite(fav);
+                    return;
+                }
+
+                if (!string.IsNullOrEmpty(fav.Path) && !System.IO.Directory.Exists(fav.Path))
+                {
+                    ViewModel.ShowFavoriteNotFound(fav);
+                    return;
+                }
+
+                if (!string.IsNullOrEmpty(fav.Path))
                 {
                     var activeViewMode = GetActivePaneViewMode();
                     if (activeViewMode == ViewMode.Home || activeViewMode == ViewMode.RecycleBin)
@@ -5117,13 +5129,114 @@ namespace Span
             return string.IsNullOrEmpty(name) ? null : name;
         }
 
-        internal async void CreateFavoriteGroup()
+        /// <param name="addPath">Optional favorite (or new path) to put into the new group.</param>
+        internal async void CreateFavoriteGroup(string? addPath = null)
         {
             var name = await PromptFavoriteGroupNameAsync(
                 _loc.Get("Favorites_NewGroup"),
                 _loc.Get("Favorites_NewGroupDefault"));
-            if (name != null)
-                ViewModel.CreateFavoriteGroup(name);
+            if (name == null) return;
+
+            var group = ViewModel.CreateFavoriteGroup(name);
+            if (!string.IsNullOrEmpty(addPath))
+                ViewModel.AddToFavorites(addPath, group.Id);
+        }
+
+        /// <summary>
+        /// "+" button / Ctrl+Shift+D: add the active pane's current folder to the favorites.
+        /// </summary>
+        internal void AddCurrentFolderToFavorites(string? groupId = null)
+        {
+            var mode = GetActivePaneViewMode();
+            var path = mode is ViewMode.Home or ViewMode.RecycleBin or ViewMode.ActionLog
+                ? null
+                : ViewModel.ActiveExplorer?.CurrentPath;
+
+            if (string.IsNullOrEmpty(path)
+                || Helpers.ArchivePathHelper.IsArchivePath(path)
+                || FileSystemRouter.IsRemotePath(path)
+                || !System.IO.Directory.Exists(path))
+            {
+                ViewModel.ShowToast(_loc.Get("Favorites_CannotAdd"), isError: true);
+                return;
+            }
+
+            var name = Services.FavoritesService.GetDefaultName(path);
+            bool alreadyFavorite = ViewModel.IsFavorite(path);
+            ViewModel.AddToFavorites(path, groupId);
+            ViewModel.ShowToast(string.Format(
+                _loc.Get(alreadyFavorite && groupId == null ? "Favorites_AlreadyAdded" : "Favorites_Added"), name));
+        }
+
+        private void OnFavoritesAddButtonClick(object sender, RoutedEventArgs e)
+            => AddCurrentFolderToFavorites();
+
+        internal async void RenameFavorite(FavoriteItem fav)
+        {
+            var input = new TextBox
+            {
+                Text = fav.Name,
+                PlaceholderText = Services.FavoritesService.GetDefaultName(fav.Path),
+                SelectionStart = 0,
+                SelectionLength = fav.Name.Length
+            };
+
+            var dialog = new ContentDialog
+            {
+                Title = _loc.Get("Favorites_Rename"),
+                Content = new StackPanel
+                {
+                    Spacing = 8,
+                    Children =
+                    {
+                        input,
+                        new TextBlock
+                        {
+                            Text = _loc.Get("Favorites_RenameHint"),
+                            Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
+                            Opacity = 0.7,
+                            TextWrapping = TextWrapping.Wrap
+                        }
+                    }
+                },
+                PrimaryButtonText = _loc.Get("OK"),
+                CloseButtonText = _loc.Get("Cancel"),
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = Content.XamlRoot
+            };
+
+            var result = await ShowContentDialogSafeAsync(dialog);
+            if (result != ContentDialogResult.Primary) return;
+
+            var name = input.Text.Trim();
+            // Unchanged (keeps localized known-folder names live)
+            if (fav.CustomName == null && string.Equals(name, fav.Name, StringComparison.Ordinal))
+                return;
+            // Same as the path-derived name → no custom name needed
+            if (string.Equals(name, Services.FavoritesService.GetDefaultName(fav.Path), StringComparison.Ordinal))
+                name = string.Empty;
+            ViewModel.RenameFavorite(fav.Path, name);
+        }
+
+        internal void RevealFavorite(FavoriteItem fav)
+        {
+            var parent = System.IO.Path.GetDirectoryName(fav.Path);
+            if (string.IsNullOrEmpty(parent) || !System.IO.Directory.Exists(parent))
+            {
+                ViewModel.ShowFavoriteNotFound(fav);
+                return;
+            }
+
+            var activeViewMode = GetActivePaneViewMode();
+            if (activeViewMode == ViewMode.Home || activeViewMode == ViewMode.RecycleBin)
+                ViewModel.SwitchViewMode(ViewModel.ResolveViewModeFromHome());
+
+            var folder = new FolderItem
+            {
+                Name = System.IO.Path.GetFileName(parent) ?? parent,
+                Path = parent
+            };
+            _ = NavigateAndSelectFileAsync(folder, System.IO.Path.GetFileName(fav.Path));
         }
 
         internal async void RenameFavoriteGroup(string groupId)
@@ -5262,6 +5375,13 @@ namespace Span
             else if (args.InvokedItem is FavoriteItem fav)
             {
                 path = fav.Path;
+            }
+
+            var invokedFav = (args.InvokedItem as TreeViewNode)?.Content as FavoriteItem ?? args.InvokedItem as FavoriteItem;
+            if (invokedFav is { IsFile: true })
+            {
+                ViewModel.NavigateToFavorite(invokedFav);
+                return;
             }
             else if (args.InvokedItem is SidebarFolderNode sfn)
             {
@@ -7840,10 +7960,20 @@ namespace Span
             }
         }
 
-        void Services.IContextMenuHost.AddToFavorites(string path)
+        void Services.IContextMenuHost.AddToFavorites(string path, string? groupId)
         {
-            ViewModel.AddToFavorites(path);
+            ViewModel.AddToFavorites(path, groupId);
         }
+
+        void Services.IContextMenuHost.AddCurrentFolderToFavorites(string? groupId)
+            => AddCurrentFolderToFavorites(groupId);
+
+        void Services.IContextMenuHost.RenameFavorite(FavoriteItem fav) => RenameFavorite(fav);
+
+        void Services.IContextMenuHost.SetFavoriteColor(FavoriteItem fav, string? color)
+            => ViewModel.SetFavoriteColor(fav.Path, color);
+
+        void Services.IContextMenuHost.RevealFavorite(FavoriteItem fav) => RevealFavorite(fav);
 
         void Services.IContextMenuHost.RemoveFromFavorites(string path)
         {
@@ -7928,7 +8058,7 @@ namespace Span
             }
         }
 
-        void Services.IContextMenuHost.CreateFavoriteGroup() => CreateFavoriteGroup();
+        void Services.IContextMenuHost.CreateFavoriteGroup(string? addPath) => CreateFavoriteGroup(addPath);
 
         void Services.IContextMenuHost.RenameFavoriteGroup(string groupId) => RenameFavoriteGroup(groupId);
 
