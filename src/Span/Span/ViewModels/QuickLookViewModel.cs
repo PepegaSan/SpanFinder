@@ -22,6 +22,7 @@ namespace Span.ViewModels
     {
         private readonly PreviewService _previewService;
         private readonly ArchiveReaderService? _archiveReader;
+        private readonly FolderSizeService? _folderSizes;
         private readonly ISettingsService? _settings;
         private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcherQueue;
         private CancellationTokenSource? _currentCts;
@@ -125,6 +126,7 @@ namespace Span.ViewModels
             _previewService = previewService;
             _dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
             _archiveReader = App.Current.Services.GetService<ArchiveReaderService>();
+            _folderSizes = App.Current.Services.GetService<FolderSizeService>();
 
             try
             {
@@ -425,22 +427,14 @@ namespace Span.ViewModels
         {
             try
             {
-                long totalSize = await Task.Run(() =>
+                if (_folderSizes == null)
                 {
-                    long size = 0;
-                    try
-                    {
-                        var dirInfo = new System.IO.DirectoryInfo(folderPath);
-                        foreach (var file in dirInfo.EnumerateFiles("*", System.IO.SearchOption.AllDirectories))
-                        {
-                            ct.ThrowIfCancellationRequested();
-                            try { size += file.Length; } catch { }
-                        }
-                    }
-                    catch (OperationCanceledException) { throw; }
-                    catch { }
-                    return size;
-                }, ct);
+                    _dispatcherQueue.TryEnqueue(() => FolderSizeText = "");
+                    return;
+                }
+
+                // Shared index with the Details view: already measured folders return immediately.
+                long totalSize = await Task.Run(() => _folderSizes.GetOrCalculateSize(folderPath, ct), ct);
 
                 if (!ct.IsCancellationRequested)
                 {

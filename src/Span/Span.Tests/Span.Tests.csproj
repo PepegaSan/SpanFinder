@@ -87,6 +87,7 @@
     <Compile Include="..\Span\Services\FileOperations\ExtractOperation.cs" Link="Sources\Services\ExtractOperation.cs" />
     <!-- Services - folder size (pure C#) -->
     <Compile Include="..\Span\Services\FolderSizeService.cs" Link="Sources\Services\FolderSizeService.cs" />
+    <Compile Include="..\Span\Services\FolderSizeIndex.cs" Link="Sources\Services\FolderSizeIndex.cs" />
     <!-- Services - cache (pure C#) -->
     <Compile Include="..\Span\Services\FolderContentCache.cs" Link="Sources\Services\FolderContentCache.cs" />
     <!-- Services - routing (pure C#) -->
