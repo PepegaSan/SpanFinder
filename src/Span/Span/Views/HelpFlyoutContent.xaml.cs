@@ -59,6 +59,7 @@ namespace Span.Views
 
             // Edit
             DescCopy.Text = _loc.Get("Help_Copy");
+            DescCopyPath.Text = _loc.Get("Shortcut_CopyPath");
             DescCut.Text = _loc.Get("Help_Cut");
             DescPaste.Text = _loc.Get("Help_Paste");
             DescPasteShortcut.Text = _loc.Get("Help_PasteShortcut");
@@ -120,6 +121,7 @@ namespace Span.Views
 
             // 편집
             SetKeyText(Key_Copy, bindings, "span.edit.copy");
+            SetKeyText(Key_CopyPath, bindings, "span.edit.copyPath");
             SetKeyText(Key_Cut, bindings, "span.edit.cut");
             SetKeyText(Key_Paste, bindings, "span.edit.paste");
             SetKeyText(Key_PasteShortcut, bindings, "span.edit.pasteAsShortcut");

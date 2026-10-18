@@ -470,6 +470,9 @@ namespace Span
                         break;
 
                     case Windows.System.VirtualKey.C:
+                        // Ctrl+Shift+C는 "경로 복사"(ShortcutCommands.CopyPath) 몫이다. 사용자가 그 바인딩을
+                        // 지웠거나 다른 키로 옮겼다면 아무것도 하지 않는다 — 파일 복사로 새지 않게.
+                        if (shift) break;
                         HandleCopy();
                         e.Handled = true;
                         break;
@@ -1568,7 +1571,7 @@ namespace Span
                 else
                 {
                     var shellService = App.Current.Services.GetRequiredService<Services.ShellService>();
-                    shellService.OpenFile(fileVm.Path);
+                    shellService.OpenFileFromFolderView(fileVm.Path, currentColumn);
                 }
             }
         }

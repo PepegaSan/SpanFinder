@@ -679,7 +679,7 @@ namespace Span.Views
                     else
                     {
                         var shellService = App.Current.Services.GetRequiredService<Services.ShellService>();
-                        shellService.OpenFile(file.Path);
+                        shellService.OpenFileFromFolderView(file.Path, ViewModel?.CurrentFolder);
                     }
                 }
                 catch (Exception ex) { Helpers.DebugLogger.Log($"[ListModeView] OpenFile error (double-tap): {ex.Message}"); }
@@ -806,7 +806,7 @@ namespace Span.Views
                     else
                     {
                         var shellService = App.Current.Services.GetRequiredService<Services.ShellService>();
-                        shellService.OpenFile(file.Path);
+                        shellService.OpenFileFromFolderView(file.Path, ViewModel?.CurrentFolder);
                     }
                 }
                 catch (Exception ex) { Helpers.DebugLogger.Log($"[ListModeView] OpenFile error (enter key): {ex.Message}"); }
