@@ -1,36 +1,109 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Span.ViewModels;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace Span.Helpers
 {
     /// <summary>
-    /// Shared drag/drop logic used by DetailsModeView, ListModeView, and IconModeView.
+    /// Shared drag/drop logic used by Miller columns, DetailsModeView, ListModeView, and IconModeView.
     /// </summary>
     public static class ViewDragDropHelper
     {
         /// <summary>
-        /// Sets up WinUI drag data from selected items.
+        /// Sets up WinUI drag data from the items of a DragItemsStarting event.
         /// Returns false if there is nothing to drag.
         /// </summary>
+        /// <param name="listView">Source list; needed for Explorer-style selection of the dragged item.</param>
+        /// <param name="selectDraggedItem">
+        /// Explorer: dragging an unselected item selects it (Ctrl adds it to the selection and
+        /// drags the whole selection). Miller columns pass false because selecting there navigates.
+        /// </param>
         public static bool SetupDragData(
             Microsoft.UI.Xaml.Controls.DragItemsStartingEventArgs e,
-            bool isRightPane)
+            bool isRightPane,
+            Microsoft.UI.Xaml.Controls.ListViewBase? listView = null,
+            bool selectDraggedItem = true)
         {
             var items = e.Items.OfType<FileSystemViewModel>().ToList();
             if (items.Count == 0)
                 return false;
 
+            if (listView != null && selectDraggedItem)
+                items = EnsureDraggedItemsSelected(listView, items);
+
+            PopulateDragData(e.Data, items, isRightPane);
+            return true;
+        }
+
+        /// <summary>
+        /// Fills a DataPackage for an internal file drag: SourcePaths/SourcePane for drops inside
+        /// Span plus StorageItems for external targets.
+        /// </summary>
+        public static void PopulateDragData(DataPackage data, IReadOnlyList<FileSystemViewModel> items, bool isRightPane)
+        {
             var paths = items.Select(i => i.Path).ToList();
             // 텍스트는 싣지 않는다 (외부 앱 파일 드롭 호환 — MainWindow.OnDragItemsStarting 참고)
-            e.Data.Properties["SourcePaths"] = paths;
-            e.Data.Properties["SourcePane"] = isRightPane ? "Right" : "Left";
-            e.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy
-                | Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move
-                | Windows.ApplicationModel.DataTransfer.DataPackageOperation.Link;
-            OutboundFileDragHelper.Populate(e.Data, paths, skipArchivePaths: false);
+            data.Properties["SourcePaths"] = paths;
+            data.Properties["SourcePane"] = isRightPane ? "Right" : "Left";
+            data.RequestedOperation = DataPackageOperation.Copy
+                | DataPackageOperation.Move
+                | DataPackageOperation.Link;
+            OutboundFileDragHelper.Populate(data, paths, skipArchivePaths: false);
+        }
 
-            return true;
+        /// <summary>
+        /// Explorer semantics for the drag start: a drag that begins on an item outside the
+        /// selection selects that item (Ctrl held: adds it and drags the whole selection).
+        /// Returns the items that should actually be dragged.
+        /// </summary>
+        public static List<FileSystemViewModel> EnsureDraggedItemsSelected(
+            Microsoft.UI.Xaml.Controls.ListViewBase listView,
+            List<FileSystemViewModel> items)
+        {
+            if (items.Count != 1)
+                return items;
+
+            var item = items[0];
+            try
+            {
+                if (listView.SelectedItems.Contains(item))
+                    return items;
+
+                bool ctrl = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_CONTROL) & 0x8000) != 0;
+                if (!ctrl)
+                    listView.SelectedItems.Clear();
+                listView.SelectedItems.Add(item);
+
+                if (ctrl && listView.SelectedItems.Count > 1)
+                    return listView.SelectedItems.OfType<FileSystemViewModel>().ToList();
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[DragDrop] Selecting dragged item failed: {ex.Message}");
+            }
+            return items;
+        }
+
+        /// <summary>
+        /// Items to drag when a drag starts on <paramref name="pressed"/>: the whole selection when
+        /// the item is part of it, otherwise just that item (selected first when requested).
+        /// </summary>
+        public static List<FileSystemViewModel> ResolveDragItems(
+            Microsoft.UI.Xaml.Controls.ListViewBase listView,
+            FileSystemViewModel pressed,
+            bool selectDraggedItem)
+        {
+            try
+            {
+                if (listView.SelectedItems.Contains(pressed))
+                    return listView.SelectedItems.OfType<FileSystemViewModel>().ToList();
+            }
+            catch { }
+
+            var single = new List<FileSystemViewModel> { pressed };
+            return selectDraggedItem ? EnsureDraggedItemsSelected(listView, single) : single;
         }
 
         /// <summary>
@@ -83,6 +156,17 @@ namespace Span.Helpers
             {
                 var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(presenter, 0);
                 if (child is Microsoft.UI.Xaml.Controls.Grid grid) return grid;
+            }
+            return null;
+        }
+
+        /// <summary>Nearest ListView/GridView ancestor of an element (e.g. an item template Grid).</summary>
+        public static Microsoft.UI.Xaml.Controls.ListViewBase? FindOwningListView(Microsoft.UI.Xaml.DependencyObject? element)
+        {
+            while (element != null)
+            {
+                if (element is Microsoft.UI.Xaml.Controls.ListViewBase lv) return lv;
+                element = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(element);
             }
             return null;
         }

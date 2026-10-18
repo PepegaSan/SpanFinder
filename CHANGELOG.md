@@ -6,6 +6,18 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 ## Summary of fork changes
 
+### Drag & drop like Windows Explorer (October 2026)
+
+- **Drag starts anywhere on a row or tile** (text, icon or the empty part of the row), like Explorer's full-row select. The rubber-band selection now only starts on empty space.
+- **Dragging an unselected item selects it** first (Ctrl adds it to the selection and drags the whole selection).
+- **Right-button drag**: drop with the right mouse button to get Explorer's menu — *Copy here*, *Move here*, *Create shortcuts here*, *Cancel*. The default action is shown bold.
+- **Default action for drags from Explorer**: same drive = move, other drive = copy (previously always copy).
+- **Ctrl+Shift** while dragging creates shortcuts (in addition to Alt).
+- **Auto-scroll** when dragging near the top/bottom (or left/right) edge of a list, in all views and Miller columns.
+- **New drop targets**: drives in the sidebar, breadcrumb segments of the address bar, and the empty area behind the Miller columns (drops into the last column's folder).
+- **Dragging out of Span no longer rearranges windows.** The previous "reveal" logic pushed Span behind other windows and raised whichever window the pointer reached first, which could cover the target you were aiming at and also broke drops on Span's own tab strip, address bar and sidebar near the window edges. Like Explorer, the drop now lands in whatever window is visible under the pointer, so a target sitting partly visible behind Span stays reachable.
+- **Taskbar drag-hover works:** hover a taskbar button while dragging and Windows switches to that app; Span keeps it in front for the rest of the drag so the drop lands in it.
+
 ### Right-click menu (Explorer style)
 
 - Right-click on files and folders now opens the **normal Windows context menu** (like File Explorer or One Commander), including entries from installed apps (e.g. 7-Zip, TortoiseGit).
