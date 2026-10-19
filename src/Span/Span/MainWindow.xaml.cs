@@ -1305,8 +1305,10 @@ namespace Span
                         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
                         {
                             if (!string.IsNullOrEmpty(_currentGroupBy) && _currentGroupBy != "None")
-                                ((Services.IContextMenuHost)this).ApplyGroupBy(_currentGroupBy);
-                            SortCurrentColumn(_currentSortField, _currentSortAscending);
+                                ApplyGroupByCore(_currentGroupBy, rememberForFolder: false);
+                            // Ordner mit eigener/Vorlagen-Sortierung (Ansicht pro Ordner) nicht mit dem Standard übersortieren
+                            if (GetActiveSortColumn() is not { HasFolderSpecificSort: true })
+                                SortCurrentColumn(_currentSortField, _currentSortAscending, rememberForFolder: false);
                         });
                     }
                     catch { }
@@ -3358,8 +3360,6 @@ namespace Span
                     LeftAddressBar.PathSegments = explorer.PathSegments;
                     LeftAddressBar.CurrentPath = explorer.CurrentPath ?? string.Empty;
 
-                    // Downloads folder: deferred auto-grouping after children load
-                    ScheduleDownloadsGroupingIfNeeded(explorer);
                 });
             }
             else if (e.PropertyName == nameof(ExplorerViewModel.HasActiveSearchResults) ||
@@ -7094,6 +7094,18 @@ namespace Span
         // Sort menu opening - update checkmarks and icons
         private void OnSortMenuOpening(object sender, object e)
         {
+            // Ansicht pro Ordner: Häkchen zeigen die wirksame Sortierung/Gruppierung des aktiven Ordners
+            var activeColumn = GetActiveSortColumn();
+            var effectiveGroupBy = activeColumn?.ViewResolution.GroupBy ?? _currentGroupBy;
+            if (activeColumn != null)
+            {
+                var sortBy = activeColumn.ViewResolution.SortBy ?? activeColumn.CurrentSortBy;
+                _currentSortField = sortBy == "DateModified" ? "Date" : sortBy;
+                _currentSortAscending = activeColumn.ViewResolution.SortBy != null
+                    ? activeColumn.ViewResolution.SortAscending ?? true
+                    : activeColumn.CurrentSortAscending;
+            }
+
             // Clear all checkmarks
             SortByNameItem.KeyboardAcceleratorTextOverride = string.Empty;
             SortByDateItem.KeyboardAcceleratorTextOverride = string.Empty;
@@ -7126,13 +7138,13 @@ namespace Span
                 SortDescendingItem.KeyboardAcceleratorTextOverride = "✓";
 
             // Group By checkmarks
-            GroupByNoneItem.KeyboardAcceleratorTextOverride = _currentGroupBy == "None" ? "✓" : string.Empty;
-            GroupByNameItem.KeyboardAcceleratorTextOverride = _currentGroupBy == "Name" ? "✓" : string.Empty;
-            GroupByTypeItem.KeyboardAcceleratorTextOverride = _currentGroupBy == "Type" ? "✓" : string.Empty;
-            GroupByDateItem.KeyboardAcceleratorTextOverride = _currentGroupBy == "DateModified" ? "✓" : string.Empty;
-            GroupByCreatedItem.KeyboardAcceleratorTextOverride = _currentGroupBy == "DateCreated" ? "✓" : string.Empty;
-            GroupBySizeItem.KeyboardAcceleratorTextOverride = _currentGroupBy == "Size" ? "✓" : string.Empty;
-            GroupByTagItem.KeyboardAcceleratorTextOverride = _currentGroupBy == "Tag" ? "✓" : string.Empty;
+            GroupByNoneItem.KeyboardAcceleratorTextOverride = effectiveGroupBy == "None" ? "✓" : string.Empty;
+            GroupByNameItem.KeyboardAcceleratorTextOverride = effectiveGroupBy == "Name" ? "✓" : string.Empty;
+            GroupByTypeItem.KeyboardAcceleratorTextOverride = effectiveGroupBy == "Type" ? "✓" : string.Empty;
+            GroupByDateItem.KeyboardAcceleratorTextOverride = effectiveGroupBy == "DateModified" ? "✓" : string.Empty;
+            GroupByCreatedItem.KeyboardAcceleratorTextOverride = effectiveGroupBy == "DateCreated" ? "✓" : string.Empty;
+            GroupBySizeItem.KeyboardAcceleratorTextOverride = effectiveGroupBy == "Size" ? "✓" : string.Empty;
+            GroupByTagItem.KeyboardAcceleratorTextOverride = effectiveGroupBy == "Tag" ? "✓" : string.Empty;
 
             // Update button icons
             UpdateSortButtonIcons();
@@ -8249,15 +8261,25 @@ namespace Span
 
         string Services.IContextMenuHost.CurrentGroupBy => _currentGroupBy;
 
-        void Services.IContextMenuHost.ApplyGroupBy(string groupBy)
+        void Services.IContextMenuHost.ApplyGroupBy(string groupBy) => ApplyGroupByCore(groupBy, rememberForFolder: true);
+
+        /// <param name="rememberForFolder">Benutzeraktion: Gruppierung für den aktuellen Ordner merken (Ansicht pro Ordner).</param>
+        private void ApplyGroupByCore(string groupBy, bool rememberForFolder)
         {
             _currentGroupBy = groupBy;
+
+            var folder = ViewModel.ActiveExplorer?.CurrentFolder;
+            if (rememberForFolder && folder != null)
+            {
+                Services.FolderViewStore.Default.SetGroup(folder.Path, groupBy);
+                folder.RefreshViewResolution();
+            }
 
             // Details 뷰 — 자체 GroupBy 시스템 사용
             var detailsView = GetActiveDetailsView();
             if (detailsView != null && ViewModel.CurrentViewMode == Models.ViewMode.Details)
             {
-                detailsView.SetGroupByPublic(groupBy);
+                detailsView.SetGroupByPublic(groupBy, rememberForFolder: false); // bereits oben gemerkt
                 return;
             }
 
@@ -8273,81 +8295,6 @@ namespace Span
             catch { }
 
             Helpers.DebugLogger.Log($"[GroupBy] Applied: {groupBy}");
-        }
-
-        /// <summary>
-        /// 다운로드 폴더 진입 시 children 로드 완료 후 DateModified 그룹핑 자동 적용.
-        /// 다운로드 폴더를 벗어나면 그룹핑 해제.
-        /// Miller Columns 모드에서는 그룹핑 미적용 (정렬만).
-        /// </summary>
-        private bool _isDownloadsAutoGrouped;
-        private System.ComponentModel.PropertyChangedEventHandler? _downloadsLoadHandler;
-        private FolderViewModel? _watchedDownloadsFolder;
-
-        private void ScheduleDownloadsGroupingIfNeeded(ExplorerViewModel explorer)
-        {
-            // 이전 감시 정리
-            CleanupDownloadsLoadWatch();
-
-            if (ViewModel.CurrentViewMode == Models.ViewMode.MillerColumns) return;
-
-            var path = explorer.CurrentPath;
-            bool isDownloads = !string.IsNullOrEmpty(path) && Helpers.KnownFolderHelper.IsDownloadsFolder(path);
-
-            if (!isDownloads)
-            {
-                if (_isDownloadsAutoGrouped)
-                {
-                    _isDownloadsAutoGrouped = false;
-                    ((Services.IContextMenuHost)this).ApplyGroupBy("None");
-                }
-                return;
-            }
-
-            // 다운로드 폴더 — children 로드 완료 후 그룹핑 적용
-            var folder = explorer.CurrentFolder;
-            if (folder == null) return;
-
-            if (folder.Children.Count > 0)
-            {
-                // 이미 로드됨 (캐시) — 즉시 적용
-                _isDownloadsAutoGrouped = true;
-                ((Services.IContextMenuHost)this).ApplyGroupBy("DateModified");
-                return;
-            }
-
-            // Children 아직 비어있음 — IsLoading 변화 감시
-            // (CurrentPath 설정 시점에는 EnsureChildrenLoadedAsync 호출 전이라
-            //  IsLoading=false, Children.Count=0 상태일 수 있음)
-            _watchedDownloadsFolder = folder;
-            _downloadsLoadHandler = (s, e) =>
-            {
-                if (e.PropertyName == nameof(FolderViewModel.IsLoading) && s is FolderViewModel f && !f.IsLoading)
-                {
-                    CleanupDownloadsLoadWatch();
-                    DispatcherQueue?.TryEnqueue(() =>
-                    {
-                        // 아직 다운로드 폴더에 있는지 확인
-                        if (ViewModel?.ActiveExplorer != null &&
-                            Helpers.KnownFolderHelper.IsDownloadsFolder(ViewModel.ActiveExplorer.CurrentPath))
-                        {
-                            _isDownloadsAutoGrouped = true;
-                            ((Services.IContextMenuHost)this).ApplyGroupBy("DateModified");
-                        }
-                    });
-                }
-            };
-            folder.PropertyChanged += _downloadsLoadHandler;
-        }
-
-        private void CleanupDownloadsLoadWatch()
-        {
-            if (_downloadsLoadHandler != null && _watchedDownloadsFolder != null)
-            {
-                _watchedDownloadsFolder.PropertyChanged -= _downloadsLoadHandler;
-            }
-            _downloadsLoadHandler = null;
-            _watchedDownloadsFolder = null;
         }
 
         void Services.IContextMenuHost.PerformSelectAll()

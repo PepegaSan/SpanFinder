@@ -2437,7 +2437,10 @@ namespace Span
             _ => uiField
         };
 
-        private void SortCurrentColumn(string sortBy, bool? ascending = null)
+        /// <param name="rememberForFolder">
+        /// Benutzeraktion: Sortierung für diesen Ordner merken (Ansicht pro Ordner). false beim Start-Abgleich.
+        /// </param>
+        private void SortCurrentColumn(string sortBy, bool? ascending = null, bool rememberForFolder = true)
         {
             bool isAscending = ascending ?? _currentSortAscending;
 
@@ -2446,6 +2449,11 @@ namespace Span
             if (column == null || column.Children.Count == 0) return;
 
             var mappedField = MapSortField(sortBy);
+            if (rememberForFolder)
+            {
+                Services.FolderViewStore.Default.SetSort(column.Path, mappedField, isAscending);
+                column.RefreshViewResolution();
+            }
             column.SortChildren(mappedField, isAscending);
 
             // Icon/List 뷰 새로고침 (Miller 외 뷰에서는 별도 리빌드 필요)

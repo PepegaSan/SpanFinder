@@ -90,7 +90,11 @@ namespace Span.Views
             }
 
             public DetailsColumnInfo Info { get; }
+            /// <summary>Vom Benutzer gewählt (wird gespeichert).</summary>
             public bool Visible;
+            /// <summary>Nur für den aktuellen Ordner durch eine Vorlage eingeblendet (z. B. "Länge" bei Musik), nicht gespeichert.</summary>
+            public bool TemplateVisible;
+            public bool Shown => Visible || TemplateVisible;
             /// <summary>데이터 열 너비 (구분선 제외). 숨겨도 유지되어 다시 켤 때 복원된다.</summary>
             public double Width;
             /// <summary>항목 셀 너비 = 앞 구분선 + 데이터 열.</summary>
@@ -104,8 +108,8 @@ namespace Span.Views
 
         private readonly ColumnSlot[] _slots = DetailsColumns.All.Select(c => new ColumnSlot(c)).ToArray();
         private ColumnSlot Slot(string id) => _slots[DetailsColumns.IndexOf(id)];
-        private bool IsColumnVisible(string id) => Slot(id).Visible;
-        private bool AnyShellColumnVisible => _slots.Any(s => s.Visible && s.Info.IsShellProperty);
+        private bool IsColumnVisible(string id) => Slot(id).Shown;
+        private bool AnyShellColumnVisible => _slots.Any(s => s.Shown && s.Info.IsShellProperty);
 
         /// <summary>마지막으로 측정한 구분선 열 너비 (DPI 반올림 포함). 측정 전에는 GridSplitter.Width.</summary>
         private double _splitterWidth = 2;
@@ -364,7 +368,7 @@ namespace Span.Views
             {
                 foreach (var slot in _slots)
                 {
-                    if (!slot.Visible || slot.DataColumn == null || slot.SplitterColumn == null)
+                    if (!slot.Shown || slot.DataColumn == null || slot.SplitterColumn == null)
                     {
                         slot.CellTotalWidth = 0;
                         continue;
@@ -402,8 +406,8 @@ namespace Span.Views
                 if ((uint)index >= (uint)_slots.Length) continue;
 
                 var slot = _slots[index];
-                border.Width = slot.Visible ? slot.CellTotalWidth : 0;
-                border.Visibility = slot.Visible ? Visibility.Visible : Visibility.Collapsed;
+                border.Width = slot.Shown ? slot.CellTotalWidth : 0;
+                border.Visibility = slot.Shown ? Visibility.Visible : Visibility.Collapsed;
             }
         }
 
@@ -970,8 +974,19 @@ namespace Span.Views
                     _isAscending = true;
                 }
 
+                // Für diesen Ordner merken; die letzte Wahl ist zugleich der Standard für Ordner ohne eigene Einstellung
+                _globalSortBy = _currentSortBy;
+                _globalAscending = _isAscending;
+                var folder = ViewModel?.CurrentFolder;
+                if (folder != null)
+                {
+                    Services.FolderViewStore.Default.SetSort(folder.Path, _currentSortBy, _isAscending);
+                    folder.RefreshViewResolution();
+                }
+
                 SortItems(sortBy, _isAscending);
                 UpdateSortIndicators();
+                SaveColumnLayout();
                 Helpers.DebugLogger.Log($"[DetailsModeView] Sorted by {sortBy} ({(_isAscending ? "Asc" : "Desc")})");
             }
         }
@@ -1020,7 +1035,7 @@ namespace Span.Views
             try
             {
                 var children = column.Children;
-                bool mix = column.IsDownloadsFolder;
+                bool mix = column.MixFoldersAndFiles;
 
                 IEnumerable<FileSystemViewModel>? sorted = sortBy switch
                 {
@@ -1085,9 +1100,9 @@ namespace Span.Views
             {
                 var layout = new DetailsColumnLayout
                 {
-                    SortBy = _isAutoSortedForDownloads ? (_savedSortBeforeDownloads ?? "Name") : _currentSortBy,
-                    SortAscending = _isAutoSortedForDownloads ? _savedAscBeforeDownloads : _isAscending,
-                    GroupBy = _currentGroupBy
+                    SortBy = _globalSortBy,
+                    SortAscending = _globalAscending,
+                    GroupBy = _globalGroupBy
                 };
                 foreach (var slot in _slots)
                 {
@@ -1139,9 +1154,9 @@ namespace Span.Views
                 _lastLayoutJson = json;
 
                 ApplyColumnLayout(layout);
-                _currentSortBy = layout.SortBy;
-                _isAscending = layout.SortAscending;
-                _currentGroupBy = layout.GroupBy;
+                _globalSortBy = _currentSortBy = layout.SortBy;
+                _globalAscending = _isAscending = layout.SortAscending;
+                _globalGroupBy = _currentGroupBy = layout.GroupBy;
             }
             catch (Exception ex)
             {
@@ -1264,7 +1279,7 @@ namespace Span.Views
             {
                 if (!slot.Info.UserToggleable) continue;
                 var id = slot.Info.Id;
-                var toggle = new ToggleMenuFlyoutItem { Text = ColumnLabel(slot.Info), IsChecked = slot.Visible };
+                var toggle = new ToggleMenuFlyoutItem { Text = ColumnLabel(slot.Info), IsChecked = slot.Shown };
                 toggle.Click += (s, _) => SetColumnVisible(id, !IsColumnVisible(id), persist: true);
                 flyout.Items.Add(toggle);
             }
@@ -1301,12 +1316,20 @@ namespace Span.Views
         /// <summary>
         /// Public entry point for external group by trigger.
         /// </summary>
-        public void SetGroupByPublic(string groupBy) => SetGroupBy(groupBy);
+        /// <param name="rememberForFolder">false für programmatische Aufrufe (Start), die nichts für den Ordner merken.</param>
+        public void SetGroupByPublic(string groupBy, bool rememberForFolder = true) => SetGroupBy(groupBy, rememberForFolder);
 
-        private void SetGroupBy(string groupBy)
+        private void SetGroupBy(string groupBy, bool rememberForFolder = true)
         {
             if (_currentGroupBy != groupBy) _collapsedGroups.Clear();
             _currentGroupBy = groupBy;
+            _globalGroupBy = groupBy;
+            var folder = ViewModel?.CurrentFolder;
+            if (rememberForFolder && folder != null)
+            {
+                Services.FolderViewStore.Default.SetGroup(folder.Path, groupBy);
+                folder.RefreshViewResolution();
+            }
             ApplyFiltersAndGrouping();
             SaveColumnLayout();
             Helpers.DebugLogger.Log($"[DetailsModeView] Group By set to: {groupBy}");
@@ -1365,10 +1388,11 @@ namespace Span.Views
         private void SetColumnVisible(string id, bool visible, bool persist)
         {
             var slot = Slot(id);
-            if (slot.Visible == visible) return;
+            if (slot.Shown == visible) return;
 
             bool shellWasVisible = AnyShellColumnVisible;
             slot.Visible = visible;
+            if (!visible) slot.TemplateVisible = false; // Vorlagen-Spalte im aktuellen Ordner ausblenden
             RebuildHeaderColumns();
 
             if (!shellWasVisible && AnyShellColumnVisible)
@@ -1377,6 +1401,27 @@ namespace Span.Views
                 SaveColumnLayout();
 
             Helpers.DebugLogger.Log($"[DetailsModeView] Column '{id}' visibility: {visible}");
+        }
+
+        /// <summary>Vorlagen-Spalten des aktuellen Ordners (z. B. "Länge" bei Musik) zusätzlich einblenden.</summary>
+        private void ApplyTemplateColumns(IReadOnlyList<string> columnIds)
+        {
+            bool changed = false;
+            bool shellWasVisible = AnyShellColumnVisible;
+            foreach (var slot in _slots)
+            {
+                bool want = columnIds.Contains(slot.Info.Id);
+                if (slot.TemplateVisible != want)
+                {
+                    slot.TemplateVisible = want;
+                    changed = true;
+                }
+            }
+            if (!changed) return;
+
+            RebuildHeaderColumns();
+            if (!shellWasVisible && AnyShellColumnVisible)
+                RequestShellPropertiesForRealizedItems();
         }
 
         /// <summary>탐색기 기본값(이름·수정한 날짜·유형·크기, 기본 너비)으로 되돌린다.</summary>
@@ -1419,7 +1464,7 @@ namespace Span.Views
                     slot.SplitterColumn = null;
                     slot.DataColumn = null;
                     slot.HeaderButton = null;
-                    if (!slot.Visible) continue;
+                    if (!slot.Shown) continue;
 
                     var splitterColumn = new ColumnDefinition { Width = GridLength.Auto };
                     var dataColumn = new ColumnDefinition { Width = new GridLength(slot.Width), MinWidth = slot.Info.MinWidth };
@@ -1937,11 +1982,12 @@ namespace Span.Views
         }
 
         /// <summary>
-        /// 다운로드 폴더 자동 정렬 상태 추적. 벗어날 때 원래 정렬로 복원.
+        /// Globaler Standard (gespeichert). _currentSortBy/_isAscending/_currentGroupBy sind die wirksamen Werte
+        /// des aktuellen Ordners: gemerkt oder per Vorlage (FolderViewModel.ViewResolution), sonst dieser Standard.
         /// </summary>
-        private bool _isAutoSortedForDownloads;
-        private string? _savedSortBeforeDownloads;
-        private bool _savedAscBeforeDownloads;
+        private string _globalSortBy = "Name";
+        private bool _globalAscending = true;
+        private string _globalGroupBy = "None";
 
         /// <summary>
         /// Called when ViewModel changes or sort completes. Re-applies all view settings.
@@ -2001,27 +2047,14 @@ namespace Span.Views
             if (!ReferenceEquals(ViewModel?.CurrentFolder, _appliedFolder))
                 _unfilteredItems = null;
 
-            bool isDownloads = ViewModel?.CurrentFolder is FolderViewModel folder && folder.IsDownloadsFolder;
-
-            if (isDownloads)
-            {
-                if (!_isAutoSortedForDownloads)
-                {
-                    _savedSortBeforeDownloads = _currentSortBy;
-                    _savedAscBeforeDownloads = _isAscending;
-                    _isAutoSortedForDownloads = true;
-                }
-                _currentSortBy = "DateModified";
-                _isAscending = false;
-                UpdateSortIndicators();
-            }
-            else if (_isAutoSortedForDownloads)
-            {
-                _currentSortBy = _savedSortBeforeDownloads ?? "Name";
-                _isAscending = _savedAscBeforeDownloads;
-                _isAutoSortedForDownloads = false;
-                UpdateSortIndicators();
-            }
+            // Ansicht pro Ordner (gemerkt bzw. Vorlage), sonst globaler Standard
+            var view = ViewModel?.CurrentFolder?.ViewResolution ?? Helpers.FolderViewResolution.None;
+            _currentSortBy = view.SortBy ?? _globalSortBy;
+            _isAscending = view.SortBy != null ? (view.SortAscending ?? true) : _globalAscending;
+            var groupBy = view.GroupBy ?? _globalGroupBy;
+            if (groupBy != _currentGroupBy) _currentGroupBy = groupBy;
+            ApplyTemplateColumns(view.ExtraDetailsColumns);
+            UpdateSortIndicators();
 
             SortItems(_currentSortBy, _isAscending);
             TriggerGitStateLoad();

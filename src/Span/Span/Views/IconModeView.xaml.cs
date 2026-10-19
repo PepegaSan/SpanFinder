@@ -95,6 +95,8 @@ namespace Span.Views
                         var savedGroupBy = _settings.ViewGroupBy;
                         if (!string.IsNullOrEmpty(savedGroupBy) && savedGroupBy != _currentGroupBy)
                             ApplyGroupBy(savedGroupBy);
+                        else if (IsGroupingKey(EffectiveGroupBy))
+                            RebuildGroupedItems(); // Ordner mit eigener/Vorlagen-Gruppierung (z. B. Downloads)
                     }
                 }
                 catch (Exception ex) { Helpers.DebugLogger.Log($"[IconModeView] Loaded init error: {ex.Message}"); }
@@ -723,7 +725,9 @@ namespace Span.Views
         private void OnExplorerPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             if (e.PropertyName != nameof(ExplorerViewModel.CurrentItems)) return;
-            if (_isCleanedUp || _currentGroupBy == "None" || string.IsNullOrEmpty(_currentGroupBy)) return;
+            if (_isCleanedUp) return;
+            // Nur wenn der Ordner gruppiert ist oder die Ansicht noch gruppiert ist (dann Bindung wiederherstellen)
+            if (!IsGroupingKey(EffectiveGroupBy) && !_isGroupedSource) return;
             if (_groupRebuildPending) return; // mehrere Meldungen (Navigation, Laden, Sortieren) zusammenfassen
             _groupRebuildPending = true;
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
@@ -734,6 +738,15 @@ namespace Span.Views
         }
 
         private bool _groupRebuildPending;
+        private bool _isGroupedSource;
+
+        /// <summary>
+        /// Wirksame Gruppierung des aktuellen Ordners: gemerkt bzw. Vorlage (z. B. Downloads nach Datum),
+        /// sonst der globale Standard (_currentGroupBy).
+        /// </summary>
+        private string EffectiveGroupBy => ViewModel?.CurrentFolder?.ViewResolution.GroupBy ?? _currentGroupBy;
+
+        private static bool IsGroupingKey(string? groupBy) => !string.IsNullOrEmpty(groupBy) && groupBy != "None";
 
         private void RebuildGroupedItems()
         {
@@ -742,9 +755,11 @@ namespace Span.Views
             var items = ViewModel.CurrentItems;
             if (items == null) return;
 
-            if (_currentGroupBy == "None" || string.IsNullOrEmpty(_currentGroupBy))
+            var groupBy = EffectiveGroupBy;
+            if (!IsGroupingKey(groupBy))
             {
                 // 그룹 해제 — 원래 바인딩 복원
+                _isGroupedSource = false;
                 IconGridView.ItemsSource = null;
                 IconGridView.SetBinding(
                     GridView.ItemsSourceProperty,
@@ -756,7 +771,8 @@ namespace Span.Views
                 return;
             }
 
-            var groups = Helpers.GroupByHelper.BuildGroups(items, _currentGroupBy, _collapsedGroups, ViewModel.CurrentFolder);
+            var groups = Helpers.GroupByHelper.BuildGroups(items, groupBy, _collapsedGroups, ViewModel.CurrentFolder);
+            _isGroupedSource = true;
             _currentGroups = groups;
 
             var cvs = new Microsoft.UI.Xaml.Data.CollectionViewSource

@@ -677,16 +677,11 @@ namespace Span.ViewModels
                 // Sort on background thread
                 EnsureSortSettingsLoaded();
 
-                // Downloads folder override: always sort by DateModified descending
-                bool isDownloads = Helpers.KnownFolderHelper.IsDownloadsFolder(_folderModel.Path);
-                Helpers.DebugLogger.Log($"[LoadFromCacheAsync] path='{_folderModel.Path}', isDownloads={isDownloads}, sortBy={_sortBy}");
-                if (isDownloads)
-                {
-                    _sortBy = "DateModified";
-                    _sortAscending = false;
-                }
+                // Ansicht pro Ordner: gemerkte Sortierung bzw. Vorlage (Downloads, Bilder, ...) vor globalem Standard
+                ResolveFolderView(cached.Files.Select(f => f.Name));
+                Helpers.DebugLogger.Log($"[LoadFromCacheAsync] path='{_folderModel.Path}', kind={Kind}, sortBy={_sortBy}");
 
-                return ApplySort(result, _sortBy, _sortAscending, mixFoldersAndFiles: isDownloads);
+                return ApplySort(result, _sortBy, _sortAscending, mixFoldersAndFiles: MixFoldersAndFiles);
             }, token);
 
             if (!token.IsCancellationRequested)
@@ -950,20 +945,10 @@ namespace Span.ViewModels
                 // Pre-sort in background thread to avoid UI thread blocking for large folders (10K+)
                 EnsureSortSettingsLoaded();
 
-                // Downloads folder override: always sort by DateModified descending
-                bool isDl = Helpers.KnownFolderHelper.IsDownloadsFolder(folderPath);
-                Helpers.DebugLogger.Log($"[LoadFromDiskAsync] path='{folderPath}', isDownloads={isDl}, sortBy={_sortBy}");
-                if (isDl)
-                {
-                    _sortBy = "DateModified";
-                    _sortAscending = false;
-                }
-                else if (_sortBy == "Name" && s_defaultSortBy != "Name")
-                {
-                    _sortBy = s_defaultSortBy;
-                    _sortAscending = s_defaultSortAscending;
-                }
-                var sorted = ApplySort(result, _sortBy, _sortAscending, mixFoldersAndFiles: isDl);
+                // Ansicht pro Ordner: gemerkte Sortierung bzw. Vorlage (Downloads, Bilder, ...) vor globalem Standard
+                ResolveFolderView(files.Select(f => f.Name));
+                Helpers.DebugLogger.Log($"[LoadFromDiskAsync] path='{folderPath}', kind={Kind}, sortBy={_sortBy}");
+                var sorted = ApplySort(result, _sortBy, _sortAscending, mixFoldersAndFiles: MixFoldersAndFiles);
 
                 return (sorted, folders, files, (string?)null, (string?)null);
             }, token);
@@ -992,6 +977,50 @@ namespace Span.ViewModels
 
         /// <summary>현재 정렬 기준("Name", "DateModified", "Size", "Type").</summary>
         public string CurrentSortBy => _sortBy;
+
+        // ── Ansicht pro Ordner ──
+
+        /// <summary>Ordnertyp nach Inhalt (beim Laden erkannt).</summary>
+        public Helpers.FolderKind Kind { get; private set; } = Helpers.FolderKind.General;
+
+        /// <summary>Ordner und Dateien gemischt sortieren (Vorlage Downloads).</summary>
+        public bool MixFoldersAndFiles { get; private set; }
+
+        /// <summary>Gemerkte Ansicht bzw. Vorlage dieses Ordners (null-Felder = globaler Standard).</summary>
+        public Helpers.FolderViewResolution ViewResolution { get; private set; } = Helpers.FolderViewResolution.None;
+
+        /// <summary>
+        /// Ordnertyp erkennen und die Ansicht auflösen: gemerkte Sortierung bzw. Vorlage vor globalem Standard.
+        /// Läuft beim Laden im Hintergrund, vor dem Sortieren.
+        /// </summary>
+        private void ResolveFolderView(IEnumerable<string> fileNames)
+        {
+            var path = _folderModel.Path;
+            Kind = Helpers.FolderViewTemplates.DetectKind(Helpers.KnownFolderHelper.IsDownloadsFolder(path), fileNames);
+            ViewResolution = Services.FolderViewStore.Default.Resolve(path, Kind);
+            MixFoldersAndFiles = ViewResolution.MixFoldersAndFiles;
+
+            if (ViewResolution.SortBy != null)
+            {
+                _sortBy = ViewResolution.SortBy;
+                _sortAscending = ViewResolution.SortAscending ?? true;
+            }
+            else if (_sortBy == "Name" && s_defaultSortBy != "Name")
+            {
+                _sortBy = s_defaultSortBy;
+                _sortAscending = s_defaultSortAscending;
+            }
+        }
+
+        /// <summary>Für diesen Ordner gilt eine eigene bzw. Vorlagen-Sortierung (nicht der globale Standard).</summary>
+        public bool HasFolderSpecificSort => ViewResolution.SortBy != null;
+
+        /// <summary>Nach einer Benutzeränderung (gemerkte Werte) die Auflösung erneuern.</summary>
+        public void RefreshViewResolution()
+        {
+            ViewResolution = Services.FolderViewStore.Default.Resolve(_folderModel.Path, Kind);
+            MixFoldersAndFiles = ViewResolution.MixFoldersAndFiles;
+        }
         /// <summary>현재 정렬 방향.</summary>
         public bool CurrentSortAscending => _sortAscending;
 
@@ -1035,7 +1064,7 @@ namespace Span.ViewModels
 
             try
             {
-                var sorted = ApplySort(source, sortBy, ascending, mixFoldersAndFiles: IsDownloadsFolder);
+                var sorted = ApplySort(source, sortBy, ascending, mixFoldersAndFiles: MixFoldersAndFiles);
                 _allChildren = sorted;
 
                 // 필터 활성 시 → 필터 재적용
@@ -1093,6 +1122,11 @@ namespace Span.ViewModels
                     cmp = ascending
                         ? (a, b) => a.SizeValue.CompareTo(b.SizeValue)
                         : (a, b) => b.SizeValue.CompareTo(a.SizeValue);
+                    break;
+                case "DateCreated":
+                    cmp = ascending
+                        ? (a, b) => a.DateCreatedValue.CompareTo(b.DateCreatedValue)
+                        : (a, b) => b.DateCreatedValue.CompareTo(a.DateCreatedValue);
                     break;
                 default: // "Name"
                     var nc = Helpers.NaturalStringComparer.Instance;

@@ -135,6 +135,8 @@ namespace Span.Views
                         var savedGroupBy = _settings.ViewGroupBy;
                         if (!string.IsNullOrEmpty(savedGroupBy) && savedGroupBy != _currentGroupBy)
                             ApplyGroupBy(savedGroupBy);
+                        else if (IsGroupingKey(EffectiveGroupBy))
+                            RebuildGroupedListItems(); // Ordner mit eigener/Vorlagen-Gruppierung (z. B. Downloads)
                     }
                 }
                 catch (Exception ex) { Helpers.DebugLogger.Log($"[ListModeView] Settings init error: {ex.Message}"); }
@@ -222,13 +224,23 @@ namespace Span.Views
         /// </summary>
         public void RebuildListItemsPublic() => RebuildForCurrentGrouping();
 
-        private bool IsGrouped => !string.IsNullOrEmpty(_currentGroupBy) && _currentGroupBy != "None";
-
         private void RebuildForCurrentGrouping()
         {
-            if (IsGrouped) RebuildGroupedListItems();
-            else RebuildListItems();
+            // Gruppiert, oder es war bisher gruppiert (dann die flache Liste wieder einsetzen)
+            if (IsGroupingKey(EffectiveGroupBy) || !ReferenceEquals(ListGridView.ItemsSource, _listItems))
+                RebuildGroupedListItems();
+            else
+                RebuildListItems();
         }
+
+        /// <summary>
+        /// Wirksame Gruppierung des aktuellen Ordners: gemerkt bzw. Vorlage (z. B. Downloads nach Datum),
+        /// sonst der globale Standard (_currentGroupBy).
+        /// </summary>
+        private string EffectiveGroupBy => ViewModel?.CurrentFolder?.ViewResolution.GroupBy ?? _currentGroupBy;
+
+        private static bool IsGroupingKey(string? groupBy) => !string.IsNullOrEmpty(groupBy) && groupBy != "None";
+
 
         /// <summary>
         /// _listItems를 diff 기반으로 증분 업데이트. ".."와 파일 항목을 모두 포함.
@@ -391,10 +403,12 @@ namespace Span.Views
         {
             if (ViewModel?.CurrentFolder == null) return;
 
-            if (_currentGroupBy == "None" || string.IsNullOrEmpty(_currentGroupBy))
+            var groupBy = EffectiveGroupBy;
+            if (!IsGroupingKey(groupBy))
             {
                 // 그룹 해제 — 일반 리빌드
-                ListGridView.ItemsSource = _listItems;
+                if (!ReferenceEquals(ListGridView.ItemsSource, _listItems))
+                    ListGridView.ItemsSource = _listItems;
                 RebuildListItems();
                 return;
             }
@@ -403,7 +417,7 @@ namespace Span.Views
             var folder = ViewModel.CurrentFolder;
             var items = folder.Children.ToList();
 
-            var groups = Helpers.GroupByHelper.BuildGroups(items, _currentGroupBy, _collapsedGroups, folder);
+            var groups = Helpers.GroupByHelper.BuildGroups(items, groupBy, _collapsedGroups, folder);
             _currentGroups = groups;
 
             var cvs = new Microsoft.UI.Xaml.Data.CollectionViewSource

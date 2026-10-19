@@ -6,6 +6,16 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 ## Summary of fork changes
 
+### Sort and grouping per folder (October 2026)
+
+- **Each folder remembers its sort and grouping**: change them in a folder (column header, toolbar sort button, right-click menu) and that folder opens the same way next time. Your latest choice is also the default for folders you have not customized. The view mode (Miller/Details/List/Icons) is not changed per folder.
+- **Folder templates** for folders without their own setting, detected from the content like Explorer's folder types:
+  - **Downloads**: newest first, grouped by date, folders and files mixed (as before)
+  - **Pictures** (mostly images): newest first
+  - **Music / Videos** (mostly audio / video files): the Details view adds the **Length** column for that folder
+- Stored in `%LOCALAPPDATA%\Span\folder-views.json` (up to 3,000 recently used folders).
+- **Fix:** leaving Span while in Downloads no longer turns "group by date" on for every folder (the old Downloads special case saved its grouping as the global setting).
+
 ### Collapsible groups, more group-by options (October 2026)
 
 - **Group headers work like Explorer** in Details, List and Icons: the arrow collapses/expands a group, clicking the header selects all its items (Ctrl adds to the selection), double-click also collapses/expands, right-click offers **Collapse all groups** / **Expand all groups**. Headers show the item count. Collapsed groups stay collapsed while browsing until the group-by option changes.
