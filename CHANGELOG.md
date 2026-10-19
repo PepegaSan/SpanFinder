@@ -15,8 +15,9 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 ### Recent files on Home (October 2026)
 
-- The Home page gets a **Recent** section like Explorer's Home: files recently opened in Windows (from any app), newest first, with folder and time. Click opens the file; right-click offers **Open file location** (opens the folder and selects the file), **Copy path** and **Show more options** (Windows context menu).
-- Same source and privacy behaviour as Explorer: Windows' "Recent" list. If "Show recently opened items" is turned off in Windows, the list stays empty and the section is hidden. It can also be turned off in **Settings → Browsing → Recent files on Home**.
+- The Home page gets a **Recent** section like Explorer's Home: recently opened files, newest first, with folder and time. Click opens the file; right-click offers **Open file location** (opens the folder and selects the file), **Copy path** and **Show more options** (Windows context menu).
+- **Span keeps its own list** of files opened in Span (`%LOCALAPPDATA%\Span\recent-files.json`, last 50; programs, shortcuts and temporary files are skipped), so the section works even when "Show recently opened items" is turned off in Windows. When Windows does record recent items, files opened in other apps are merged in (duplicates removed).
+- **Settings → Browsing → Recent files on Home** hides the section and stops recording.
 - Shortcut targets are read via IShellLinkW, so Unicode file names and full network paths are correct.
 
 ### Drives as folder tree (October 2026)

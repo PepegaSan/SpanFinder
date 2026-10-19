@@ -131,4 +131,76 @@ public class RecentFilesServiceTests
     {
         Assert.AreEqual(0, RecentFilesService.Load(Path.Combine(_dir, "gibtsnicht"), 10).Count);
     }
+
+    // ── Span's eigene Liste ──
+
+    private string StorePath => Path.Combine(_dir, "store", "recent-files.json");
+
+    [TestMethod]
+    public void SpanList_RecordAgain_MovesToTop_AndPersists()
+    {
+        var a = MakeFile("a.txt");
+        var b = MakeFile("b.txt");
+        var store = new SpanRecentFiles(StorePath);
+        store.Record(a, DateTime.UtcNow.AddMinutes(-3));
+        store.Record(b, DateTime.UtcNow.AddMinutes(-2));
+        store.Record(a.ToUpperInvariant(), DateTime.UtcNow.AddMinutes(-1)); // dieselbe Datei, andere Schreibweise
+
+        var reloaded = new SpanRecentFiles(StorePath).Load(10);
+
+        Assert.AreEqual(2, reloaded.Count);
+        Assert.AreEqual("A.TXT", reloaded[0].Name, true);
+        Assert.AreEqual("b.txt", reloaded[1].Name);
+    }
+
+    [TestMethod]
+    public void SpanList_SkipsMissingFiles_AndKeepsMaxEntries()
+    {
+        var store = new SpanRecentFiles(StorePath);
+        store.Record(Path.Combine(_dir, "geloescht.txt"));
+        for (int i = 0; i < SpanRecentFiles.MaxEntries + 5; i++)
+            store.Record(MakeFile($"f{i}.txt"), DateTime.UtcNow.AddSeconds(i));
+
+        var items = new SpanRecentFiles(StorePath).Load(1000);
+
+        Assert.AreEqual(SpanRecentFiles.MaxEntries, items.Count);
+        Assert.AreEqual($"f{SpanRecentFiles.MaxEntries + 4}.txt", items[0].Name);
+    }
+
+    [TestMethod]
+    public void SpanList_CorruptFile_StartsEmpty()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(StorePath)!);
+        File.WriteAllText(StorePath, "{ kaputt");
+        var store = new SpanRecentFiles(StorePath);
+        Assert.AreEqual(0, store.Load(10).Count);
+
+        store.Record(MakeFile("neu.txt"));
+        Assert.AreEqual("neu.txt", new SpanRecentFiles(StorePath).Load(10).Single().Name);
+    }
+
+    [TestMethod]
+    public void IsTrackable_SkipsProgramsShortcutsAndTemp()
+    {
+        Assert.IsTrue(SpanRecentFiles.IsTrackable(@"D:\Videos\clip.mp4"));
+        Assert.IsFalse(SpanRecentFiles.IsTrackable(@"D:\Tools\setup.EXE"));
+        Assert.IsFalse(SpanRecentFiles.IsTrackable(@"D:\Desktop\Spiel.lnk"));
+        Assert.IsFalse(SpanRecentFiles.IsTrackable(Path.Combine(Path.GetTempPath(), "archiv", "bild.png")));
+        Assert.IsFalse(SpanRecentFiles.IsTrackable(""));
+    }
+
+    [TestMethod]
+    public void Merge_DeduplicatesByPath_NewestWins_NewestFirst()
+    {
+        var now = DateTime.Now;
+        RecentFileItem Item(string path, int minutesAgo) => new() { Name = Path.GetFileName(path), Path = path, LastUsed = now.AddMinutes(-minutesAgo) };
+
+        var span = new[] { Item(@"C:\x\a.txt", 5), Item(@"C:\x\b.txt", 1) };
+        var windows = new[] { Item(@"c:\X\A.TXT", 2), Item(@"C:\x\c.txt", 10) };
+
+        var merged = RecentFilesService.Merge(span, windows, 10);
+
+        CollectionAssert.AreEqual(new[] { "b.txt", "A.TXT", "c.txt" }, merged.Select(i => i.Name).ToArray());
+        Assert.AreEqual(2, RecentFilesService.Merge(span, windows, 2).Count);
+    }
 }

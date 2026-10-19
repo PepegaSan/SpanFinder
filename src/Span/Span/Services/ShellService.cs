@@ -33,6 +33,7 @@ namespace Span.Services
                 FileOpening?.Invoke(fileName);
 
                 Process.Start(new ProcessStartInfo(filePath) { UseShellExecute = true });
+                RememberRecent(filePath);
             }
             catch (Exception ex)
             {
@@ -56,6 +57,7 @@ namespace Span.Services
             }
 
             FileOpening?.Invoke(System.IO.Path.GetFileName(filePath));
+            RememberRecent(filePath);
 
             string? sortBy = null;
             bool ascending = true;
@@ -76,6 +78,18 @@ namespace Span.Services
                 (sortBy, ascending) = Helpers.FolderContextLauncher.DetectDisplayedSort(files, folder.CurrentSortBy, folder.CurrentSortAscending);
             }
             _ = OpenWithFolderContextAsync(filePath, sortBy, ascending, index);
+        }
+
+        /// <summary>
+        /// Für "Zuletzt verwendet" auf der Startseite merken (Span's eigene Liste — auch wenn Windows keine zuletzt
+        /// verwendeten Elemente aufzeichnet). Nicht, wenn die Liste in den Einstellungen ausgeschaltet ist.
+        /// </summary>
+        private static void RememberRecent(string filePath)
+        {
+            if (!SpanRecentFiles.IsTrackable(filePath)) return;
+            if (App.Current.Services.GetService(typeof(SettingsService)) is SettingsService settings && !settings.HomeShowRecentFiles)
+                return;
+            _ = Task.Run(() => SpanRecentFiles.Default.Record(filePath));
         }
 
         private static async Task OpenWithFolderContextAsync(string filePath, string? sortBy, bool ascending, int index)

@@ -279,7 +279,7 @@
                 </GridView>
             </StackPanel>
 
-            <!-- Section 5: Zuletzt verwendet (Windows-Liste "Zuletzt verwendet", wie die Startseite des Explorers) -->
+            <!-- Section 5: Zuletzt verwendet (Span's eigene Liste + Windows-Liste "Zuletzt verwendet", wie die Startseite des Explorers) -->
             <StackPanel x:Name="RecentSection" Spacing="8" Visibility="Collapsed">
                 <TextBlock x:Name="RecentHeader"
                            Text="Recent"

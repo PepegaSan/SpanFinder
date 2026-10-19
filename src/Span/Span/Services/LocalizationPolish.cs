@@ -980,7 +980,7 @@ namespace Span.Services
                 ["Home_OpenFileLocation"] = "Otwórz lokalizację pliku",
                 ["Home_MoreOptions"] = "Pokaż więcej opcji",
                 ["Settings_HomeRecentFiles"] = "Ostatnie pliki na stronie głównej",
-                ["Settings_HomeRecentFilesDesc"] = "Pokazuje na stronie głównej pliki ostatnio otwierane w systemie Windows (w dowolnej aplikacji), jak Eksplorator",
+                ["Settings_HomeRecentFilesDesc"] = "Pokazuje na stronie głównej ostatnio otwierane pliki, jak Eksplorator: otwarte w Span oraz – jeśli Windows je rejestruje – w dowolnej aplikacji",
                 ["AddressBar_Placeholder"] = "Wprowadź ścieżkę…",
                 ["Toast_FtpUrlParseFailed"] = "Nie udało się przetworzyć adresu URL FTP: {0}",
                 ["Settings_DefaultViewMode"] = "Domyślny tryb widoku",
