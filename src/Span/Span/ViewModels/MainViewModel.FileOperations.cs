@@ -230,6 +230,7 @@ namespace Span.ViewModels
                     try
                     {
                     LogOperationResult(operation, e.Result);
+                    _ = RefreshDriveSpaceAsync(force: true); // Belegungsbalken der Laufwerke
 
                     if (e.Result.Success)
                     {

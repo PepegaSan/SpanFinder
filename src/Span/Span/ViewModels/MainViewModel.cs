@@ -723,6 +723,13 @@ namespace Span.ViewModels
                     foreach (var drive in newNetworkDrives)
                         NetworkDrives.Add(drive);
                 }
+                else
+                {
+                    // Gleiche Laufwerke: die (evtl. aus dem Cache stammenden) Einträge behalten, aber die
+                    // aktuellen Größen übernehmen — sonst zeigen Belegungsbalken/Tooltip veraltete Werte.
+                    CopySpace(newLocalDrives, Drives);
+                    CopySpace(newNetworkDrives, NetworkDrives);
+                }
 
                 // Step 5: Save updated list to cache
                 SaveDrivesCache(drives);
@@ -821,6 +828,54 @@ namespace Span.ViewModels
         /// <summary>
         /// Compare two drive lists by Path to detect changes
         /// </summary>
+        private static void CopySpace(List<DriveItem> source, System.Collections.ObjectModel.ObservableCollection<DriveItem> target)
+        {
+            foreach (var fresh in source)
+            {
+                var existing = target.FirstOrDefault(d => string.Equals(d.Path, fresh.Path, StringComparison.OrdinalIgnoreCase));
+                if (existing != null && !ReferenceEquals(existing, fresh) && fresh.TotalSize > 0)
+                    existing.UpdateSpace(fresh.TotalSize, fresh.AvailableFreeSpace);
+            }
+        }
+
+        private DateTime _lastDriveSpaceRefreshUtc = DateTime.MinValue;
+        private bool _driveSpaceRefreshRunning;
+
+        /// <summary>
+        /// Liest nur den freien Speicher der lokalen und gemappten Laufwerke neu (Belegungsbalken in Seitenleiste
+        /// und Start). Aufgerufen nach Dateioperationen (<paramref name="force"/>) und wenn das Fenster wieder
+        /// aktiv wird (dann höchstens alle 5 s).
+        /// </summary>
+        public async Task RefreshDriveSpaceAsync(bool force = false)
+        {
+            if (_isCleaningUp || _shutdownCts.Token.IsCancellationRequested || _driveSpaceRefreshRunning) return;
+            if (!force && DateTime.UtcNow - _lastDriveSpaceRefreshUtc < TimeSpan.FromSeconds(5)) return;
+            _driveSpaceRefreshRunning = true;
+            _lastDriveSpaceRefreshUtc = DateTime.UtcNow;
+            try
+            {
+                var drives = Drives.Concat(NetworkDrives)
+                    .Where(d => d.HasUsage && !d.IsRemoteConnection && !d.IsNetworkShortcut
+                                && d.Path.Length >= 2 && d.Path[1] == ':')
+                    .ToList();
+                var results = await Task.WhenAll(drives.Select(d => _fileService.GetDriveSpaceAsync(d.Path)));
+                if (_shutdownCts.Token.IsCancellationRequested) return;
+                for (int i = 0; i < drives.Count; i++)
+                {
+                    if (results[i] is { } space)
+                        drives[i].UpdateSpace(space.Total, space.Free);
+                }
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[MainViewModel] RefreshDriveSpace error: {ex.Message}");
+            }
+            finally
+            {
+                _driveSpaceRefreshRunning = false;
+            }
+        }
+
         private static bool AreDriveListsEqual(
             System.Collections.ObjectModel.ObservableCollection<DriveItem> current,
             List<DriveItem> updated)

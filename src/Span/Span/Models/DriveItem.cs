@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 
 namespace Span.Models
 {
@@ -7,8 +8,10 @@ namespace Span.Models
     /// <see cref="Services.FileSystemService"/>가 시스템 드라이브를 열거하고,
     /// <see cref="ConnectionInfo.FromConnection"/>으로 원격 연결도 DriveItem으로 변환된다.
     /// </summary>
-    public partial class DriveItem
+    public partial class DriveItem : INotifyPropertyChanged
     {
+        public event PropertyChangedEventHandler? PropertyChanged;
+
         private string _name = string.Empty;
         public string Name
         {
@@ -17,8 +20,20 @@ namespace Span.Models
         }
         public string Path { get; set; } = string.Empty;
         public string Label { get; set; } = string.Empty;
-        public long TotalSize { get; set; }
-        public long AvailableFreeSpace { get; set; }
+        private long _totalSize;
+        private long _availableFreeSpace;
+
+        public long TotalSize
+        {
+            get => _totalSize;
+            set { if (_totalSize != value) { _totalSize = value; OnSpaceChanged(); } }
+        }
+
+        public long AvailableFreeSpace
+        {
+            get => _availableFreeSpace;
+            set { if (_availableFreeSpace != value) { _availableFreeSpace = value; OnSpaceChanged(); } }
+        }
         public string DriveFormat { get; set; } = string.Empty;
         public string DriveType { get; set; } = string.Empty;
         public string IconGlyph { get; set; } = "\uEDFA"; // ri-hard-drive-fill, always overridden by FileSystemService/IconService
@@ -72,6 +87,34 @@ namespace Span.Models
         public double UsagePercent =>
             TotalSize > 0 ? Math.Round((double)(TotalSize - AvailableFreeSpace) / TotalSize * 100, 1) : 0;
 
+        /// <summary>Belegungsbalken nur für Laufwerke mit bekannter Größe (nicht für Netzwerkorte/Remote).</summary>
+        public bool HasUsage => TotalSize > 0;
+
+        /// <summary>Wie im Explorer ("Dieser PC"): ab 90 % Belegung wird der Balken rot.</summary>
+        public bool IsAlmostFull => HasUsage && UsagePercent >= 90;
+
+        /// <summary>Neue Größenwerte übernehmen (z. B. nach einer Dateioperation). Meldet nur echte Änderungen.</summary>
+        public void UpdateSpace(long totalSize, long availableFreeSpace)
+        {
+            TotalSize = totalSize;
+            AvailableFreeSpace = availableFreeSpace;
+        }
+
+        private static readonly string[] SpaceDependentProperties =
+        {
+            nameof(TotalSize), nameof(AvailableFreeSpace), nameof(UsagePercent), nameof(HasUsage),
+            nameof(IsAlmostFull), nameof(SizeDescription), nameof(TooltipText),
+            "LocalizedSizeDescription", "LocalizedTooltipText",
+        };
+
+        private void OnSpaceChanged()
+        {
+            var handler = PropertyChanged;
+            if (handler == null) return;
+            foreach (var name in SpaceDependentProperties)
+                handler(this, new PropertyChangedEventArgs(name));
+        }
+
         /// <summary>
         /// Human-readable size description: "X GB free of Y GB"
         /// </summary>
@@ -100,7 +143,7 @@ namespace Span.Models
             ConnectionId = conn.Id
         };
 
-        private static string FormatSize(long bytes)
+        internal static string FormatSize(long bytes)
         {
             if (bytes >= 1L << 40) return $"{bytes / (double)(1L << 40):F1} TB";
             if (bytes >= 1L << 30) return $"{bytes / (double)(1L << 30):F1} GB";

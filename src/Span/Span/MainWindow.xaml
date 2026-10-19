@@ -613,8 +613,8 @@
                                       Visibility="{x:Bind ViewModel.IsLocalDrivesExpanded, Mode=OneWay}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="models:DriveItem">
-                                    <Grid Height="26" Padding="12,0,8,0" Margin="8,1" CornerRadius="6" Background="Transparent"
-                                          ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneTime}"
+                                    <Grid MinHeight="26" Padding="12,3,8,3" Margin="8,1" CornerRadius="6" Background="Transparent"
+                                          ToolTipService.ToolTip="{x:Bind LocalizedTooltipText, Mode=OneWay}"
                                           Tapped="OnDriveItemTapped" RightTapped="OnSidebarDriveRightTapped" AllowDrop="True" DragOver="OnDriveItemDragOver" Drop="OnDriveItemDrop" DragLeave="OnDriveItemDragLeave"
                                           PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited" PointerPressed="OnSidebarItemPointerPressed" PointerReleased="OnSidebarItemPointerReleased">
                                         <Grid.ColumnDefinitions>
@@ -625,9 +625,17 @@
                                                    FontFamily="{StaticResource RemixIcons}" FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}"
                                                    Foreground="{ThemeResource SpanTextSecondaryBrush}"
                                                    VerticalAlignment="Center" Margin="0,0,12,0"/>
-                                        <TextBlock Grid.Column="1" Text="{x:Bind Name}" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
-                                                   VerticalAlignment="Center"
-                                                   TextTrimming="CharacterEllipsis"/>
+                                        <!-- Name + Belegungsbalken (OneCommander-Stil; rot ab 90 % wie im Explorer) -->
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="{x:Bind Name}" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <ProgressBar Value="{x:Bind UsagePercent, Mode=OneWay}" Maximum="100"
+                                                         ShowError="{x:Bind IsAlmostFull, Mode=OneWay}"
+                                                         Visibility="{x:Bind HasUsage, Mode=OneWay}"
+                                                         Foreground="{ThemeResource SpanAccentBrush}"
+                                                         Height="3" MinHeight="3" CornerRadius="1.5"
+                                                         IsHitTestVisible="False"/>
+                                        </StackPanel>
                                     </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
@@ -661,8 +669,8 @@
                                           Visibility="{x:Bind ViewModel.IsCloudDrivesExpanded, Mode=OneWay}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="models:DriveItem">
-                                        <Grid Height="26" Padding="12,0,8,0" Margin="8,1" CornerRadius="6" Background="Transparent"
-                                              ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneTime}"
+                                        <Grid MinHeight="26" Padding="12,3,8,3" Margin="8,1" CornerRadius="6" Background="Transparent"
+                                              ToolTipService.ToolTip="{x:Bind LocalizedTooltipText, Mode=OneWay}"
                                               Tapped="OnDriveItemTapped" RightTapped="OnSidebarDriveRightTapped" AllowDrop="True" DragOver="OnDriveItemDragOver" Drop="OnDriveItemDrop" DragLeave="OnDriveItemDragLeave"
                                               PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited" PointerPressed="OnSidebarItemPointerPressed" PointerReleased="OnSidebarItemPointerReleased">
                                             <Grid.ColumnDefinitions>
@@ -673,9 +681,17 @@
                                                        FontFamily="{StaticResource RemixIcons}" FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}"
                                                        Foreground="{ThemeResource SpanTextSecondaryBrush}"
                                                        VerticalAlignment="Center" Margin="0,0,12,0"/>
-                                            <TextBlock Grid.Column="1" Text="{x:Bind Name}" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
-                                                       VerticalAlignment="Center"
-                                                       TextTrimming="CharacterEllipsis"/>
+                                            <!-- Name + Belegungsbalken (OneCommander-Stil; rot ab 90 % wie im Explorer) -->
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                                <TextBlock Text="{x:Bind Name}" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <ProgressBar Value="{x:Bind UsagePercent, Mode=OneWay}" Maximum="100"
+                                                             ShowError="{x:Bind IsAlmostFull, Mode=OneWay}"
+                                                             Visibility="{x:Bind HasUsage, Mode=OneWay}"
+                                                             Foreground="{ThemeResource SpanAccentBrush}"
+                                                             Height="3" MinHeight="3" CornerRadius="1.5"
+                                                             IsHitTestVisible="False"/>
+                                            </StackPanel>
                                         </Grid>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
@@ -708,8 +724,8 @@
                                           Visibility="{x:Bind ViewModel.IsNetworkDrivesExpanded, Mode=OneWay}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="models:DriveItem">
-                                        <Grid Height="26" Padding="12,0,8,0" Margin="8,1" CornerRadius="6" Background="Transparent"
-                                              ToolTipService.ToolTip="{x:Bind TooltipText, Mode=OneTime}"
+                                        <Grid MinHeight="26" Padding="12,3,8,3" Margin="8,1" CornerRadius="6" Background="Transparent"
+                                              ToolTipService.ToolTip="{x:Bind LocalizedTooltipText, Mode=OneWay}"
                                               Tapped="OnDriveItemTapped" RightTapped="OnSidebarDriveRightTapped" AllowDrop="True" DragOver="OnDriveItemDragOver" Drop="OnDriveItemDrop" DragLeave="OnDriveItemDragLeave"
                                               PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited" PointerPressed="OnSidebarItemPointerPressed" PointerReleased="OnSidebarItemPointerReleased">
                                             <Grid.ColumnDefinitions>
@@ -729,9 +745,17 @@
                                                           Margin="0,0,-4,-4"
                                                           Visibility="{x:Bind AuthBadgeVisibility}"/>
                                             </Grid>
-                                            <TextBlock Grid.Column="1" Text="{x:Bind Name}" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
-                                                       VerticalAlignment="Center"
-                                                       TextTrimming="CharacterEllipsis"/>
+                                            <!-- Name + Belegungsbalken (OneCommander-Stil; rot ab 90 % wie im Explorer) -->
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                                <TextBlock Text="{x:Bind Name}" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <ProgressBar Value="{x:Bind UsagePercent, Mode=OneWay}" Maximum="100"
+                                                             ShowError="{x:Bind IsAlmostFull, Mode=OneWay}"
+                                                             Visibility="{x:Bind HasUsage, Mode=OneWay}"
+                                                             Foreground="{ThemeResource SpanAccentBrush}"
+                                                             Height="3" MinHeight="3" CornerRadius="1.5"
+                                                             IsHitTestVisible="False"/>
+                                            </StackPanel>
                                         </Grid>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>

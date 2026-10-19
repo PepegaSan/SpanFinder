@@ -66,11 +66,12 @@
                                                FontWeight="SemiBold"
                                                TextTrimming="CharacterEllipsis"
                                                MaxLines="1"/>
-                                    <ProgressBar Value="{x:Bind UsagePercent}"
+                                    <ProgressBar Value="{x:Bind UsagePercent, Mode=OneWay}"
+                                                 ShowError="{x:Bind IsAlmostFull, Mode=OneWay}"
                                                  Maximum="100"
                                                  Height="4"
                                                  CornerRadius="2"/>
-                                    <TextBlock Text="{x:Bind SizeDescription}"
+                                    <TextBlock Text="{x:Bind LocalizedSizeDescription, Mode=OneWay}"
                                                FontSize="10"
                                                Foreground="{ThemeResource SpanTextTertiaryBrush}"
                                                TextTrimming="CharacterEllipsis"
@@ -137,12 +138,12 @@
                                                FontWeight="SemiBold"
                                                TextTrimming="CharacterEllipsis"
                                                MaxLines="1"/>
-                                    <TextBlock Text="{x:Bind SizeDescription}"
+                                    <TextBlock Text="{x:Bind LocalizedSizeDescription, Mode=OneWay}"
                                                FontSize="10"
                                                Foreground="{ThemeResource SpanTextTertiaryBrush}"
                                                TextTrimming="CharacterEllipsis"
                                                MaxLines="1"
-                                               Visibility="{x:Bind helpers:VisibilityHelper.FromNonEmpty(SizeDescription)}"/>
+                                               Visibility="{x:Bind helpers:VisibilityHelper.FromNonEmpty(LocalizedSizeDescription), Mode=OneWay}"/>
                                 </StackPanel>
                             </Grid>
                         </DataTemplate>
@@ -205,12 +206,12 @@
                                                FontWeight="SemiBold"
                                                TextTrimming="CharacterEllipsis"
                                                MaxLines="1"/>
-                                    <TextBlock Text="{x:Bind SizeDescription}"
+                                    <TextBlock Text="{x:Bind LocalizedSizeDescription, Mode=OneWay}"
                                                FontSize="10"
                                                Foreground="{ThemeResource SpanTextTertiaryBrush}"
                                                TextTrimming="CharacterEllipsis"
                                                MaxLines="1"
-                                               Visibility="{x:Bind helpers:VisibilityHelper.FromNonEmpty(SizeDescription)}"/>
+                                               Visibility="{x:Bind helpers:VisibilityHelper.FromNonEmpty(LocalizedSizeDescription), Mode=OneWay}"/>
                                 </StackPanel>
                             </Grid>
                         </DataTemplate>

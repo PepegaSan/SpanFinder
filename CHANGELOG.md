@@ -6,6 +6,12 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 ## Summary of fork changes
 
+### Drive usage bars in the sidebar (October 2026)
+
+- Local and mapped drives in the sidebar show a thin **usage bar** under the name (OneCommander style); it turns **red from 90 %** full, like Explorer's "This PC". The tooltip shows "X free of Y" in the app language (was English only, also on Home and in the drive context menu).
+- Free space is **kept current**: re-read after copy/move/delete/extract operations and when the window becomes active again (at most every 5 s), using the same timeout as drive loading.
+- **Fix:** when the drive list was unchanged, the drive entries restored from the cache kept their old sizes, so Home showed stale free space until the drive list itself changed.
+
 ### Commands between panes (October 2026)
 
 Total Commander / OneCommander-style commands for Dual and Quad layouts. "The other pane" is the pane that was active before the current one, so in Quad you click the target first, then the source.

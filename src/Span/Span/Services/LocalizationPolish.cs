@@ -494,6 +494,7 @@ namespace Span.Services
                 ["BatchRename_ConflictTitle"] = "Konflikt nazw",
                 ["BatchRename_ConflictMessage"] = "Następujące nazwy już istnieją:",
                 ["Toast_PathCopied"] = "Ścieżka skopiowana do schowka",
+                ["Drive_FreeOf"] = "{0} wolnego z {1}",
                 ["CopyToOtherPane"] = "Kopiuj do „{0}”",
                 ["MoveToOtherPane"] = "Przenieś do „{0}”",
                 ["TransferDialog_CopyText"] = "Kopiuj elementy ({0}) do:",

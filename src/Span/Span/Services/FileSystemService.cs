@@ -45,6 +45,29 @@ namespace Span.Services
         }
 
         /// <summary>
+        /// Reads only total/free space of one drive root (for the sidebar usage bar), with the same
+        /// timeout as drive loading. Returns null for drives that are not ready or do not answer in time.
+        /// </summary>
+        public async Task<(long Total, long Free)?> GetDriveSpaceAsync(string root)
+        {
+            try
+            {
+                var spaceTask = Task.Run<(long Total, long Free)?>(() =>
+                {
+                    var info = new DriveInfo(root);
+                    return info.IsReady ? (info.TotalSize, info.AvailableFreeSpace) : null;
+                });
+                var completed = await Task.WhenAny(spaceTask, Task.Delay(DriveLoadTimeoutMs));
+                return completed == spaceTask ? await spaceTask : null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FileSystemService] Space query failed for {root}: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Load a single drive with timeout protection.
         /// Uses Task.WhenAny to enforce real timeout — CancellationToken alone
         /// cannot cancel a blocking DriveInfo property access (IsReady, VolumeLabel, etc.).

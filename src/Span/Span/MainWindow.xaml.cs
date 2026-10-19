@@ -2725,6 +2725,7 @@ namespace Span
             }
 
             // CodeActivated / PointerActivated → foreground again
+            _ = ViewModel?.RefreshDriveSpaceAsync(); // Laufwerks-Belegungsbalken (höchstens alle 5 s)
             if (_backgroundedAtUtc == null) return;
 
             var backgroundedFor = DateTime.UtcNow - _backgroundedAtUtc.Value;

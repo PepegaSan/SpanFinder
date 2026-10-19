@@ -573,6 +573,7 @@
 
             // ── Toast messages ──────────────────────────────────────────────
             ("Toast_PathCopied", "Path copied to clipboard", "경로가 클립보드에 복사됨", "パスをクリップボードにコピーしました", "路径已复制到剪贴板", "路徑已複製到剪貼簿", "Pfad in Zwischenablage kopiert", "Ruta copiada al portapapeles", "Chemin copié dans le presse-papiers", "Caminho copiado para a área de transferência"),
+            ("Drive_FreeOf", "{0} free of {1}", "{1} 중 {0} 사용 가능", "空き領域 {0}/{1}", "{1} 中的 {0} 可用", "{1} 中的 {0} 可用", "{0} frei von {1}", "{0} libres de {1}", "{0} libres sur {1}", "{0} livres de {1}"),
             ("CopyToOtherPane", "Copy to “{0}”", "'{0}'(으)로 복사", "'{0}' にコピー", "复制到“{0}”", "複製到「{0}」", "Kopieren nach „{0}“", "Copiar a «{0}»", "Copier vers « {0} »", "Copiar para “{0}”"),
             ("MoveToOtherPane", "Move to “{0}”", "'{0}'(으)로 이동", "'{0}' に移動", "移动到“{0}”", "移動到「{0}」", "Verschieben nach „{0}“", "Mover a «{0}»", "Déplacer vers « {0} »", "Mover para “{0}”"),
             ("TransferDialog_CopyText", "Copy {0} item(s) to:", "{0}개 항목을 다음으로 복사:", "{0} 個の項目のコピー先:", "将 {0} 个项目复制到:", "將 {0} 個項目複製到:", "{0} Element(e) kopieren nach:", "Copiar {0} elemento(s) a:", "Copier {0} élément(s) vers :", "Copiar {0} item(ns) para:"),

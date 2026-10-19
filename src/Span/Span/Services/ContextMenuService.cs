@@ -726,7 +726,7 @@ namespace Span.Services
             // 용량 정보 (disabled label) — 로컬/리무버블/CD/네트워크 드라이브만
             if (!drive.IsRemoteConnection && !drive.IsCloudStorage && drive.TotalSize > 0)
             {
-                var capItem = CreateItem(drive.SizeDescription, null, () => { });
+                var capItem = CreateItem(drive.LocalizedSizeDescription, null, () => { });
                 capItem.IsEnabled = false;
                 menu.Items.Add(capItem);
             }
