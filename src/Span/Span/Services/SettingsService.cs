@@ -515,6 +515,13 @@ public class SettingsService : ISettingsService
     /// false(기본값): 파일만 미리보기 표시, 폴더 선택 시 미리보기 비움.
     /// true: 폴더 선택 시에도 폴더 정보를 미리보기에 표시.
     /// </summary>
+    /// <summary>Startseite: Abschnitt "Zuletzt verwendet" (Windows-Liste der zuletzt geöffneten Dateien).</summary>
+    public bool HomeShowRecentFiles
+    {
+        get => Get("HomeShowRecentFiles", true);
+        set => Set("HomeShowRecentFiles", value);
+    }
+
     public bool PreviewShowFolderInfo
     {
         get => Get("PreviewShowFolderInfo", true);

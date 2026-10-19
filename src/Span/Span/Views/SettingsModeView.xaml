@@ -1601,6 +1601,25 @@
                                 </Grid>
                             </Border>
 
+                            <!-- Home: Recent files -->
+                            <Border Style="{StaticResource SettingsCardBorder}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0" Style="{StaticResource CardIconContainer}">
+                                        <FontIcon Glyph="&#xE81C;" Style="{StaticResource CardIconStyle}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock x:Name="HomeRecentFilesLabel" Text="Recent files on Home" Style="{StaticResource SettingsCardLabel}" />
+                                        <TextBlock x:Name="HomeRecentFilesDesc" Text="" Style="{StaticResource SettingsCardDesc}" />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="HomeRecentFilesToggle" Grid.Column="2" VerticalAlignment="Center" IsOn="True" OnContent="" OffContent="" />
+                                </Grid>
+                            </Border>
+
                             <!-- Preview: Show Folder Info -->
                             <Border Style="{StaticResource SettingsCardBorder}">
                                 <Grid>

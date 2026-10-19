@@ -67,6 +67,8 @@
     <Compile Include="..\Span\Helpers\FolderViewTemplates.cs" Link="Sources\Helpers\FolderViewTemplates.cs" />
     <Compile Include="..\Span\Helpers\LongPathHelper.cs" Link="Sources\Helpers\LongPathHelper.cs" />
     <Compile Include="..\Span\Services\FolderViewStore.cs" Link="Sources\Services\FolderViewStore.cs" />
+    <Compile Include="..\Span\Helpers\ShellLinkReader.cs" Link="Sources\Helpers\ShellLinkReader.cs" />
+    <Compile Include="..\Span\Services\RecentFilesService.cs" Link="Sources\Services\RecentFilesService.cs" />
     <!-- Issue #66 — OtterZip 네이티브 엔진 바인딩 (WinUI 의존 없음) -->
     <Compile Include="..\Span\Services\Archive\OtterZipNative.cs" Link="Sources\Services\Archive\OtterZipNative.cs" />
     <Compile Include="..\Span\Services\Archive\OtterZipArchiveHandle.cs" Link="Sources\Services\Archive\OtterZipArchiveHandle.cs" />

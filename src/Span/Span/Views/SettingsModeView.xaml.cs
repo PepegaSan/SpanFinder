@@ -168,6 +168,7 @@ public sealed partial class SettingsModeView : UserControl
 
             // Preview: show folder info
             PreviewFolderInfoToggle.IsOn = _settings.PreviewShowFolderInfo;
+            HomeRecentFilesToggle.IsOn = _settings.HomeShowRecentFiles;
             UseEverythingToggle.IsOn = _settings.UseEverythingSearch;
 
             FavoritesTreeToggle.IsOn = _settings.ShowFavoritesTree;
@@ -373,6 +374,7 @@ public sealed partial class SettingsModeView : UserControl
 
         // Preview: show folder info
         PreviewFolderInfoToggle.Toggled += (s, e) => { if (!_isLoading) _settings.PreviewShowFolderInfo = PreviewFolderInfoToggle.IsOn; };
+        HomeRecentFilesToggle.Toggled += (s, e) => { if (!_isLoading) _settings.HomeShowRecentFiles = HomeRecentFilesToggle.IsOn; };
         UseEverythingToggle.Toggled += (s, e) => { if (!_isLoading) _settings.UseEverythingSearch = UseEverythingToggle.IsOn; };
 
         // v1.5.2 (Discussion #30): 온보딩 표시 안 함 토글
@@ -526,7 +528,7 @@ public sealed partial class SettingsModeView : UserControl
             ShellExtrasToggle, ShellExtensionsToggle, GitIntegrationToggle,
             HexPreviewToggle, FileHashToggle, CopilotMenuToggle, ContextMenuToggle, CrashReportToggle,
             IsolatedThumbsToggle, WasdNavToggle,
-            DefaultFileManagerToggle, DefaultPreviewToggle, PreviewFolderInfoToggle, UseEverythingToggle, ShelfSaveToggle, ShelfEnabledToggle })
+            DefaultFileManagerToggle, DefaultPreviewToggle, PreviewFolderInfoToggle, HomeRecentFilesToggle, UseEverythingToggle, ShelfSaveToggle, ShelfEnabledToggle })
             Helpers.CursorHelper.SetHandCursor(toggle);
 
         Helpers.CursorHelper.SetHandCursor(IconPackCombo);
@@ -899,6 +901,8 @@ public sealed partial class SettingsModeView : UserControl
             // Browsing — Preview folder info (라벨/설명)
             PreviewFolderInfoLabel.Text = _loc.Get("Settings_PreviewFolderInfo");
             PreviewFolderInfoDesc.Text = _loc.Get("Settings_PreviewFolderInfoDesc");
+            HomeRecentFilesLabel.Text = _loc.Get("Settings_HomeRecentFiles");
+            HomeRecentFilesDesc.Text = _loc.Get("Settings_HomeRecentFilesDesc");
             UseEverythingLabel.Text = _loc.Get("Settings_UseEverythingSearch");
             UseEverythingDesc.Text = _loc.Get("Settings_UseEverythingSearchDesc");
 

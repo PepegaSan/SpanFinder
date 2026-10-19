@@ -68,9 +68,18 @@ namespace Span.Views
                     _loc = App.Current.Services.GetService(typeof(LocalizationService)) as LocalizationService;
                     LocalizeUI();
                     if (_loc != null) _loc.LanguageChanged += LocalizeUI;
+                    if (_settings != null) _settings.SettingChanged += OnSettingChanged;
                 }
                 catch (Exception ex) { Helpers.DebugLogger.Log($"[HomeModeView] Loaded init error: {ex.Message}"); }
+
+                _ = LoadRecentFilesAsync();
             };
+
+            // Startseite bleibt beim Tab-/Ansichtswechsel geladen und wird nur ausgeblendet — beim Einblenden neu lesen
+            RegisterPropertyChangedCallback(VisibilityProperty, (_, _) =>
+            {
+                if (Visibility == Visibility.Visible) _ = LoadRecentFilesAsync();
+            });
 
             this.Unloaded += (s, e) =>
             {
@@ -80,8 +89,83 @@ namespace Span.Views
                     _mainViewModel.NetworkAndRemoteDrives.CollectionChanged -= OnNetworkDrivesChanged;
                 }
                 if (_loc != null) _loc.LanguageChanged -= LocalizeUI;
+                if (_settings != null) _settings.SettingChanged -= OnSettingChanged;
                 _settings = null;
             };
+        }
+
+        // ── Zuletzt verwendet ──
+
+        private bool _recentLoading;
+
+        private async System.Threading.Tasks.Task LoadRecentFilesAsync()
+        {
+            if (_recentLoading) return;
+            if (_settings != null && !_settings.HomeShowRecentFiles)
+            {
+                RecentSection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            _recentLoading = true;
+            try
+            {
+                var items = await RecentFilesService.LoadAsync();
+                RecentListView.ItemsSource = items;
+                RecentSection.Visibility = items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[HomeModeView] recent files failed: {ex.Message}");
+            }
+            finally
+            {
+                _recentLoading = false;
+            }
+        }
+
+        private void OnSettingChanged(string key, object? value)
+        {
+            if (key == "HomeShowRecentFiles")
+                Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, () => _ = LoadRecentFilesAsync());
+        }
+
+        private void OnRecentItemClick(object sender, ItemClickEventArgs e)
+        {
+            if (e.ClickedItem is not RecentFileItem item) return;
+            try
+            {
+                (App.Current.Services.GetService(typeof(ShellService)) as ShellService)?.OpenFile(item.Path);
+            }
+            catch (Exception ex) { Helpers.DebugLogger.Log($"[HomeModeView] open recent failed: {ex.Message}"); }
+        }
+
+        private void OnRecentRightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement fe || fe.DataContext is not RecentFileItem item) return;
+            e.Handled = true;
+            string L(string key) => _loc?.Get(key) ?? key;
+
+            var flyout = new MenuFlyout();
+            var open = new MenuFlyoutItem { Text = L("Open"), Icon = new FontIcon { Glyph = "\uE8E5" } };
+            open.Click += (_, _) => (App.Current.Services.GetService(typeof(ShellService)) as ShellService)?.OpenFile(item.Path);
+            var location = new MenuFlyoutItem { Text = L("Home_OpenFileLocation"), Icon = new FontIcon { Glyph = "\uED25" } };
+            location.Click += (_, _) => (ContextMenuHost as MainWindow)?.RevealFile(item.Path);
+            var copyPath = new MenuFlyoutItem { Text = L("CopyPath"), Icon = new FontIcon { Glyph = "\uE8C8" } };
+            copyPath.Click += (_, _) => ContextMenuHost?.PerformCopyPath(item.Path);
+            flyout.Items.Add(open);
+            flyout.Items.Add(location);
+            flyout.Items.Add(copyPath);
+
+            if (ContextMenuService != null && ContextMenuHost != null)
+            {
+                flyout.Items.Add(new MenuFlyoutSeparator());
+                var more = new MenuFlyoutItem { Text = L("Home_MoreOptions"), Icon = new FontIcon { Glyph = "\uE712" } };
+                more.Click += (_, _) => ContextMenuService.TryShowNativeContextMenu(item.Path, ContextMenuHost);
+                flyout.Items.Add(more);
+            }
+
+            flyout.ShowAt(fe, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions { Position = e.GetPosition(fe) });
         }
 
         private void OnCloudDrivesChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -101,6 +185,7 @@ namespace Span.Views
             CloudHeader.Text = _loc.Get("CloudStorage");
             NetworkHeader.Text = _loc.Get("NetworkLocations");
             FavoritesHeader.Text = _loc.Get("Favorites");
+            RecentHeader.Text = _loc.Get("Home_Recent");
         }
 
         /// <summary>

@@ -5269,6 +5269,23 @@ namespace Span
             ViewModel.RenameFavorite(fav.Path, name);
         }
 
+        /// <summary>"Dateispeicherort öffnen": Ordner der Datei im aktiven Bereich öffnen und die Datei markieren.</summary>
+        internal void RevealFile(string filePath)
+        {
+            var parent = System.IO.Path.GetDirectoryName(filePath);
+            if (string.IsNullOrEmpty(parent) || !System.IO.Directory.Exists(parent)) return;
+
+            var activeViewMode = GetActivePaneViewMode();
+            if (activeViewMode == ViewMode.Home || activeViewMode == ViewMode.RecycleBin)
+            {
+                ViewModel.SwitchViewMode(ViewModel.ResolveViewModeFromHome());
+                UpdateViewModeVisibility();
+            }
+
+            var folder = new FolderItem { Name = System.IO.Path.GetFileName(parent) ?? parent, Path = parent };
+            _ = NavigateAndSelectFileAsync(folder, System.IO.Path.GetFileName(filePath));
+        }
+
         internal void RevealFavorite(FavoriteItem fav)
         {
             var parent = System.IO.Path.GetDirectoryName(fav.Path);

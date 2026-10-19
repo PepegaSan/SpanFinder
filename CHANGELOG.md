@@ -6,6 +6,12 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 ## Summary of fork changes
 
+### Recent files on Home (October 2026)
+
+- The Home page gets a **Recent** section like Explorer's Home: files recently opened in Windows (from any app), newest first, with folder and time. Click opens the file; right-click offers **Open file location** (opens the folder and selects the file), **Copy path** and **Show more options** (Windows context menu).
+- Same source and privacy behaviour as Explorer: Windows' "Recent" list. If "Show recently opened items" is turned off in Windows, the list stays empty and the section is hidden. It can also be turned off in **Settings → Browsing → Recent files on Home**.
+- Shortcut targets are read via IShellLinkW, so Unicode file names and full network paths are correct.
+
 ### Drives as folder tree (October 2026)
 
 - New option **Settings → Sidebar → Drives as folder tree** (also in the command palette): the local drives in the sidebar become an expandable folder tree, like Explorer's navigation pane. Off by default; the favorites tree is unchanged and independent.

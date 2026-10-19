@@ -6,6 +6,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:Span.Models"
     xmlns:helpers="using:Span.Helpers"
+    xmlns:services="using:Span.Services"
     mc:Ignorable="d">
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
@@ -276,6 +277,58 @@
                         </DataTemplate>
                     </GridView.ItemTemplate>
                 </GridView>
+            </StackPanel>
+
+            <!-- Section 5: Zuletzt verwendet (Windows-Liste "Zuletzt verwendet", wie die Startseite des Explorers) -->
+            <StackPanel x:Name="RecentSection" Spacing="8" Visibility="Collapsed">
+                <TextBlock x:Name="RecentHeader"
+                           Text="Recent"
+                           FontSize="16"
+                           FontWeight="SemiBold"
+                           Foreground="{ThemeResource SpanTextPrimaryBrush}"/>
+
+                <ListView x:Name="RecentListView"
+                          SelectionMode="None"
+                          IsItemClickEnabled="True"
+                          ItemClick="OnRecentItemClick"
+                          HorizontalAlignment="Stretch"
+                          MaxWidth="1100">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="8,0"/>
+                            <Setter Property="MinHeight" Value="32"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="services:RecentFileItem">
+                            <Grid Height="32" ColumnSpacing="12" Background="Transparent"
+                                  ToolTipService.ToolTip="{x:Bind Path}"
+                                  RightTapped="OnRecentRightTapped">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="3*"/>
+                                    <ColumnDefinition Width="4*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <FontIcon FontFamily="{StaticResource RemixIcons}"
+                                          Glyph="{x:Bind IconGlyph}"
+                                          Foreground="{x:Bind IconBrush}"
+                                          FontSize="16"/>
+                                <TextBlock Grid.Column="1" Text="{x:Bind Name}"
+                                           FontSize="12" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Grid.Column="2" Text="{x:Bind Folder}"
+                                           FontSize="11" VerticalAlignment="Center"
+                                           Foreground="{ThemeResource SpanTextSecondaryBrush}"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Grid.Column="3" Text="{x:Bind LastUsedText}"
+                                           FontSize="11" VerticalAlignment="Center"
+                                           Foreground="{ThemeResource SpanTextTertiaryBrush}"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
             </StackPanel>
 
         </StackPanel>
