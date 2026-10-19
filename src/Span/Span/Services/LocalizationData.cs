@@ -1073,6 +1073,9 @@
             ("Group_Large", "Large (< 1 GB)", "큼 (< 1 GB)", "大 (< 1 GB)", "大 (< 1 GB)", "大 (< 1 GB)", "Groß (< 1 GB)", "Grande (< 1 GB)", "Grand (< 1 Go)", "Grande (< 1 GB)"),
             ("Group_Huge", "Huge (> 1 GB)", "매우 큼 (> 1 GB)", "巨大 (> 1 GB)", "超大 (> 1 GB)", "超大 (> 1 GB)", "Riesig (> 1 GB)", "Enorme (> 1 GB)", "Énorme (> 1 Go)", "Enorme (> 1 GB)"),
             ("Group_Folder", "Folder", "폴더", "フォルダー", "文件夹", "資料夾", "Ordner", "Carpeta", "Dossier", "Pasta"),
+            ("Group_NoTag", "No color tag", "색 태그 없음", "カラータグなし", "无颜色标签", "無色彩標籤", "Ohne Farb-Tag", "Sin etiqueta de color", "Sans étiquette couleur", "Sem marcador de cor"),
+            ("Group_CollapseAll", "Collapse all groups", "모든 그룹 축소", "すべてのグループを折りたたむ", "折叠所有组", "摺疊所有群組", "Alle Gruppen reduzieren", "Contraer todos los grupos", "Réduire tous les groupes", "Recolher todos os grupos"),
+            ("Group_ExpandAll", "Expand all groups", "모든 그룹 확장", "すべてのグループを展開", "展开所有组", "展開所有群組", "Alle Gruppen erweitern", "Expandir todos los grupos", "Développer tous les groupes", "Expandir todos os grupos"),
 
             // ── Miller relative file age ───────────────────────────────────
             ("Age_Minutes", "{0} min", "{0}분", "{0}分", "{0} 分钟", "{0} 分鐘", "{0} Min", "{0} min", "{0} min", "{0} min"),

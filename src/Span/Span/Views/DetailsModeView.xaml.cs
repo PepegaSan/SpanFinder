@@ -54,7 +54,9 @@ namespace Span.Views
             get => _viewModel;
             set
             {
+                if (_viewModel != null) _viewModel.PropertyChanged -= OnExplorerPropertyChanged;
                 _viewModel = value;
+                if (_viewModel != null) _viewModel.PropertyChanged += OnExplorerPropertyChanged;
                 RootGrid.DataContext = _viewModel;
 
                 if (_viewModel != null && _isLoaded && !SuppressSortOnAssign)
@@ -1001,8 +1003,15 @@ namespace Span.Views
 
         private void SortItems(string sortBy, bool ascending)
         {
-            if (ViewModel?.CurrentFolder == null || ViewModel.CurrentFolder.Children.Count == 0)
+            if (ViewModel?.CurrentFolder == null)
                 return;
+            if (ViewModel.CurrentFolder.Children.Count == 0)
+            {
+                // Leerer oder noch ladender Ordner: eine Gruppen-/Filteransicht des vorigen Ordners nicht stehen lassen
+                _unfilteredItems = null;
+                ApplyFiltersAndGrouping();
+                return;
+            }
 
             var column = ViewModel.CurrentFolder;
             var savedSelection = column.SelectedChild;
@@ -1267,7 +1276,8 @@ namespace Span.Views
             foreach (var (key, label) in new[]
             {
                 ("None", L("None")), ("Name", L("Name")), ("Type", L("Type")),
-                ("DateModified", L("DateModified")), ("Size", L("Size"))
+                ("DateModified", L("DateModified")), ("DateCreated", L("Column_DateCreated")),
+                ("Size", L("Size")), ("Tag", L("ColorTag"))
             })
             {
                 var item = new ToggleMenuFlyoutItem { Text = label, IsChecked = _currentGroupBy == key };
@@ -1295,14 +1305,46 @@ namespace Span.Views
 
         private void SetGroupBy(string groupBy)
         {
+            if (_currentGroupBy != groupBy) _collapsedGroups.Clear();
             _currentGroupBy = groupBy;
             ApplyFiltersAndGrouping();
             SaveColumnLayout();
             Helpers.DebugLogger.Log($"[DetailsModeView] Group By set to: {groupBy}");
         }
 
-        private string GetGroupKey(FileSystemViewModel item, string groupBy)
-            => Helpers.GroupByHelper.GetGroupKey(item, groupBy);
+        // ── Einklappbare Gruppen (Explorer) ──
+        private readonly HashSet<string> _collapsedGroups = new(StringComparer.CurrentCultureIgnoreCase);
+        private List<Helpers.ItemGroup>? _currentGroups;
+
+        private void OnGroupChevronTapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (Helpers.GroupHeaderHelper.GroupOf(sender) is { } group)
+                Helpers.GroupHeaderHelper.Toggle(group, _collapsedGroups);
+        }
+
+        private void OnGroupChevronDoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
+            => e.Handled = true; // zwei Einzelklicks auf den Pfeil reichen; nicht zusätzlich über den Kopf umschalten
+
+        private void OnGroupHeaderTapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (Helpers.GroupHeaderHelper.GroupOf(sender) is { } group)
+                Helpers.GroupHeaderHelper.SelectGroup(DetailsListView, group);
+        }
+
+        private void OnGroupHeaderDoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (Helpers.GroupHeaderHelper.GroupOf(sender) is { } group)
+                Helpers.GroupHeaderHelper.Toggle(group, _collapsedGroups);
+        }
+
+        private void OnGroupHeaderRightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
+        {
+            if (sender is FrameworkElement header)
+                Helpers.GroupHeaderHelper.ShowMenu(header, e, _currentGroups, _collapsedGroups);
+        }
 
         #endregion
 
@@ -1858,11 +1900,9 @@ namespace Span.Views
             // Apply grouping
             if (_currentGroupBy != "None" && !string.IsNullOrEmpty(_currentGroupBy))
             {
-                var groups = filtered
-                    .GroupBy(item => GetGroupKey(item, _currentGroupBy))
-                    .OrderBy(g => g.Key)
-                    .Select(g => new Helpers.ItemGroup(Helpers.GroupByHelper.StripSortPrefix(g.Key) + " (" + g.Count() + ")", g))
-                    .ToList();
+                var groups = Helpers.GroupByHelper.BuildGroups(
+                    filtered, _currentGroupBy, _collapsedGroups, ViewModel.CurrentFolder);
+                _currentGroups = groups;
 
                 var cvs = new CollectionViewSource
                 {
@@ -1907,8 +1947,60 @@ namespace Span.Views
         /// Called when ViewModel changes or sort completes. Re-applies all view settings.
         /// Downloads folder: auto-override to DateModified descending.
         /// </summary>
+        // Ordner/Children-Sammlung, für die Sortierung + Gruppierung zuletzt angewendet wurden
+        private FolderViewModel? _appliedFolder;
+        private object? _appliedChildren;
+        private bool _isApplyingView;
+        private bool _reapplyPending;
+
+        /// <summary>
+        /// Ordnerwechsel oder fertig geladene/neu geladene Children: Details-Sortierung und -Gruppierung erneut
+        /// anwenden (wie im Explorer bleiben sie beim Navigieren erhalten). Ohne das zeigte eine aktive Gruppierung
+        /// nach dem Navigieren weiter den alten Ordner, und die Sortierung fiel auf die Miller-Sortierung zurück.
+        /// Eine ausgeblendete Details-Ansicht (Miller aktiv) sortiert nicht mit — die Children sind geteilt.
+        /// </summary>
+        private void OnExplorerPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(ExplorerViewModel.CurrentItems)) return;
+            if (_isCleanedUp || !_isLoaded || _isApplyingView || _reapplyPending) return;
+
+            var folder = _viewModel?.CurrentFolder;
+            if (folder == null || folder.IsSorting || folder.IsBulkUpdating) return;
+            if (ReferenceEquals(folder, _appliedFolder) && ReferenceEquals(folder.Children, _appliedChildren)) return;
+
+            _reapplyPending = true;
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                _reapplyPending = false;
+                if (_isCleanedUp || ActualWidth <= 0) return;
+                var current = _viewModel?.CurrentFolder;
+                if (current == null || current.IsSorting || current.IsBulkUpdating) return;
+                if (ReferenceEquals(current, _appliedFolder) && ReferenceEquals(current.Children, _appliedChildren)) return;
+                ApplyCurrentView();
+            });
+        }
+
         private void ApplyCurrentView()
         {
+            _isApplyingView = true;
+            try
+            {
+                ApplyCurrentViewCore();
+            }
+            finally
+            {
+                _isApplyingView = false;
+                _appliedFolder = ViewModel?.CurrentFolder;
+                _appliedChildren = _appliedFolder?.Children;
+            }
+        }
+
+        private void ApplyCurrentViewCore()
+        {
+            // Neuer Ordner: zwischengespeicherte (sortierte) Liste des alten Ordners verwerfen
+            if (!ReferenceEquals(ViewModel?.CurrentFolder, _appliedFolder))
+                _unfilteredItems = null;
+
             bool isDownloads = ViewModel?.CurrentFolder is FolderViewModel folder && folder.IsDownloadsFolder;
 
             if (isDownloads)
@@ -2069,7 +2161,10 @@ namespace Span.Views
                 }
 
                 _unfilteredItems = null;
+                if (_viewModel != null) _viewModel.PropertyChanged -= OnExplorerPropertyChanged;
                 _viewModel = null;
+                _appliedFolder = null;
+                _appliedChildren = null;
                 RootGrid.DataContext = null;
 
                 Helpers.DebugLogger.Log("[DetailsModeView] Cleanup complete");

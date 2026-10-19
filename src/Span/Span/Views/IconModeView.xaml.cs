@@ -42,7 +42,9 @@ namespace Span.Views
             get => _viewModel;
             set
             {
+                if (_viewModel != null) _viewModel.PropertyChanged -= OnExplorerPropertyChanged;
                 _viewModel = value;
+                if (_viewModel != null) _viewModel.PropertyChanged += OnExplorerPropertyChanged;
                 RootGrid.DataContext = _viewModel;
             }
         }
@@ -88,6 +90,11 @@ namespace Span.Views
                     {
                         ApplyCheckboxMode(_settings.ShowCheckboxes);
                         _settings.SettingChanged += OnSettingChanged;
+
+                        // Gespeicherte Gruppierung (Liste/Symbole) auch für eine neu geöffnete Ansicht übernehmen
+                        var savedGroupBy = _settings.ViewGroupBy;
+                        if (!string.IsNullOrEmpty(savedGroupBy) && savedGroupBy != _currentGroupBy)
+                            ApplyGroupBy(savedGroupBy);
                     }
                 }
                 catch (Exception ex) { Helpers.DebugLogger.Log($"[IconModeView] Loaded init error: {ex.Message}"); }
@@ -670,9 +677,63 @@ namespace Span.Views
 
         public void ApplyGroupBy(string groupBy)
         {
+            if (_currentGroupBy != groupBy) _collapsedGroups.Clear();
             _currentGroupBy = groupBy;
             RebuildGroupedItems();
         }
+
+        // ── Einklappbare Gruppen (Explorer) ──
+        private readonly HashSet<string> _collapsedGroups = new(StringComparer.CurrentCultureIgnoreCase);
+        private List<Helpers.ItemGroup>? _currentGroups;
+
+        private void OnGroupChevronTapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (Helpers.GroupHeaderHelper.GroupOf(sender) is { } group)
+                Helpers.GroupHeaderHelper.Toggle(group, _collapsedGroups);
+        }
+
+        private void OnGroupChevronDoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
+            => e.Handled = true; // zwei Einzelklicks auf den Pfeil reichen; nicht zusätzlich über den Kopf umschalten
+
+        private void OnGroupHeaderTapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (Helpers.GroupHeaderHelper.GroupOf(sender) is { } group)
+                Helpers.GroupHeaderHelper.SelectGroup(IconGridView, group);
+        }
+
+        private void OnGroupHeaderDoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (Helpers.GroupHeaderHelper.GroupOf(sender) is { } group)
+                Helpers.GroupHeaderHelper.Toggle(group, _collapsedGroups);
+        }
+
+        private void OnGroupHeaderRightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
+        {
+            if (sender is FrameworkElement header)
+                Helpers.GroupHeaderHelper.ShowMenu(header, e, _currentGroups, _collapsedGroups);
+        }
+
+        /// <summary>
+        /// Ordnerwechsel / neu geladene Children: eine aktive Gruppierung neu aufbauen. Ungruppiert bindet die
+        /// GridView direkt an CurrentItems und braucht nichts.
+        /// </summary>
+        private void OnExplorerPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(ExplorerViewModel.CurrentItems)) return;
+            if (_isCleanedUp || _currentGroupBy == "None" || string.IsNullOrEmpty(_currentGroupBy)) return;
+            if (_groupRebuildPending) return; // mehrere Meldungen (Navigation, Laden, Sortieren) zusammenfassen
+            _groupRebuildPending = true;
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                _groupRebuildPending = false;
+                if (!_isCleanedUp) RebuildGroupedItems();
+            });
+        }
+
+        private bool _groupRebuildPending;
 
         private void RebuildGroupedItems()
         {
@@ -695,11 +756,8 @@ namespace Span.Views
                 return;
             }
 
-            var groups = items
-                .GroupBy(item => Helpers.GroupByHelper.GetGroupKey(item, _currentGroupBy))
-                .OrderBy(g => g.Key)
-                .Select(g => new Helpers.ItemGroup(Helpers.GroupByHelper.StripSortPrefix(g.Key) + " (" + g.Count() + ")", g))
-                .ToList();
+            var groups = Helpers.GroupByHelper.BuildGroups(items, _currentGroupBy, _collapsedGroups, ViewModel.CurrentFolder);
+            _currentGroups = groups;
 
             var cvs = new Microsoft.UI.Xaml.Data.CollectionViewSource
             {
@@ -795,6 +853,7 @@ namespace Span.Views
                     IconGridView.SelectedItem = null;
                 }
 
+                if (_viewModel != null) _viewModel.PropertyChanged -= OnExplorerPropertyChanged;
                 _viewModel = null;
                 RootGrid.DataContext = null;
 

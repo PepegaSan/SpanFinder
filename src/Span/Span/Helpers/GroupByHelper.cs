@@ -1,6 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Linq;
 using Microsoft.UI.Xaml.Media;
+using Span.Models;
 using Span.Services;
 using Span.ViewModels;
 
@@ -8,15 +13,54 @@ namespace Span.Helpers
 {
     /// <summary>
     /// Group header class for grouped items in GridView/ListView.
+    /// Einklappbar wie im Explorer: eingeklappt bleibt die Gruppe (Kopf mit Anzahl) in der Liste, enthält aber
+    /// keine Elemente. Die Gruppe wird dabei nur geleert/gefüllt statt die ItemsSource zu ersetzen,
+    /// damit die Scrollposition erhalten bleibt.
     /// </summary>
-    public class ItemGroup : List<FileSystemViewModel>
+    public class ItemGroup : ObservableCollection<FileSystemViewModel>
     {
-        public string Key { get; }
-        public new int Count => base.Count;
+        private readonly List<FileSystemViewModel> _all;
 
-        public ItemGroup(string key, IEnumerable<FileSystemViewModel> items) : base(items)
+        /// <summary>Anzeigename der Gruppe (ohne Sortierpräfix und ohne Anzahl).</summary>
+        public string Key { get; }
+
+        /// <summary>Alle Elemente der Gruppe, auch wenn sie eingeklappt ist.</summary>
+        public IReadOnlyList<FileSystemViewModel> AllItems => _all;
+
+        public string CountText => $"({_all.Count})";
+
+        public bool IsCollapsed { get; private set; }
+
+        /// <summary>Segoe Fluent: ChevronDown (offen) / ChevronRight (eingeklappt).</summary>
+        public string ChevronGlyph => IsCollapsed ? "\uE76C" : "\uE70D";
+
+        public ItemGroup(string key, IEnumerable<FileSystemViewModel> items, bool collapsed = false)
         {
             Key = key;
+            _all = items.ToList();
+            IsCollapsed = collapsed;
+            if (!collapsed)
+            {
+                foreach (var item in _all) Items.Add(item);
+            }
+        }
+
+        public void SetCollapsed(bool collapsed)
+        {
+            if (IsCollapsed == collapsed) return;
+            IsCollapsed = collapsed;
+
+            // Ein Reset statt tausender Einzel-Events beim Ein-/Ausklappen großer Gruppen.
+            Items.Clear();
+            if (!collapsed)
+            {
+                foreach (var item in _all) Items.Add(item);
+            }
+            OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+            OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+            OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+            OnPropertyChanged(new PropertyChangedEventArgs(nameof(IsCollapsed)));
+            OnPropertyChanged(new PropertyChangedEventArgs(nameof(ChevronGlyph)));
         }
     }
 
@@ -50,12 +94,44 @@ namespace Span.Helpers
                 case "DateModified":
                     return GetDateGroupKey(item.DateModifiedValue);
 
+                case "DateCreated":
+                    return GetDateGroupKey(item.DateCreatedValue);
+
                 case "Size":
                     return GetSizeGroupKey(item);
+
+                case "Tag":
+                    return GetTagGroupKey(item.ColorTag);
 
                 default:
                     return string.Empty;
             }
+        }
+
+        /// <summary>
+        /// Baut die Gruppen für Details/Liste/Symbole. Gruppen, deren Name in <paramref name="collapsed"/>
+        /// steht, kommen eingeklappt. Für "Tag" werden die Farb-Tags aller Elemente vorher geladen
+        /// (sonst kennen nur die bereits sichtbaren Zeilen ihren Tag).
+        /// </summary>
+        public static List<ItemGroup> BuildGroups(
+            IEnumerable<FileSystemViewModel> items, string groupBy,
+            ISet<string>? collapsed = null, FolderViewModel? folder = null)
+        {
+            var list = items as IList<FileSystemViewModel> ?? items.ToList();
+            if (groupBy == "Tag" && folder != null)
+            {
+                foreach (var item in list) folder.InjectColorTagIfNeeded(item);
+            }
+
+            return list
+                .GroupBy(item => GetGroupKey(item, groupBy))
+                .OrderBy(g => g.Key)
+                .Select(g =>
+                {
+                    var label = StripSortPrefix(g.Key);
+                    return new ItemGroup(label, g, collapsed?.Contains(label) == true);
+                })
+                .ToList();
         }
 
         /// <summary>
@@ -69,8 +145,24 @@ namespace Span.Helpers
             return key;
         }
 
+        private static string GetTagGroupKey(ItemColorTag tag) => tag switch
+        {
+            ItemColorTag.Red => "01|" + LocalizationService.L("ColorTag_Red"),
+            ItemColorTag.Orange => "02|" + LocalizationService.L("ColorTag_Orange"),
+            ItemColorTag.Yellow => "03|" + LocalizationService.L("ColorTag_Yellow"),
+            ItemColorTag.Green => "04|" + LocalizationService.L("ColorTag_Green"),
+            ItemColorTag.Blue => "05|" + LocalizationService.L("ColorTag_Blue"),
+            ItemColorTag.Purple => "06|" + LocalizationService.L("ColorTag_Purple"),
+            ItemColorTag.Gray => "07|" + LocalizationService.L("ColorTag_Gray"),
+            _ => "09|" + LocalizationService.L("Group_NoTag"),
+        };
+
         private static string GetDateGroupKey(DateTime date)
         {
+            // Kein Datum (z. B. Erstelldatum bei Remote-/Suchergebnissen) — nicht als "vor langer Zeit" einsortieren
+            if (date == DateTime.MinValue || date.Year < 1980)
+                return "08|" + LocalizationService.L("Group_Unknown");
+
             var now = DateTime.Now;
             var today = now.Date;
 

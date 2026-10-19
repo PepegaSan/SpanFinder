@@ -428,7 +428,9 @@ namespace Span
             GroupByNameItem.Text = _loc.Get("Name");
             GroupByTypeItem.Text = _loc.Get("Type");
             GroupByDateItem.Text = _loc.Get("Date");
+            GroupByCreatedItem.Text = _loc.Get("Column_DateCreated");
             GroupBySizeItem.Text = _loc.Get("Size");
+            GroupByTagItem.Text = _loc.Get("ColorTag");
 
             // --- Main view mode menu items ---
             MainVm_Miller.Text = _loc.Get("MillerColumns");

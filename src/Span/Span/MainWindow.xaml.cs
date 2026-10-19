@@ -7130,7 +7130,9 @@ namespace Span
             GroupByNameItem.KeyboardAcceleratorTextOverride = _currentGroupBy == "Name" ? "✓" : string.Empty;
             GroupByTypeItem.KeyboardAcceleratorTextOverride = _currentGroupBy == "Type" ? "✓" : string.Empty;
             GroupByDateItem.KeyboardAcceleratorTextOverride = _currentGroupBy == "DateModified" ? "✓" : string.Empty;
+            GroupByCreatedItem.KeyboardAcceleratorTextOverride = _currentGroupBy == "DateCreated" ? "✓" : string.Empty;
             GroupBySizeItem.KeyboardAcceleratorTextOverride = _currentGroupBy == "Size" ? "✓" : string.Empty;
+            GroupByTagItem.KeyboardAcceleratorTextOverride = _currentGroupBy == "Tag" ? "✓" : string.Empty;
 
             // Update button icons
             UpdateSortButtonIcons();

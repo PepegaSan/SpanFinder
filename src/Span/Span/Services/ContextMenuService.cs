@@ -1010,7 +1010,9 @@ namespace Span.Services
             groupSub.Items.Add(CreateToggle(_loc.Get("Name"), currentGroup == "Name", () => host.ApplyGroupBy("Name"), "N"));
             groupSub.Items.Add(CreateToggle(_loc.Get("Type"), currentGroup == "Type", () => host.ApplyGroupBy("Type"), "T"));
             groupSub.Items.Add(CreateToggle(_loc.Get("Date"), currentGroup == "DateModified", () => host.ApplyGroupBy("DateModified"), "D"));
+            groupSub.Items.Add(CreateToggle(_loc.Get("Column_DateCreated"), currentGroup == "DateCreated", () => host.ApplyGroupBy("DateCreated"), "E"));
             groupSub.Items.Add(CreateToggle(_loc.Get("Size"), currentGroup == "Size", () => host.ApplyGroupBy("Size"), "S"));
+            groupSub.Items.Add(CreateToggle(_loc.Get("ColorTag"), currentGroup == "Tag", () => host.ApplyGroupBy("Tag"), "G"));
             menu.Items.Add(groupSub);
 
             menu.Items.Add(new MenuFlyoutSeparator());

@@ -35,10 +35,26 @@
                 <GroupStyle>
                     <GroupStyle.HeaderTemplate>
                         <DataTemplate>
-                            <Grid Padding="8,4,8,2">
-                                <TextBlock Text="{Binding Key}"
+                            <!-- Explorer: Pfeil = ein-/ausklappen, Klick = Gruppe auswählen, Doppelklick = ein-/ausklappen -->
+                            <Grid Padding="2,4,8,2" Background="Transparent"
+                                  Tapped="OnGroupHeaderTapped" DoubleTapped="OnGroupHeaderDoubleTapped"
+                                  RightTapped="OnGroupHeaderRightTapped">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Width="20" Background="Transparent"
+                                        Tapped="OnGroupChevronTapped" DoubleTapped="OnGroupChevronDoubleTapped">
+                                    <FontIcon Glyph="{Binding ChevronGlyph}" FontSize="10"
+                                              Foreground="{ThemeResource SpanTextSecondaryBrush}"/>
+                                </Border>
+                                <TextBlock Grid.Column="1" Text="{Binding Key}"
                                            FontSize="11" FontWeight="SemiBold"
                                            Foreground="{ThemeResource SpanTextSecondaryBrush}"/>
+                                <TextBlock Grid.Column="2" Text="{Binding CountText}"
+                                           FontSize="10" VerticalAlignment="Center" Margin="6,0,0,0"
+                                           Foreground="{ThemeResource SpanTextTertiaryBrush}"/>
                             </Grid>
                         </DataTemplate>
                     </GroupStyle.HeaderTemplate>

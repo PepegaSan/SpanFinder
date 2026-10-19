@@ -2422,6 +2422,12 @@ namespace Span
         private void OnGroupBySize(object sender, RoutedEventArgs e)
             => ((Services.IContextMenuHost)this).ApplyGroupBy("Size");
 
+        private void OnGroupByCreated(object sender, RoutedEventArgs e)
+            => ((Services.IContextMenuHost)this).ApplyGroupBy("DateCreated");
+
+        private void OnGroupByTag(object sender, RoutedEventArgs e)
+            => ((Services.IContextMenuHost)this).ApplyGroupBy("Tag");
+
         /// <summary>
         /// 정렬 필드명 매핑: UI("Date") → FolderViewModel("DateModified").
         /// </summary>

@@ -6,6 +6,12 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 ## Summary of fork changes
 
+### Collapsible groups, more group-by options (October 2026)
+
+- **Group headers work like Explorer** in Details, List and Icons: the arrow collapses/expands a group, clicking the header selects all its items (Ctrl adds to the selection), double-click also collapses/expands, right-click offers **Collapse all groups** / **Expand all groups**. Headers show the item count. Collapsed groups stay collapsed while browsing until the group-by option changes.
+- New group-by options: **Date created** and **Color tag** (header menu, toolbar sort button, empty-area menu). Items without a date are grouped as "Unknown" instead of "A long time ago".
+- **Fix:** with grouping on, navigating to another folder kept showing the previous folder's groups (Details, List, Icons). Details now also keeps its own sort when you navigate (it used to fall back to the Miller sort), and List/Icons pick up the saved grouping when they are opened.
+
 ### Drive usage bars in the sidebar (October 2026)
 
 - Local and mapped drives in the sidebar show a thin **usage bar** under the name (OneCommander style); it turns **red from 90 %** full, like Explorer's "This PC". The tooltip shows "X free of Y" in the app language (was English only, also on Home and in the drive context menu).

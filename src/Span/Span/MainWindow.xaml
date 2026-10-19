@@ -279,7 +279,9 @@
                                     <MenuFlyoutItem x:Name="GroupByNameItem" Text="이름" Click="OnGroupByName"/>
                                     <MenuFlyoutItem x:Name="GroupByTypeItem" Text="종류" Click="OnGroupByType"/>
                                     <MenuFlyoutItem x:Name="GroupByDateItem" Text="날짜" Click="OnGroupByDate"/>
+                                    <MenuFlyoutItem x:Name="GroupByCreatedItem" Text="만든 날짜" Click="OnGroupByCreated"/>
                                     <MenuFlyoutItem x:Name="GroupBySizeItem" Text="크기" Click="OnGroupBySize"/>
+                                    <MenuFlyoutItem x:Name="GroupByTagItem" Text="색 태그" Click="OnGroupByTag"/>
                                 </MenuFlyoutSubItem>
                             </MenuFlyout>
                         </Button.Flyout>

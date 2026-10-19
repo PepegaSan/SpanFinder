@@ -88,21 +88,31 @@
                 <GroupStyle>
                     <GroupStyle.HeaderTemplate>
                         <DataTemplate>
-                            <Grid Padding="6,4,6,2" Background="{ThemeResource SpanBgLayer2Brush}">
+                            <!-- Explorer: Pfeil = ein-/ausklappen, Klick = Gruppe auswählen, Doppelklick = ein-/ausklappen -->
+                            <Grid Padding="2,4,6,2" Background="{ThemeResource SpanBgLayer2Brush}"
+                                  Tapped="OnGroupHeaderTapped" DoubleTapped="OnGroupHeaderDoubleTapped"
+                                  RightTapped="OnGroupHeaderRightTapped">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0"
+                                <Border Width="20" Background="Transparent"
+                                        Tapped="OnGroupChevronTapped" DoubleTapped="OnGroupChevronDoubleTapped">
+                                    <FontIcon Glyph="{Binding ChevronGlyph}" FontSize="10"
+                                              Foreground="{ThemeResource SpanTextSecondaryBrush}"/>
+                                </Border>
+                                <TextBlock Grid.Column="1"
                                            Text="{Binding Key}"
                                            FontSize="11"
                                            FontWeight="SemiBold"
                                            Foreground="{ThemeResource SpanTextSecondaryBrush}"/>
-                                <TextBlock Grid.Column="1"
-                                           Text="{Binding Count}"
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding CountText}"
                                            FontSize="10"
+                                           VerticalAlignment="Center"
                                            Foreground="{ThemeResource SpanTextTertiaryBrush}"
-                                           Margin="8,0,0,0"/>
+                                           Margin="6,0,0,0"/>
                             </Grid>
                         </DataTemplate>
                     </GroupStyle.HeaderTemplate>

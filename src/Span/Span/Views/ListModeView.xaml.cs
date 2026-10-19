@@ -130,6 +130,11 @@ namespace Span.Views
 
                         // Restore saved List settings
                         LoadListSettings();
+
+                        // Gespeicherte Gruppierung (Liste/Symbole) auch für eine neu geöffnete Ansicht übernehmen
+                        var savedGroupBy = _settings.ViewGroupBy;
+                        if (!string.IsNullOrEmpty(savedGroupBy) && savedGroupBy != _currentGroupBy)
+                            ApplyGroupBy(savedGroupBy);
                     }
                 }
                 catch (Exception ex) { Helpers.DebugLogger.Log($"[ListModeView] Settings init error: {ex.Message}"); }
@@ -166,7 +171,8 @@ namespace Span.Views
                 e.PropertyName == nameof(ExplorerViewModel.CurrentItems) ||
                 e.PropertyName == nameof(ExplorerViewModel.CurrentPath))
             {
-                DispatcherQueue.TryEnqueue(() => RebuildListItems());
+                // Aktive Gruppierung neu aufbauen — sonst bliebe die Gruppenansicht des vorigen Ordners stehen
+                DispatcherQueue.TryEnqueue(RebuildForCurrentGrouping);
             }
         }
 
@@ -214,7 +220,15 @@ namespace Span.Views
         /// <summary>
         /// Public entry point for external sort trigger.
         /// </summary>
-        public void RebuildListItemsPublic() => RebuildListItems();
+        public void RebuildListItemsPublic() => RebuildForCurrentGrouping();
+
+        private bool IsGrouped => !string.IsNullOrEmpty(_currentGroupBy) && _currentGroupBy != "None";
+
+        private void RebuildForCurrentGrouping()
+        {
+            if (IsGrouped) RebuildGroupedListItems();
+            else RebuildListItems();
+        }
 
         /// <summary>
         /// _listItems를 diff 기반으로 증분 업데이트. ".."와 파일 항목을 모두 포함.
@@ -334,8 +348,43 @@ namespace Span.Views
 
         public void ApplyGroupBy(string groupBy)
         {
+            if (_currentGroupBy != groupBy) _collapsedGroups.Clear();
             _currentGroupBy = groupBy;
             RebuildGroupedListItems();
+        }
+
+        // ── Einklappbare Gruppen (Explorer) ──
+        private readonly HashSet<string> _collapsedGroups = new(StringComparer.CurrentCultureIgnoreCase);
+        private List<Helpers.ItemGroup>? _currentGroups;
+
+        private void OnGroupChevronTapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (Helpers.GroupHeaderHelper.GroupOf(sender) is { } group)
+                Helpers.GroupHeaderHelper.Toggle(group, _collapsedGroups);
+        }
+
+        private void OnGroupChevronDoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
+            => e.Handled = true; // zwei Einzelklicks auf den Pfeil reichen; nicht zusätzlich über den Kopf umschalten
+
+        private void OnGroupHeaderTapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (Helpers.GroupHeaderHelper.GroupOf(sender) is { } group)
+                Helpers.GroupHeaderHelper.SelectGroup(ListGridView, group);
+        }
+
+        private void OnGroupHeaderDoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (Helpers.GroupHeaderHelper.GroupOf(sender) is { } group)
+                Helpers.GroupHeaderHelper.Toggle(group, _collapsedGroups);
+        }
+
+        private void OnGroupHeaderRightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
+        {
+            if (sender is FrameworkElement header)
+                Helpers.GroupHeaderHelper.ShowMenu(header, e, _currentGroups, _collapsedGroups);
         }
 
         private void RebuildGroupedListItems()
@@ -354,11 +403,8 @@ namespace Span.Views
             var folder = ViewModel.CurrentFolder;
             var items = folder.Children.ToList();
 
-            var groups = items
-                .GroupBy(item => Helpers.GroupByHelper.GetGroupKey(item, _currentGroupBy))
-                .OrderBy(g => g.Key)
-                .Select(g => new Helpers.ItemGroup(Helpers.GroupByHelper.StripSortPrefix(g.Key) + " (" + g.Count() + ")", g))
-                .ToList();
+            var groups = Helpers.GroupByHelper.BuildGroups(items, _currentGroupBy, _collapsedGroups, folder);
+            _currentGroups = groups;
 
             var cvs = new Microsoft.UI.Xaml.Data.CollectionViewSource
             {
