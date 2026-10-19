@@ -36,6 +36,7 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
   - **Miller**: after each reload the column scrolled back to the selected item. The selection is now only re-applied when it actually changed.
 - Switching from Details to Miller now shows the Miller sort right away (the Details order used to stay until the next reload), and a hidden Details view no longer re-sorts the list Miller is showing.
 - Starting Span with a Details tab no longer re-sorts that folder by the Miller sort (the header showed the Details sort, the rows the Miller order).
+- A **multi-selection is kept** when the folder (or a parent folder) is reloaded by the file watcher, e.g. while another program writes into it or after running a custom command. Details reduced it to a single item on every reload.
 
 ### Recent files on Home (October 2026)
 

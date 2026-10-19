@@ -1254,8 +1254,28 @@ namespace Span.ViewModels
         /// </summary>
         public void NotifyCurrentItemsChanged()
         {
+            // Inkrementell neu geladen (gleicher Ordner, gleiche Sammlung): nicht melden. Sonst wertete die Bindung
+            // SelectedItem="{Binding CurrentFolder.SelectedChild}" (Details) neu aus und setzte eine Mehrfachauswahl
+            // bei jedem Neuladen durch den Dateiwächter auf ein Element zurück.
+            var folder = CurrentFolder;
+            if (ReferenceEquals(folder, _notifiedFolder) && ReferenceEquals(folder?.Children, _notifiedChildren))
+                return;
             OnPropertyChanged(nameof(CurrentFolder));
             OnPropertyChanged(nameof(CurrentItems));
+        }
+
+        private FolderViewModel? _notifiedFolder;
+        private object? _notifiedChildren;
+
+        /// <summary>Stand merken, den die Ansichten zuletzt gemeldet bekamen (egal von welcher Stelle).</summary>
+        protected override void OnPropertyChanged(PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName is nameof(CurrentFolder) or nameof(CurrentItems))
+            {
+                _notifiedFolder = CurrentFolder;
+                _notifiedChildren = _notifiedFolder?.Children;
+            }
+            base.OnPropertyChanged(e);
         }
 
         private async void FolderVm_PropertyChanged(object? sender, PropertyChangedEventArgs e)
