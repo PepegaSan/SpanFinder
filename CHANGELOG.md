@@ -6,6 +6,13 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 ## Summary of fork changes
 
+### Fix: list jumping back while a folder changes (October 2026)
+
+- While another program keeps writing into the open folder (for example a video encoder), the list **no longer jumps back when you scroll**:
+  - **Details**: every reload (file watcher, returning to the window) re-sorted the folder by the Miller sort, which moved the rows under the viewport. Reloads now keep the Details sort and reuse the existing rows.
+  - **Miller**: after each reload the column scrolled back to the selected item. The selection is now only re-applied when it actually changed.
+- Switching from Details to Miller now shows the Miller sort right away (the Details order used to stay until the next reload), and a hidden Details view no longer re-sorts the list Miller is showing.
+
 ### Recent files on Home (October 2026)
 
 - The Home page gets a **Recent** section like Explorer's Home: files recently opened in Windows (from any app), newest first, with folder and time. Click opens the file; right-click offers **Open file location** (opens the folder and selects the file), **Copy path** and **Show more options** (Windows context menu).

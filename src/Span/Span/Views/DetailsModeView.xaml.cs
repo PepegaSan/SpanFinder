@@ -1016,6 +1016,26 @@ namespace Span.Views
             return ascending ? foldersFirst.ThenBy(key, comparer) : foldersFirst.ThenByDescending(key, comparer);
         }
 
+        /// <summary>Einträge nach einer Details-Spalte ordnen; null bei unbekannter Spalte.</summary>
+        private static IEnumerable<FileSystemViewModel>? OrderByColumn(
+            IEnumerable<FileSystemViewModel> children, string sortBy, bool ascending, bool mix)
+            => sortBy switch
+            {
+                "Name" => OrderItems(children, x => x.Name, ascending, mix, Helpers.NaturalStringComparer.Instance),
+                DetailsColumns.DateModified => OrderItems(children, x => x.DateModifiedValue, ascending, mix),
+                DetailsColumns.Type => OrderItems(children, x => x.FileType, ascending, mix),
+                DetailsColumns.Size => OrderItems(children, x => x.SizeValue, ascending, mix),
+                DetailsColumns.Git => OrderItems(children, x => x.GitStatusText, ascending, mixFoldersFiles: false),
+                DetailsColumns.Location => OrderItems(children, x => x.LocationPath, ascending, mix, StringComparer.CurrentCultureIgnoreCase),
+                DetailsColumns.DateCreated => OrderItems(children, x => x.DateCreatedValue, ascending, mix),
+                DetailsColumns.Attributes => OrderItems(children, x => x.AttributesText, ascending, mix, StringComparer.Ordinal),
+                DetailsColumns.Dimensions => OrderItems(children, x => x.ShellProperties.PixelCount, ascending, mix),
+                DetailsColumns.Duration => OrderItems(children, x => x.ShellProperties.DurationTicks, ascending, mix),
+                DetailsColumns.Authors => OrderItems(children, x => x.AuthorsText, ascending, mix, StringComparer.CurrentCultureIgnoreCase),
+                DetailsColumns.Title => OrderItems(children, x => x.TitleText, ascending, mix, StringComparer.CurrentCultureIgnoreCase),
+                _ => null
+            };
+
         private void SortItems(string sortBy, bool ascending)
         {
             if (ViewModel?.CurrentFolder == null)
@@ -1037,22 +1057,7 @@ namespace Span.Views
                 var children = column.Children;
                 bool mix = column.MixFoldersAndFiles;
 
-                IEnumerable<FileSystemViewModel>? sorted = sortBy switch
-                {
-                    "Name" => OrderItems(children, x => x.Name, ascending, mix, Helpers.NaturalStringComparer.Instance),
-                    DetailsColumns.DateModified => OrderItems(children, x => x.DateModifiedValue, ascending, mix),
-                    DetailsColumns.Type => OrderItems(children, x => x.FileType, ascending, mix),
-                    DetailsColumns.Size => OrderItems(children, x => x.SizeValue, ascending, mix),
-                    DetailsColumns.Git => OrderItems(children, x => x.GitStatusText, ascending, mixFoldersFiles: false),
-                    DetailsColumns.Location => OrderItems(children, x => x.LocationPath, ascending, mix, StringComparer.CurrentCultureIgnoreCase),
-                    DetailsColumns.DateCreated => OrderItems(children, x => x.DateCreatedValue, ascending, mix),
-                    DetailsColumns.Attributes => OrderItems(children, x => x.AttributesText, ascending, mix, StringComparer.Ordinal),
-                    DetailsColumns.Dimensions => OrderItems(children, x => x.ShellProperties.PixelCount, ascending, mix),
-                    DetailsColumns.Duration => OrderItems(children, x => x.ShellProperties.DurationTicks, ascending, mix),
-                    DetailsColumns.Authors => OrderItems(children, x => x.AuthorsText, ascending, mix, StringComparer.CurrentCultureIgnoreCase),
-                    DetailsColumns.Title => OrderItems(children, x => x.TitleText, ascending, mix, StringComparer.CurrentCultureIgnoreCase),
-                    _ => null
-                };
+                var sorted = OrderByColumn(children, sortBy, ascending, mix);
                 if (sorted == null) return;
 
                 // 셸 속성 컬럼: 화면에 안 나온 항목은 아직 값이 없다 → 전부 읽은 뒤 다시 정렬 (탐색기와 같이)
@@ -1063,6 +1068,14 @@ namespace Span.Views
 
                 // 원자적 교체: Clear+Add 대신 새 컬렉션 할당으로 28K CollectionChanged 이벤트 → 1회 Reset
                 column.ReplaceChildren(sortedList);
+
+                // Neuladen (Dateiwächter, Rückkehr ins Fenster) ordnet genauso — sonst sortierte es nach der
+                // Miller-Sortierung um, und die Liste sprang beim Scrollen zurück. Beim Wechsel zu einer anderen
+                // Ansicht nimmt MainViewModel die Sortierung zurück (FolderViewModel.DropViewSort).
+                column.ViewSort = items =>
+                    !_isCleanedUp && ReferenceEquals(ViewModel?.CurrentFolder, column)
+                        ? OrderByColumn(items, sortBy, ascending, column.MixFoldersAndFiles)
+                        : null;
 
                 if (savedSelection != null)
                 {
@@ -2018,12 +2031,28 @@ namespace Span.Views
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
             {
                 _reapplyPending = false;
-                if (_isCleanedUp || ActualWidth <= 0) return;
+                if (_isCleanedUp || !IsShown()) return;
                 var current = _viewModel?.CurrentFolder;
                 if (current == null || current.IsSorting || current.IsBulkUpdating) return;
                 if (ReferenceEquals(current, _appliedFolder) && ReferenceEquals(current.Children, _appliedChildren)) return;
                 ApplyCurrentView();
             });
+        }
+
+        /// <summary>
+        /// Diese Ansicht ist sichtbar: sie selbst und alle Eltern (Details-Modus, aktiver Tab). ActualWidth taugt dafür
+        /// nicht — nach dem Wechsel zu Miller behielt es den alten Wert, und die ausgeblendete Details-Ansicht sortierte
+        /// die mit Miller geteilte Liste um.
+        /// </summary>
+        private bool IsShown()
+        {
+            DependencyObject? element = this;
+            while (element != null)
+            {
+                if (element is UIElement ui && ui.Visibility != Visibility.Visible) return false;
+                element = VisualTreeHelper.GetParent(element);
+            }
+            return true;
         }
 
         private void ApplyCurrentView()

@@ -189,6 +189,28 @@ namespace Span.ViewModels
         [ObservableProperty]
         private ViewMode _rightViewMode = ViewMode.MillerColumns;
 
+        // Details sortiert selbst; beim Wechsel zu einer anderen Ansicht gilt wieder die Sortierung der Ordner
+        partial void OnLeftViewModeChanged(ViewMode oldValue, ViewMode value)
+        {
+            if (oldValue == ViewMode.Details && value != ViewMode.Details)
+                DropViewSort(LeftExplorer);
+        }
+
+        partial void OnRightViewModeChanged(ViewMode oldValue, ViewMode value)
+        {
+            if (oldValue != ViewMode.Details || value == ViewMode.Details) return;
+            DropViewSort(RightExplorer);
+            DropViewSort(TopRightExplorer);
+            DropViewSort(BottomRightExplorer);
+        }
+
+        private static void DropViewSort(ExplorerViewModel? explorer)
+        {
+            if (explorer == null) return;
+            foreach (var column in explorer.Columns)
+                column.DropViewSort();
+        }
+
         // Preview panel state (per-pane independent)
         [ObservableProperty]
         private bool _isLeftPreviewEnabled = true;

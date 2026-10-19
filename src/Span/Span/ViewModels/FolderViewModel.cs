@@ -978,6 +978,76 @@ namespace Span.ViewModels
         /// <summary>현재 정렬 기준("Name", "DateModified", "Size", "Type").</summary>
         public string CurrentSortBy => _sortBy;
 
+        /// <summary>
+        /// Sortierung einer Ansicht, die selbst sortiert (Details, auch nach Spalten, die Miller nicht kennt).
+        /// Gesetzt ordnet Neuladen (Dateiwächter, Rückkehr ins Fenster) damit statt nach _sortBy — sonst sortierte
+        /// jedes Neuladen die Liste um, und sie sprang beim Scrollen zurück (z. B. während ein Encoder in den Ordner
+        /// schreibt). Gibt null zurück, wenn die Ansicht den Ordner nicht mehr zeigt; dann gilt wieder _sortBy.
+        /// </summary>
+        public Func<IEnumerable<FileSystemViewModel>, IEnumerable<FileSystemViewModel>?>? ViewSort { get; set; }
+
+        /// <summary>
+        /// Neu geladene Einträge in der Reihenfolge der Ansicht ordnen. Vorhandene Einträge werden mit den frischen
+        /// Daten aktualisiert und weiterverwendet — nur sie tragen schon Werte wie Shell-Eigenschaften und Git-Status,
+        /// nach denen Details ebenfalls sortiert.
+        /// </summary>
+        private List<FileSystemViewModel> ApplyViewSort(List<FileSystemViewModel> items)
+        {
+            var existing = new Dictionary<string, FileSystemViewModel>(Children.Count, StringComparer.OrdinalIgnoreCase);
+            foreach (var child in Children)
+                existing.TryAdd(child.Path, child);
+
+            var merged = new List<FileSystemViewModel>(items.Count);
+            foreach (var item in items)
+            {
+                if (existing.TryGetValue(item.Path, out var old) && old.GetType() == item.GetType())
+                {
+                    old.UpdateFrom(item);
+                    merged.Add(old);
+                }
+                else
+                {
+                    merged.Add(item);
+                }
+            }
+
+            var ordered = ViewSort?.Invoke(merged);
+            if (ordered == null)
+            {
+                ViewSort = null;
+                return items;
+            }
+            return ordered.ToList();
+        }
+
+        /// <summary>
+        /// Die Ansicht mit eigener Sortierung zeigt den Ordner nicht mehr (Wechsel von Details zu Miller usw.): sofort
+        /// wieder nach der eigenen Sortierung ordnen. Sonst blieb die Details-Reihenfolge stehen, bis das nächste
+        /// Neuladen sie umsortierte — und die Liste beim Scrollen sprang.
+        /// </summary>
+        public void DropViewSort()
+        {
+            if (ViewSort == null) return;
+            ViewSort = null;
+            if (Children.Count == 0) return;
+
+            IsSorting = true;
+            _isBulkUpdating = true;
+            var saved = SelectedChild;
+            try
+            {
+                var sorted = ApplySort(Children.ToList(), _sortBy, _sortAscending, mixFoldersAndFiles: MixFoldersAndFiles);
+                if (string.IsNullOrEmpty(_currentFilterText)) _allChildren = sorted;
+                Children = new ObservableCollection<FileSystemViewModel>(sorted);
+                if (saved != null) SelectedChild = saved;
+            }
+            finally
+            {
+                IsSorting = false;
+                _isBulkUpdating = false;
+            }
+        }
+
         // ── Ansicht pro Ordner ──
 
         /// <summary>Ordnertyp nach Inhalt (beim Laden erkannt).</summary>
@@ -1054,6 +1124,7 @@ namespace Span.ViewModels
         {
             _sortBy = sortBy;
             _sortAscending = ascending;
+            ViewSort = null; // ausdrücklich gewählte Sortierung gilt auch beim Neuladen
 
             // _allChildren 기준 정렬 (있으면), 없으면 Children 기준
             var source = _allChildren ?? Children.ToList();
@@ -1188,6 +1259,10 @@ namespace Span.ViewModels
                 }
                 sortedItems = ApplySort(items, _sortBy, _sortAscending);
             }
+
+            // Ansicht mit eigener Sortierung (Details): deren Reihenfolge behalten
+            if (ViewSort != null && Children.Count > 0)
+                sortedItems = ApplyViewSort(sortedItems);
 
             // _allChildren 저장 (필터 인프라)
             _allChildren = sortedItems;

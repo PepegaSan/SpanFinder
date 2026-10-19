@@ -6169,15 +6169,19 @@ namespace Span
         {
             if (items.Count == 0) return;
 
+            var wanted = items.Where(item => ListViewContainsItem(listView, item)).ToList();
+            // Auswahl schon so → nicht anfassen: Clear + Add holte die markierte Zeile wieder ins Bild, die Liste
+            // sprang nach jedem Neuladen (Dateiwächter, Rückkehr ins Fenster) dorthin zurück
+            if (wanted.Count == listView.SelectedItems.Count
+                && wanted.All(item => listView.SelectedItems.Any(selected => ReferenceEquals(selected, item))))
+                return;
+
             _isSyncingSelection = true;
             try
             {
                 listView.SelectedItems.Clear();
-                foreach (var item in items)
-                {
-                    if (ListViewContainsItem(listView, item))
-                        listView.SelectedItems.Add(item);
-                }
+                foreach (var item in wanted)
+                    listView.SelectedItems.Add(item);
             }
             finally
             {
