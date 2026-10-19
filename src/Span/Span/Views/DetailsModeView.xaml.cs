@@ -1016,10 +1016,20 @@ namespace Span.Views
             return ascending ? foldersFirst.ThenBy(key, comparer) : foldersFirst.ThenByDescending(key, comparer);
         }
 
-        /// <summary>Einträge nach einer Details-Spalte ordnen; null bei unbekannter Spalte.</summary>
+        /// <summary>
+        /// Einträge nach einer Details-Spalte ordnen; null bei unbekannter Spalte. Für die Tag-Spalte werden die Tags
+        /// vorher geladen (sonst kennen nur die schon sichtbaren Zeilen ihren Tag).
+        /// </summary>
         private static IEnumerable<FileSystemViewModel>? OrderByColumn(
-            IEnumerable<FileSystemViewModel> children, string sortBy, bool ascending, bool mix)
-            => sortBy switch
+            IEnumerable<FileSystemViewModel> children, string sortBy, bool ascending, bool mix, FolderViewModel? folder = null)
+        {
+            if (sortBy == DetailsColumns.Tag && folder != null)
+            {
+                var list = children as IList<FileSystemViewModel> ?? children.ToList();
+                foreach (var item in list) folder.InjectColorTagIfNeeded(item);
+                children = list;
+            }
+            return sortBy switch
             {
                 "Name" => OrderItems(children, x => x.Name, ascending, mix, Helpers.NaturalStringComparer.Instance),
                 DetailsColumns.DateModified => OrderItems(children, x => x.DateModifiedValue, ascending, mix),
@@ -1033,8 +1043,17 @@ namespace Span.Views
                 DetailsColumns.Duration => OrderItems(children, x => x.ShellProperties.DurationTicks, ascending, mix),
                 DetailsColumns.Authors => OrderItems(children, x => x.AuthorsText, ascending, mix, StringComparer.CurrentCultureIgnoreCase),
                 DetailsColumns.Title => OrderItems(children, x => x.TitleText, ascending, mix, StringComparer.CurrentCultureIgnoreCase),
+                // Reihenfolge der Tag-Liste, ohne Tag zuletzt
+                DetailsColumns.Tag => OrderItems(children, x => TagSortKey(x.ColorTag), ascending, mix),
                 _ => null
             };
+        }
+
+        private static int TagSortKey(string? tagId)
+        {
+            int index = Services.ColorTagCatalog.Current.IndexOf(tagId);
+            return index < 0 ? int.MaxValue : index;
+        }
 
         private void SortItems(string sortBy, bool ascending)
         {
@@ -1057,7 +1076,7 @@ namespace Span.Views
                 var children = column.Children;
                 bool mix = column.MixFoldersAndFiles;
 
-                var sorted = OrderByColumn(children, sortBy, ascending, mix);
+                var sorted = OrderByColumn(children, sortBy, ascending, mix, column);
                 if (sorted == null) return;
 
                 // 셸 속성 컬럼: 화면에 안 나온 항목은 아직 값이 없다 → 전부 읽은 뒤 다시 정렬 (탐색기와 같이)
@@ -1074,7 +1093,7 @@ namespace Span.Views
                 // Ansicht nimmt MainViewModel die Sortierung zurück (FolderViewModel.DropViewSort).
                 column.ViewSort = items =>
                     !_isCleanedUp && ReferenceEquals(ViewModel?.CurrentFolder, column)
-                        ? OrderByColumn(items, sortBy, ascending, column.MixFoldersAndFiles)
+                        ? OrderByColumn(items, sortBy, ascending, column.MixFoldersAndFiles, column)
                         : null;
 
                 if (savedSelection != null)

@@ -103,6 +103,7 @@ public class RenameFileOperation : IFileOperation
                     File.Move(_sourcePath, newPath);
                 else
                     Directory.Move(_sourcePath, newPath);
+                FileOperationHelpers.NotifyPathMoved(_sourcePath, newPath);
 
                 progress?.Report(new FileOperationProgress
                 {
@@ -152,6 +153,7 @@ public class RenameFileOperation : IFileOperation
 
             if (isFile) File.Move(newPath, _sourcePath);
             else Directory.Move(newPath, _sourcePath);
+            FileOperationHelpers.NotifyPathMoved(newPath, _sourcePath);
 
             return OperationResult.CreateSuccess(_sourcePath);
         }

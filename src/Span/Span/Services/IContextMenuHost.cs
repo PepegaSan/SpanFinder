@@ -39,8 +39,11 @@ namespace Span.Services
         void AddCurrentFolderToFavorites(string? groupId = null);
         void RemoveFromFavorites(string path);
         bool IsFavorite(string path);
-        void SetColorTag(string path, ItemColorTag tag);
-        void SetColorTag(IReadOnlyList<string> paths, ItemColorTag tag);
+        /// <param name="tagId">Id aus ColorTagCatalog; null entfernt den Tag.</param>
+        void SetColorTag(string path, string? tagId);
+        void SetColorTag(IReadOnlyList<string> paths, string? tagId);
+        /// <summary>Einstellungen bei den Farb-Tags öffnen (Namen und Farben bearbeiten).</summary>
+        void OpenColorTagSettings();
         void EditFolderNote(string path);
         void RemoveRemoteConnection(string connectionId);
         void EditRemoteConnection(string connectionId);

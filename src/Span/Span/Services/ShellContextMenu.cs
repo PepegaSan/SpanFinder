@@ -12,8 +12,11 @@ using Span.Models;
 
 namespace Span.Services
 {
-    /// <summary>Span-specific item appended below the native shell context menu.</summary>
-    public sealed record SpanFooterItem(string Text, Action Action);
+    /// <summary>
+    /// Span-specific item appended below the native shell context menu. With <paramref name="Children"/> it becomes a
+    /// submenu (its own Action is not used), e.g. the color tags.
+    /// </summary>
+    public sealed record SpanFooterItem(string Text, Action Action, IReadOnlyList<SpanFooterItem>? Children = null);
 
     /// <summary>Routes standard shell verbs through Span (copy/cut/rename don't work via raw InvokeCommand in WinUI).</summary>
     public sealed class ShellStandardVerbHandlers
@@ -246,6 +249,7 @@ namespace Span.Services
         private const uint SPAN_CMD_BASE = 0x8000;
         private const uint MF_SEPARATOR = 0x00000800;
         private const uint MF_STRING = 0x00000000;
+        private const uint MF_POPUP = 0x00000010;
 
         private const uint WM_INITMENUPOPUP = 0x0117;
         private const uint WM_DRAWITEM = 0x002B;
@@ -497,7 +501,7 @@ namespace Span.Services
                 CMF_NORMAL | CMF_EXPLORE | CMF_CANRENAME);
             if (hr < 0) return false;
 
-            AppendSpanFooterItems(hMenu, footerItems);
+            var footerCommands = AppendSpanFooterItems(hMenu, footerItems);
 
             s_subclassDelegate = new SubclassProc(MenuSubclassProc);
             SetWindowSubclass(hwnd, s_subclassDelegate, SUBCLASS_ID, IntPtr.Zero);
@@ -514,8 +518,8 @@ namespace Span.Services
                 if (cmd >= (int)SPAN_CMD_BASE)
                 {
                     int footerIndex = cmd - (int)SPAN_CMD_BASE;
-                    if (footerIndex >= 0 && footerIndex < footerItems.Count)
-                        footerItems[footerIndex].Action();
+                    if (footerIndex >= 0 && footerIndex < footerCommands.Count)
+                        footerCommands[footerIndex].Action();
                 }
                 else if (cmd >= (int)FIRST_CMD && cmd < (int)SPAN_CMD_BASE)
                 {
@@ -600,18 +604,40 @@ namespace Span.Services
             return !string.IsNullOrEmpty(verb);
         }
 
-        private static void AppendSpanFooterItems(IntPtr hMenu, IReadOnlyList<SpanFooterItem> footerItems)
+        /// <summary>
+        /// Appends the Span items (submenus for items with children). Returns the commands in id order:
+        /// command id = SPAN_CMD_BASE + index into this list.
+        /// </summary>
+        private static List<SpanFooterItem> AppendSpanFooterItems(IntPtr hMenu, IReadOnlyList<SpanFooterItem> footerItems)
         {
+            var commands = new List<SpanFooterItem>();
             if (footerItems.Count == 0)
-                return;
+                return commands;
 
             if (GetMenuItemCount(hMenu) > 0)
                 AppendMenu(hMenu, MF_SEPARATOR, UIntPtr.Zero, null);
 
-            for (int i = 0; i < footerItems.Count; i++)
+            AppendFooterLevel(hMenu, footerItems, commands);
+            return commands;
+        }
+
+        private static void AppendFooterLevel(IntPtr hMenu, IReadOnlyList<SpanFooterItem> items, List<SpanFooterItem> commands)
+        {
+            foreach (var item in items)
             {
-                var id = new UIntPtr(SPAN_CMD_BASE + (uint)i);
-                AppendMenu(hMenu, MF_STRING, id, footerItems[i].Text);
+                if (item.Children is { Count: > 0 } children)
+                {
+                    // Submenus are destroyed together with the parent menu (DestroyMenu is recursive)
+                    var sub = CreatePopupMenu();
+                    if (sub == IntPtr.Zero) continue;
+                    AppendFooterLevel(sub, children, commands);
+                    AppendMenu(hMenu, MF_POPUP, (UIntPtr)(ulong)sub.ToInt64(), item.Text);
+                    continue;
+                }
+
+                var id = new UIntPtr(SPAN_CMD_BASE + (uint)commands.Count);
+                commands.Add(item);
+                AppendMenu(hMenu, MF_STRING, id, item.Text);
             }
         }
 

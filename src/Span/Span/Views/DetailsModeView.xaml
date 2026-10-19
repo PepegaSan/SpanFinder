@@ -143,6 +143,7 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
                         <!-- Icon / Thumbnail / Custom Folder Icon -->
@@ -310,6 +311,19 @@
                                        FontSize="{Binding SecondaryFontSize, Source={StaticResource FontScale}}"
                                        FontWeight="Bold"
                                        Padding="6,0"/>
+                        </Border>
+
+                        <!-- Farb-Tag (Punkt + Name) -->
+                        <Border Grid.Column="13" Width="0" Visibility="Collapsed">
+                            <StackPanel Orientation="Horizontal" Spacing="6" Padding="6,0" VerticalAlignment="Center">
+                                <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                         Fill="{x:Bind ColorTagBrush, Mode=OneWay}"
+                                         Visibility="{x:Bind vm:FileSystemViewModel.ShowIfTrue(HasColorTag), Mode=OneWay}"/>
+                                <TextBlock Text="{x:Bind ColorTagName, Mode=OneWay}"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"
+                                           FontSize="{Binding SecondaryFontSize, Source={StaticResource FontScale}}"/>
+                            </StackPanel>
                         </Border>
                     </Grid>
                 </DataTemplate>

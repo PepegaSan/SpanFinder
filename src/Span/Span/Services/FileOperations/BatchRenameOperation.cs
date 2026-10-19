@@ -63,6 +63,7 @@ public class BatchRenameOperation : IFileOperation
                     continue;
 
                 _executedRenames.Add((oldPath, newPath));
+                FileOperationHelpers.NotifyPathMoved(oldPath, newPath);
             }
             catch (Exception ex)
             {
@@ -89,6 +90,9 @@ public class BatchRenameOperation : IFileOperation
                     File.Move(newPath, oldPath);
                 else if (Directory.Exists(newPath))
                     Directory.Move(newPath, oldPath);
+                else
+                    continue;
+                FileOperationHelpers.NotifyPathMoved(newPath, oldPath);
             }
             catch (Exception ex)
             {

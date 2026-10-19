@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -22,7 +23,7 @@ namespace Span.Services
 
         private readonly string _storagePath;
         private readonly SemaphoreSlim _lock = new(1, 1);
-        private readonly Dictionary<string, ItemColorTag> _tags = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _tags = new(StringComparer.OrdinalIgnoreCase); // Pfad -> Tag-Id (ColorTagCatalog)
         private readonly Dictionary<string, string> _notes = new(StringComparer.OrdinalIgnoreCase);
         private bool _loaded;
 
@@ -32,7 +33,7 @@ namespace Span.Services
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
-        public event Action<string, ItemColorTag>? ColorTagChanged;
+        public event Action<string, string?>? ColorTagChanged;
         public event Action<string>? NoteChanged;
 
         public ItemAnnotationService()
@@ -59,11 +60,19 @@ namespace Span.Services
             }
         }
 
-        public ItemColorTag GetColorTag(string path)
+        /// <summary>Tag-Id des Elements; null = kein Tag.</summary>
+        public string? GetColorTag(string path)
         {
-            if (!IsAnnotatable(path)) return ItemColorTag.None;
+            if (!IsAnnotatable(path)) return null;
             EnsureLoadedSync();
-            return _tags.TryGetValue(Normalize(path), out var tag) ? tag : ItemColorTag.None;
+            lock (_tags) return _tags.TryGetValue(Normalize(path), out var tag) ? tag : null;
+        }
+
+        /// <summary>Alle getaggten Pfade (Momentaufnahme) — für die <c>tag:</c>-Suche ohne Laufwerksdurchlauf.</summary>
+        public List<KeyValuePair<string, string>> GetTaggedPaths()
+        {
+            EnsureLoadedSync();
+            lock (_tags) return _tags.ToList();
         }
 
         public string GetFolderNote(string path)
@@ -80,7 +89,8 @@ namespace Span.Services
             return _notes.TryGetValue(Normalize(path), out var note) && !string.IsNullOrWhiteSpace(note);
         }
 
-        public async Task SetColorTagAsync(string path, ItemColorTag tag)
+        /// <param name="tag">Tag-Id; null/leer entfernt den Tag.</param>
+        public async Task SetColorTagAsync(string path, string? tag)
         {
             if (!IsAnnotatable(path)) return;
             var key = Normalize(path);
@@ -94,10 +104,13 @@ namespace Span.Services
                     _loaded = true;
                 }
 
-                if (tag == ItemColorTag.None)
-                    _tags.Remove(key);
-                else
-                    _tags[key] = tag;
+                lock (_tags)
+                {
+                    if (string.IsNullOrEmpty(tag))
+                        _tags.Remove(key);
+                    else
+                        _tags[key] = tag;
+                }
 
                 await SaveUnlockedAsync().ConfigureAwait(false);
             }
@@ -106,7 +119,106 @@ namespace Span.Services
                 _lock.Release();
             }
 
-            ColorTagChanged?.Invoke(path, tag);
+            ColorTagChanged?.Invoke(path, string.IsNullOrEmpty(tag) ? null : tag);
+        }
+
+        /// <summary>Ein Tag wurde gelöscht: seine Zuweisungen entfernen. Gibt die betroffenen Pfade zurück.</summary>
+        public async Task<List<string>> RemoveColorTagEverywhereAsync(string tagId)
+        {
+            var removed = new List<string>();
+            await _lock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (!_loaded)
+                {
+                    await LoadUnlockedAsync().ConfigureAwait(false);
+                    _loaded = true;
+                }
+
+                lock (_tags)
+                {
+                    foreach (var (path, id) in _tags.ToList())
+                    {
+                        if (!string.Equals(id, tagId, StringComparison.OrdinalIgnoreCase)) continue;
+                        _tags.Remove(path);
+                        removed.Add(path);
+                    }
+                }
+                if (removed.Count > 0)
+                    await SaveUnlockedAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _lock.Release();
+            }
+            return removed;
+        }
+
+        /// <summary>
+        /// Umbenannt/verschoben (in Span): Tag und Notiz wandern mit — bei einem Ordner auch die aller Elemente
+        /// darunter. Sonst ginge die nur am Pfad hängende Markierung verloren.
+        /// </summary>
+        public async Task MovePathAsync(string oldPath, string newPath)
+        {
+            if (!IsAnnotatable(oldPath) || !IsAnnotatable(newPath)) return;
+            var oldKey = Normalize(oldPath);
+            var newKey = Normalize(newPath);
+            if (string.Equals(oldKey, newKey, StringComparison.Ordinal)) return;
+
+            var moved = new List<(string From, string To, string Tag)>();
+            await _lock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (!_loaded)
+                {
+                    await LoadUnlockedAsync().ConfigureAwait(false);
+                    _loaded = true;
+                }
+
+                lock (_tags)
+                {
+                    foreach (var (path, tag) in _tags.ToList())
+                    {
+                        var target = Rebase(path, oldKey, newKey);
+                        if (target == null) continue;
+                        _tags.Remove(path);
+                        _tags[target] = tag;
+                        moved.Add((path, target, tag));
+                    }
+                }
+                bool notesMoved = false;
+                foreach (var (path, note) in _notes.ToList())
+                {
+                    var target = Rebase(path, oldKey, newKey);
+                    if (target == null) continue;
+                    _notes.Remove(path);
+                    _notes[target] = note;
+                    notesMoved = true;
+                }
+                if (moved.Count > 0 || notesMoved)
+                    await SaveUnlockedAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _lock.Release();
+            }
+
+            foreach (var (from, to, tag) in moved)
+            {
+                ColorTagChanged?.Invoke(from, null);
+                ColorTagChanged?.Invoke(to, tag);
+            }
+        }
+
+        /// <summary>Pfad gleich <paramref name="oldKey"/> oder darunter auf <paramref name="newKey"/> umsetzen; sonst null.</summary>
+        internal static string? Rebase(string path, string oldKey, string newKey)
+        {
+            if (string.Equals(path, oldKey, StringComparison.OrdinalIgnoreCase)) return newKey;
+            if (path.Length > oldKey.Length
+                && path.StartsWith(oldKey, StringComparison.OrdinalIgnoreCase)
+                && path[oldKey.Length] == Path.DirectorySeparatorChar)
+                return newKey + path.Substring(oldKey.Length);
+            return null;
         }
 
         public async Task SetFolderNoteAsync(string path, string? note)
@@ -177,11 +289,11 @@ namespace Span.Services
 
             if (data.Tags != null)
             {
-                foreach (var (path, tagName) in data.Tags)
+                foreach (var (path, tagId) in data.Tags)
                 {
-                    if (string.IsNullOrWhiteSpace(path)) continue;
-                    if (Enum.TryParse<ItemColorTag>(tagName, ignoreCase: true, out var tag) && tag != ItemColorTag.None)
-                        _tags[Normalize(path)] = tag;
+                    // Werte sind Tag-Ids; die eingebauten heißen wie das frühere Enum ("Red" …)
+                    if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(tagId) || tagId == "None") continue;
+                    _tags[Normalize(path)] = tagId;
                 }
             }
 
@@ -207,8 +319,11 @@ namespace Span.Services
                 Notes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
             };
 
-            foreach (var (path, tag) in _tags)
-                data.Tags[path] = tag.ToString();
+            lock (_tags)
+            {
+                foreach (var (path, tag) in _tags)
+                    data.Tags[path] = tag;
+            }
             foreach (var (path, note) in _notes)
                 data.Notes[path] = note;
 

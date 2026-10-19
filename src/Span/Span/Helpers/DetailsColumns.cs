@@ -36,6 +36,7 @@ namespace Span.Helpers
         public const string Authors = "Authors";
         public const string Title = "Title";
         public const string Git = "Git";
+        public const string Tag = "Tag";
 
         /// <summary>항목 템플릿에서 첫 컬럼 셀의 Grid.Column.</summary>
         public const int FirstCellGridColumn = 2;
@@ -57,6 +58,7 @@ namespace Span.Helpers
             new(Authors,      "Column_Authors",    150,  60, false, true,  true),
             new(Title,        "Column_Title",      180,  60, false, true,  true),
             new(Git,          "ColumnGit",          50,  40, false, true,  false),
+            new(Tag,          "Column_Tag",        110,  50, false, true,  false),
         };
 
         public static int IndexOf(string id)

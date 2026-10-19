@@ -145,17 +145,14 @@ namespace Span.Helpers
             return key;
         }
 
-        private static string GetTagGroupKey(ItemColorTag tag) => tag switch
+        /// <summary>Reihenfolge wie in der Tag-Liste (Einstellungen), Elemente ohne Tag zuletzt.</summary>
+        private static string GetTagGroupKey(string? tagId)
         {
-            ItemColorTag.Red => "01|" + LocalizationService.L("ColorTag_Red"),
-            ItemColorTag.Orange => "02|" + LocalizationService.L("ColorTag_Orange"),
-            ItemColorTag.Yellow => "03|" + LocalizationService.L("ColorTag_Yellow"),
-            ItemColorTag.Green => "04|" + LocalizationService.L("ColorTag_Green"),
-            ItemColorTag.Blue => "05|" + LocalizationService.L("ColorTag_Blue"),
-            ItemColorTag.Purple => "06|" + LocalizationService.L("ColorTag_Purple"),
-            ItemColorTag.Gray => "07|" + LocalizationService.L("ColorTag_Gray"),
-            _ => "09|" + LocalizationService.L("Group_NoTag"),
-        };
+            var catalog = ColorTagCatalog.Current;
+            int index = catalog.IndexOf(tagId);
+            if (index < 0) return "99|" + LocalizationService.L("Group_NoTag");
+            return $"{index + 1:00}|{catalog.DisplayName(catalog.Tags[index])}";
+        }
 
         private static string GetDateGroupKey(DateTime date)
         {

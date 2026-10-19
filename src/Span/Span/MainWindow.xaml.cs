@@ -780,6 +780,9 @@ namespace Span
             ViewModel.TopRightExplorer.PathHighlightsUpdated += OnPathHighlightsUpdated;
             ViewModel.BottomRightExplorer.PathHighlightsUpdated += OnPathHighlightsUpdated;
             ViewModel.ExplorerColumnsRefreshed += OnExplorerColumnsRefreshed;
+            Services.ColorTagCatalog.Current.Changed += OnColorTagCatalogChanged;
+            _tagAnnotations = App.Current.Services.GetService<Services.ItemAnnotationService>();
+            if (_tagAnnotations != null) _tagAnnotations.ColorTagChanged += OnAnnotationColorTagChanged;
             // v1.4.19: 좌/우 모두 정적 forward 이벤트로 통합 → 인스턴스 단위 구독 불필요
 
             // v1.4.19: 자식 컨트롤(ListView 등)의 자동 BringIntoView 요청을 부모 ScrollViewer가
@@ -1308,8 +1311,10 @@ namespace Span
                         {
                             if (!string.IsNullOrEmpty(_currentGroupBy) && _currentGroupBy != "None")
                                 ApplyGroupByCore(_currentGroupBy, rememberForFolder: false);
-                            // Ordner mit eigener/Vorlagen-Sortierung (Ansicht pro Ordner) nicht mit dem Standard übersortieren
-                            if (GetActiveSortColumn() is not { HasFolderSpecificSort: true })
+                            // Ordner mit eigener/Vorlagen-Sortierung (Ansicht pro Ordner) nicht mit dem Standard übersortieren;
+                            // Details hat seine eigene Sortierung (sonst stand dort nach dem Start die Miller-Reihenfolge)
+                            if (GetActivePaneViewMode() != ViewMode.Details
+                                && GetActiveSortColumn() is not { HasFolderSpecificSort: true })
                                 SortCurrentColumn(_currentSortField, _currentSortAscending, rememberForFolder: false);
                         });
                     }
@@ -1708,6 +1713,8 @@ namespace Span
                     ViewModel.PropertyChanged -= OnViewModelPropertyChangedForPreview;
                     ViewModel.ExplorerColumnsRefreshed -= OnExplorerColumnsRefreshed;
                 }
+                Services.ColorTagCatalog.Current.Changed -= OnColorTagCatalogChanged;
+                if (_tagAnnotations != null) _tagAnnotations.ColorTagChanged -= OnAnnotationColorTagChanged;
 
                 // Per-Tab Miller Panels 정리
                 foreach (var kvp in _tabMillerPanels)
@@ -8098,10 +8105,10 @@ namespace Span
             ViewModel.RemoveFromFavorites(path);
         }
 
-        void Services.IContextMenuHost.SetColorTag(string path, Models.ItemColorTag tag)
-            => ((Services.IContextMenuHost)this).SetColorTag(new[] { path }, tag);
+        void Services.IContextMenuHost.SetColorTag(string path, string? tagId)
+            => ((Services.IContextMenuHost)this).SetColorTag(new[] { path }, tagId);
 
-        void Services.IContextMenuHost.SetColorTag(IReadOnlyList<string> paths, Models.ItemColorTag tag)
+        void Services.IContextMenuHost.SetColorTag(IReadOnlyList<string> paths, string? tagId)
         {
             if (paths == null || paths.Count == 0) return;
             var annotations = App.Current.Services.GetService<Services.ItemAnnotationService>();
@@ -8110,17 +8117,32 @@ namespace Span
             foreach (var path in paths)
             {
                 if (!Services.ItemAnnotationService.IsAnnotatable(path)) continue;
-                _ = annotations.SetColorTagAsync(path, tag);
-                ApplyColorTagToVisibleItems(path, tag);
+                _ = annotations.SetColorTagAsync(path, tagId);
+                ApplyColorTagToVisibleItems(path, tagId);
             }
         }
 
-        private void ApplyColorTagToVisibleItems(string path, Models.ItemColorTag tag)
+        void Services.IContextMenuHost.OpenColorTagSettings()
+        {
+            OpenSettingsTab();
+            Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+                () => SettingsView?.ShowColorTags());
+        }
+
+        private IEnumerable<ViewModels.ExplorerViewModel?> AllExplorers()
+        {
+            yield return ViewModel.LeftExplorer;
+            yield return ViewModel.RightExplorer;
+            yield return ViewModel.TopRightExplorer;
+            yield return ViewModel.BottomRightExplorer;
+        }
+
+        private void ApplyColorTagToVisibleItems(string path, string? tagId)
         {
             try
             {
-                ApplyColorTagInExplorer(ViewModel.LeftExplorer, path, tag);
-                ApplyColorTagInExplorer(ViewModel.RightExplorer, path, tag);
+                foreach (var explorer in AllExplorers())
+                    ApplyColorTagInExplorer(explorer, path, tagId);
             }
             catch (Exception ex)
             {
@@ -8128,11 +8150,43 @@ namespace Span
             }
         }
 
-        private static void ApplyColorTagInExplorer(ViewModels.ExplorerViewModel? explorer, string path, Models.ItemColorTag tag)
+        private static void ApplyColorTagInExplorer(ViewModels.ExplorerViewModel? explorer, string path, string? tagId)
         {
             if (explorer?.Columns == null) return;
             foreach (var column in explorer.Columns)
-                column.ApplyColorTagToChild(path, tag);
+                column.ApplyColorTagToChild(path, tagId);
+        }
+
+        private Services.ItemAnnotationService? _tagAnnotations;
+
+        /// <summary>Tag im Speicher geändert (auch beim Umbenennen/Verschieben): geladene Zeilen nachziehen.</summary>
+        private void OnAnnotationColorTagChanged(string path, string? tagId)
+            => Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, () => { if (!_isClosed) ApplyColorTagToVisibleItems(path, tagId); });
+
+        /// <summary>
+        /// Name oder Farbe eines Tags geändert bzw. Tag gelöscht: geladene Zeilen mit Tag neu zeichnen
+        /// (Farbstreifen, Tag-Spalte). Gelöschte Tags verlieren dabei ihre Zuweisung.
+        /// </summary>
+        private void OnColorTagCatalogChanged()
+        {
+            Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, () =>
+            {
+                if (_isClosed) return;
+                var catalog = Services.ColorTagCatalog.Current;
+                foreach (var explorer in AllExplorers())
+                {
+                    if (explorer?.Columns == null) continue;
+                    foreach (var column in explorer.Columns)
+                    {
+                        foreach (var child in column.Children)
+                        {
+                            if (child.ColorTag == null) continue;
+                            if (catalog.Find(child.ColorTag) == null) child.ColorTag = null;
+                            else child.RefreshColorTagDisplay();
+                        }
+                    }
+                }
+            });
         }
 
         async void Services.IContextMenuHost.EditFolderNote(string path)

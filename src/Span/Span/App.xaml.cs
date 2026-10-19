@@ -529,6 +529,15 @@ namespace Span
                 // Always apply — "system" resolves to OS locale, others force specific language
                 loc.Language = savedLang;
 
+                // Farb-Tags (Namen/Farben) aus den Einstellungen; Änderungen werden gleich gespeichert
+                var colorTags = new global::Span.Services.ColorTagCatalog(settings.ColorTagsJson, global::Span.Services.LocalizationService.L);
+                colorTags.Changed += () => settings.ColorTagsJson = colorTags.ToJson();
+                global::Span.Services.ColorTagCatalog.Current = colorTags;
+
+                // In Span umbenannt/verschoben: Farb-Tags und Notizen wandern mit
+                var annotations = Services.GetRequiredService<global::Span.Services.ItemAnnotationService>();
+                global::Span.Services.FileOperations.FileOperationHelpers.PathMoved += (oldPath, newPath) => _ = annotations.MovePathAsync(oldPath, newPath);
+
                 var iconService = Services.GetRequiredService<Services.IconService>();
                 await iconService.LoadAsync();
 

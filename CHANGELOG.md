@@ -6,12 +6,24 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 ## Summary of fork changes
 
+### Color tags: own names and colors, `tag:` search, Tag column (October 2026)
+
+- **Color tags can be renamed, recolored and extended** in **Settings → Browsing → Color tags**: name, color (color picker), order, delete, **Add tag**. The seven standard colors stay and existing tags keep working; **Restore standard colors** resets them.
+- The right-click menu **Color tag** lists all tags with their color, marks the current one and offers **Edit tags…**. In the Windows-style menu it is now one submenu (it used to offer only Red, Green and Blue as separate entries).
+- **Search with `tag:`**: `tag:red` or `tag:rot` (start of the name, or the built-in id), `tag:"Customer A"`, `tag:*` for everything tagged; combinable with other filters (`tag:red kind:image`). The subfolder search (Enter) reads the tag store directly instead of walking the disk, so it is instant even for a whole drive (Everything is not used for tag searches).
+- New **Tag** column in Details (color dot and name, sorted in tag order). Grouping by color tag uses the tag names and order.
+- **Tags follow renames and moves done in Span** (F2, batch rename, drag & drop, cut/paste, undo), including everything inside a renamed or moved folder; folder notes move along as well. Before, they stayed on the old path.
+- Deleting a tag that is in use asks first and removes it from those items.
+- **Fix:** setting a tag in the quad view did not update the two right-hand panes until a reload.
+- The separate folder tags stored in `desktop.ini` (setting "Folder tags") are unchanged.
+
 ### Fix: list jumping back while a folder changes (October 2026)
 
 - While another program keeps writing into the open folder (for example a video encoder), the list **no longer jumps back when you scroll**:
   - **Details**: every reload (file watcher, returning to the window) re-sorted the folder by the Miller sort, which moved the rows under the viewport. Reloads now keep the Details sort and reuse the existing rows.
   - **Miller**: after each reload the column scrolled back to the selected item. The selection is now only re-applied when it actually changed.
 - Switching from Details to Miller now shows the Miller sort right away (the Details order used to stay until the next reload), and a hidden Details view no longer re-sorts the list Miller is showing.
+- Starting Span with a Details tab no longer re-sorts that folder by the Miller sort (the header showed the Details sort, the rows the Miller order).
 
 ### Recent files on Home (October 2026)
 

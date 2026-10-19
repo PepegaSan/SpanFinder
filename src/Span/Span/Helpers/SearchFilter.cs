@@ -90,7 +90,30 @@ namespace Span.Helpers
                     return false;
             }
 
+            // Farb-Tag: aus dem Tag-Speicher (Suchergebnisse haben ihren Tag noch nicht geladen)
+            if (!string.IsNullOrEmpty(query.TagFilter))
+            {
+                if (!Services.ColorTagCatalog.Current.Matches(query.TagFilter, TagOf(item)))
+                    return false;
+            }
+
             return true;
+        }
+
+        private static Services.ItemAnnotationService? s_annotations;
+
+        private static string? TagOf(FileSystemViewModel item)
+        {
+            if (item.ColorTagInjected) return item.ColorTag;
+            try
+            {
+                s_annotations ??= App.Current.Services.GetService(typeof(Services.ItemAnnotationService)) as Services.ItemAnnotationService;
+                return s_annotations?.GetColorTag(item.Path);
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static bool MatchesKind(FileKind kind, FileSystemViewModel item)

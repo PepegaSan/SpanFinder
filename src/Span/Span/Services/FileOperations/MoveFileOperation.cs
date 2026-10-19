@@ -285,6 +285,7 @@ public class MoveFileOperation : IFileOperation, IPausableOperation
 
                     _moveMap[sourcePath] = destPath;
                     result.AffectedPaths.Add(destPath);
+                    FileOperationHelpers.NotifyPathMoved(sourcePath, destPath);
                 }
                 catch (OperationCanceledException)
                 {
@@ -349,6 +350,7 @@ public class MoveFileOperation : IFileOperation, IPausableOperation
                     }
 
                     result.AffectedPaths.Add(source);
+                    FileOperationHelpers.NotifyPathMoved(dest, source);
                 }
                 catch (Exception ex)
                 {

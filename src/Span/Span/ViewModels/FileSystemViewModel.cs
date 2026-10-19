@@ -100,41 +100,29 @@ namespace Span.ViewModels
         internal bool ColorTagInjected;
 
         /// <summary>
-        /// User color tag (OneCommander-style). None = no strip.
+        /// Farb-Tag (OneCommander-Stil): Id aus <see cref="Services.ColorTagCatalog"/>, null = kein Tag.
         /// </summary>
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(HasColorTag))]
         [NotifyPropertyChangedFor(nameof(ColorTagBrush))]
-        private Models.ItemColorTag _colorTag = Models.ItemColorTag.None;
+        [NotifyPropertyChangedFor(nameof(ColorTagName))]
+        private string? _colorTag;
 
-        public bool HasColorTag => ColorTag != Models.ItemColorTag.None;
+        /// <summary>Tag gesetzt und im Katalog vorhanden (gelöschte Tags zählen nicht).</summary>
+        public bool HasColorTag => Services.ColorTagCatalog.Current.Find(ColorTag) != null;
 
-        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush _tagRedBrush
-            = new(Windows.UI.Color.FromArgb(255, 232, 17, 35));
-        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush _tagOrangeBrush
-            = new(Windows.UI.Color.FromArgb(255, 247, 99, 12));
-        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush _tagYellowBrush
-            = new(Windows.UI.Color.FromArgb(255, 255, 185, 0));
-        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush _tagGreenBrush
-            = new(Windows.UI.Color.FromArgb(255, 16, 124, 16));
-        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush _tagBlueBrush
-            = new(Windows.UI.Color.FromArgb(255, 0, 120, 212));
-        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush _tagPurpleBrush
-            = new(Windows.UI.Color.FromArgb(255, 136, 23, 152));
-        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush _tagGrayBrush
-            = new(Windows.UI.Color.FromArgb(255, 96, 94, 92));
+        public Microsoft.UI.Xaml.Media.Brush ColorTagBrush => Helpers.ColorTagBrushes.Get(ColorTag) ?? TransparentBrush;
 
-        public Microsoft.UI.Xaml.Media.Brush ColorTagBrush => ColorTag switch
+        /// <summary>Name des Tags für die Tag-Spalte (leer ohne Tag).</summary>
+        public string ColorTagName => Services.ColorTagCatalog.Current.DisplayName(ColorTag) ?? string.Empty;
+
+        /// <summary>Name oder Farbe des Tags wurde geändert bzw. der Tag gelöscht.</summary>
+        public void RefreshColorTagDisplay()
         {
-            Models.ItemColorTag.Red => _tagRedBrush,
-            Models.ItemColorTag.Orange => _tagOrangeBrush,
-            Models.ItemColorTag.Yellow => _tagYellowBrush,
-            Models.ItemColorTag.Green => _tagGreenBrush,
-            Models.ItemColorTag.Blue => _tagBlueBrush,
-            Models.ItemColorTag.Purple => _tagPurpleBrush,
-            Models.ItemColorTag.Gray => _tagGrayBrush,
-            _ => TransparentBrush,
-        };
+            OnPropertyChanged(nameof(HasColorTag));
+            OnPropertyChanged(nameof(ColorTagBrush));
+            OnPropertyChanged(nameof(ColorTagName));
+        }
 
         /// <summary>
         /// 클라우드 동기화 상태 글리프 (OneDrive 등).
@@ -757,6 +745,7 @@ namespace Span.ViewModels
                         else
                             System.IO.File.Move(currentPath, newPath);
                     }).GetAwaiter().GetResult();
+                    Services.FileOperations.FileOperationHelpers.NotifyPathMoved(currentPath, newPath);
 
                     _model.Name = fullNewName;
                     _model.Path = newPath;

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -82,6 +83,12 @@ namespace Span.Services
         {
             DebugLogger.Log($"[RecursiveSearch] 시작: rootPath={rootPath}, showHidden={showHidden}, query={query.NameFilter}");
 
+            if (!string.IsNullOrEmpty(query.TagFilter))
+            {
+                await ProduceTaggedResultsAsync(writer, rootPath, query, showHidden, progress, ct);
+                return;
+            }
+
             var queue = new Queue<string>();
             queue.Enqueue(rootPath);
 
@@ -138,6 +145,94 @@ namespace Span.Services
                 FilesFound = filesFound,
                 FoldersScanned = foldersScanned
             });
+        }
+
+        /// <summary>
+        /// tag:-Suche: statt das Laufwerk zu durchlaufen nur die getaggten Pfade unter <paramref name="rootPath"/>
+        /// prüfen (die Tags stehen ohnehin im Tag-Speicher) — sofort fertig, auch für ein ganzes Laufwerk.
+        /// </summary>
+        private async Task ProduceTaggedResultsAsync(
+            ChannelWriter<List<FileSystemViewModel>> writer,
+            string rootPath,
+            SearchQuery query,
+            bool showHidden,
+            IProgress<SearchProgress>? progress,
+            CancellationToken ct)
+        {
+            var annotations = App.Current.Services.GetService(typeof(ItemAnnotationService)) as ItemAnnotationService;
+            var tagged = annotations?.GetTaggedPaths() ?? new List<KeyValuePair<string, string>>();
+            var root = rootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var skip = Helpers.FileVisibility.AttributesToSkip(showHidden);
+
+            int found = 0;
+            var batch = new List<FileSystemViewModel>(BatchSize);
+            foreach (var (path, tagId) in tagged.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                if (ct.IsCancellationRequested || found >= MaxResults) break;
+                if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!ColorTagCatalog.Current.Matches(query.TagFilter!, tagId)) continue;
+
+                FileSystemViewModel? vm = null;
+                try
+                {
+                    if (Directory.Exists(path))
+                    {
+                        var dir = new DirectoryInfo(path);
+                        if ((dir.Attributes & skip) != 0) continue;
+                        var folderVm = new FolderViewModel(new FolderItem
+                        {
+                            Name = dir.Name,
+                            Path = dir.FullName,
+                            DateModified = dir.LastWriteTime,
+                            DateCreated = dir.CreationTime,
+                            Attributes = dir.Attributes,
+                            IsHidden = (dir.Attributes & FileAttributes.Hidden) != 0
+                        }, _fileService);
+                        folderVm.MarkAsManuallyPopulated();
+                        vm = folderVm;
+                    }
+                    else if (File.Exists(path))
+                    {
+                        var f = new FileInfo(path);
+                        if ((f.Attributes & skip) != 0) continue;
+                        vm = new FileViewModel(new FileItem
+                        {
+                            Name = f.Name,
+                            Path = f.FullName,
+                            Size = f.Length,
+                            DateModified = f.LastWriteTime,
+                            DateCreated = f.CreationTime,
+                            Attributes = f.Attributes,
+                            FileType = f.Extension,
+                            IsHidden = (f.Attributes & FileAttributes.Hidden) != 0
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.Log($"[RecursiveSearch] Tag-Treffer übersprungen ({path}): {ex.Message}");
+                }
+                if (vm == null) continue;
+
+                vm.ColorTag = tagId;
+                vm.ColorTagInjected = true;
+                if (!SearchFilter.Matches(query, vm)) continue;
+
+                vm.LocationPath = GetRelativeParentPath(rootPath, vm.Path);
+                batch.Add(vm);
+                found++;
+                if (batch.Count >= BatchSize)
+                {
+                    await writer.WriteAsync(batch, ct);
+                    batch = new List<FileSystemViewModel>(BatchSize);
+                }
+            }
+
+            if (batch.Count > 0 && !ct.IsCancellationRequested)
+                await writer.WriteAsync(batch, ct);
+
+            DebugLogger.Log($"[RecursiveSearch] Tag-Suche: {found} Treffer aus {tagged.Count} getaggten Pfaden");
+            progress?.Report(new SearchProgress { FilesFound = found, FoldersScanned = 0 });
         }
 
         /// <summary>

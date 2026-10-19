@@ -14,6 +14,7 @@ namespace Span.Helpers
     ///   size:>1MB, size:&lt;100KB, size:>500B, size:large, size:small, size:empty
     ///   date:today, date:yesterday, date:thisweek, date:thismonth, date:thisyear, date:>2024-01-01
     ///   ext:.pdf, ext:.txt, ext:pdf
+    ///   tag:red, tag:"Mein Tag", tag:* (Farb-Tag; Name oder Id)
     ///   Plain text = name filter (case-insensitive contains)
     ///   Multiple terms combined with AND logic.
     /// </summary>
@@ -160,6 +161,10 @@ namespace Span.Helpers
                 {
                     query.ExtensionFilter = ext;
                 }
+                else if (TryParseTag(token, out var tag))
+                {
+                    query.TagFilter = tag;
+                }
                 else
                 {
                     // Plain text token -> name filter
@@ -217,6 +222,16 @@ namespace Span.Helpers
                     tokens.Add(input.Substring(start, i - start));
                     if (i < input.Length) i++; // skip closing quote
                 }
+                else if (StartsWithQuotedTag(input, i, out int valueStart, out char tagQuote))
+                {
+                    // tag:"Mein Tag" — Tag-Namen dürfen Leerzeichen enthalten
+                    i = valueStart;
+                    int start = i;
+                    while (i < input.Length && input[i] != tagQuote)
+                        i++;
+                    tokens.Add("tag:" + input.Substring(start, i - start));
+                    if (i < input.Length) i++; // skip closing quote
+                }
                 else
                 {
                     // Regular token
@@ -228,6 +243,33 @@ namespace Span.Helpers
             }
 
             return tokens;
+        }
+
+        /// <summary>tag:" bzw. tag:' an Position i? Liefert den Anfang des Werts nach dem Anführungszeichen.</summary>
+        private static bool StartsWithQuotedTag(string input, int i, out int valueStart, out char quote)
+        {
+            valueStart = 0;
+            quote = default;
+            if (i + 5 > input.Length) return false;
+            if (string.Compare(input, i, "tag:", 0, 4, StringComparison.OrdinalIgnoreCase) != 0) return false;
+            quote = input[i + 4];
+            if (quote != '"' && quote != '\'') return false;
+            valueStart = i + 5;
+            return true;
+        }
+
+        private static bool TryParseTag(string token, out string? tag)
+        {
+            tag = null;
+            if (!token.StartsWith("tag:", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var value = token.Substring(4).Trim();
+            if (string.IsNullOrEmpty(value))
+                return false;
+
+            tag = value;
+            return true;
         }
 
         private static bool TryParseKind(string token, out FileKind kind)

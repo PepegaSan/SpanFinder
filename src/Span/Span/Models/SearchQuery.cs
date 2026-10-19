@@ -74,6 +74,11 @@ namespace Span.Models
         public string? ExtensionFilter { get; set; }
 
         /// <summary>
+        /// Farb-Tag-Filter (tag:rot, tag:"Mein Tag", tag:* = irgendein Tag). Abgeglichen über ColorTagCatalog.Matches.
+        /// </summary>
+        public string? TagFilter { get; set; }
+
+        /// <summary>
         /// Returns true if no filters are set (empty query).
         /// </summary>
         public bool IsEmpty =>
@@ -81,6 +86,7 @@ namespace Span.Models
             KindFilter == null &&
             SizeFilter == null &&
             DateFilter == null &&
-            string.IsNullOrEmpty(ExtensionFilter);
+            string.IsNullOrEmpty(ExtensionFilter) &&
+            string.IsNullOrEmpty(TagFilter);
     }
 }

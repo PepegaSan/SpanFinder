@@ -153,12 +153,18 @@ namespace Span.Services
                 if (ItemAnnotationService.IsAnnotatable(path))
                 {
                     var targets = host.GetSelectedPathsForContextMenu(path);
-                    foreach (var (tag, labelKey) in ColorTagMenuEntries)
+                    var current = CurrentColorTag(path);
+                    var tagItems = new List<SpanFooterItem>();
+                    foreach (var tag in ColorTagCatalog.Current.Tags)
                     {
-                        var captured = tag;
-                        items.Add(new($"{_loc.Get("ColorTag")}: {_loc.Get(labelKey)}",
-                            () => host.SetColorTag(targets, captured)));
+                        var id = tag.Id;
+                        var name = ColorTagCatalog.Current.DisplayName(tag);
+                        tagItems.Add(new(IsCurrent(id, current) ? name + "  ✓" : name, () => host.SetColorTag(targets, id)));
                     }
+                    tagItems.Add(new(current == null ? _loc.Get("ColorTag_None") + "  ✓" : _loc.Get("ColorTag_None"),
+                        () => host.SetColorTag(targets, (string?)null)));
+                    tagItems.Add(new(_loc.Get("ColorTag_Edit"), host.OpenColorTagSettings));
+                    items.Add(new(_loc.Get("ColorTag"), () => { }, tagItems));
 
                     if (Directory.Exists(path))
                         items.Add(new(_loc.Get("FolderNote_Edit"), () => host.EditFolderNote(path)));
@@ -168,52 +174,53 @@ namespace Span.Services
             return items;
         }
 
-        private static readonly (ItemColorTag Tag, string LabelKey)[] ColorTagMenuEntries =
+        /// <summary>Tag des angeklickten Elements (für das Häkchen im Menü).</summary>
+        private static string? CurrentColorTag(string path)
         {
-            (ItemColorTag.None, "ColorTag_None"),
-            (ItemColorTag.Red, "ColorTag_Red"),
-            (ItemColorTag.Green, "ColorTag_Green"),
-            (ItemColorTag.Blue, "ColorTag_Blue"),
-        };
+            try
+            {
+                var annotations = App.Current.Services.GetService(typeof(ItemAnnotationService)) as ItemAnnotationService;
+                var id = annotations?.GetColorTag(path);
+                return ColorTagCatalog.Current.Find(id) != null ? id : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
 
+        private static bool IsCurrent(string id, string? current)
+            => string.Equals(id, current, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>Farb-Tag-Untermenü: alle Tags aus den Einstellungen mit Farbpunkt, "Keine", "Tags bearbeiten…".</summary>
         private MenuFlyoutSubItem BuildColorTagSubmenu(string path, IContextMenuHost host)
         {
             var sub = new MenuFlyoutSubItem { Text = _loc.Get("ColorTag") };
             ApplyCompact(sub);
             var targets = host.GetSelectedPathsForContextMenu(path);
-            foreach (var (tag, labelKey) in ColorTagMenuEntries)
+            var current = CurrentColorTag(path);
+            var catalog = ColorTagCatalog.Current;
+
+            foreach (var tag in catalog.Tags)
             {
-                var captured = tag;
-                var item = CreateItem(_loc.Get(labelKey), null, () => host.SetColorTag(targets, captured));
-                if (tag != ItemColorTag.None)
+                var id = tag.Id;
+                var name = catalog.DisplayName(tag);
+                var item = CreateItem(IsCurrent(id, current) ? name + "  ✓" : name, null, () => host.SetColorTag(targets, id));
+                item.Icon = new FontIcon
                 {
-                    item.Icon = new FontIcon
-                    {
-                        Glyph = "\uE91F",
-                        FontSize = 12,
-                        Foreground = ColorTagBrush(tag),
-                    };
-                }
+                    Glyph = "\uE91F",
+                    FontSize = 12,
+                    Foreground = Helpers.ColorTagBrushes.Create(tag.Color),
+                };
                 sub.Items.Add(item);
             }
-            return sub;
-        }
 
-        private static Microsoft.UI.Xaml.Media.Brush ColorTagBrush(ItemColorTag tag)
-        {
-            // Match FileSystemViewModel tag colors
-            Windows.UI.Color c = tag switch
-            {
-                ItemColorTag.Red => Windows.UI.Color.FromArgb(255, 232, 17, 35),
-                ItemColorTag.Orange => Windows.UI.Color.FromArgb(255, 247, 99, 12),
-                ItemColorTag.Yellow => Windows.UI.Color.FromArgb(255, 255, 185, 0),
-                ItemColorTag.Green => Windows.UI.Color.FromArgb(255, 16, 124, 16),
-                ItemColorTag.Blue => Windows.UI.Color.FromArgb(255, 0, 120, 212),
-                ItemColorTag.Purple => Windows.UI.Color.FromArgb(255, 136, 23, 152),
-                ItemColorTag.Gray => Windows.UI.Color.FromArgb(255, 96, 94, 92),
-                _ => Windows.UI.Color.FromArgb(255, 128, 128, 128),
-            };
-            return new Microsoft.UI.Xaml.Media.SolidColorBrush(c);
+            if (catalog.Tags.Count > 0)
+                sub.Items.Add(new MenuFlyoutSeparator());
+            var none = current == null ? _loc.Get("ColorTag_None") + "  ✓" : _loc.Get("ColorTag_None");
+            sub.Items.Add(CreateItem(none, null, () => host.SetColorTag(targets, (string?)null)));
+            sub.Items.Add(CreateItem(_loc.Get("ColorTag_Edit"), "\uE70F", host.OpenColorTagSettings));
+            return sub;
         }
 
         public bool TryShowNativeContextMenu(FileSystemViewModel target, IContextMenuHost host)

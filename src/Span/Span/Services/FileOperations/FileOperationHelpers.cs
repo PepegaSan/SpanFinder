@@ -16,6 +16,18 @@ internal static class FileOperationHelpers
     internal const int ProgressReportIntervalMs = 100;
 
     /// <summary>
+    /// Ein Element wurde in Span umbenannt oder verschoben (alter Pfad, neuer Pfad) — auch beim Rückgängigmachen.
+    /// Die App hängt daran Farb-Tags und Ordnernotizen um, die sonst am alten Pfad hängen blieben.
+    /// </summary>
+    internal static event Action<string, string>? PathMoved;
+
+    internal static void NotifyPathMoved(string oldPath, string newPath)
+    {
+        try { PathMoved?.Invoke(oldPath, newPath); }
+        catch (Exception ex) { Helpers.DebugLogger.Log($"[FileOperationHelpers] PathMoved handler failed: {ex.Message}"); }
+    }
+
+    /// <summary>
     /// Extracts the file/folder name from a local or remote path.
     /// For remote URIs, parses the last segment and unescapes it.
     /// Used by Copy, Move, Delete, Rename operations.

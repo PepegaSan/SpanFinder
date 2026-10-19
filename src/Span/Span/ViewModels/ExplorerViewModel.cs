@@ -1751,7 +1751,9 @@ namespace Span.ViewModels
             try
             {
                 var everything = App.Current.Services.GetService<EverythingSearchService>();
-                if (everything != null && everything.CanUse(rootPath, out var esPath) && esPath != null)
+                // tag: kennt Everything nicht — die Tag-Suche liest direkt den Tag-Speicher (RecursiveSearchService)
+                if (string.IsNullOrEmpty(query.TagFilter)
+                    && everything != null && everything.CanUse(rootPath, out var esPath) && esPath != null)
                 {
                     SearchStatusText = LocalizationService.L("Search_SearchingEverything");
                     reader = everything.SearchInBackground(esPath, rootPath, query, showHidden, progress, ct);

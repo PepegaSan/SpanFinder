@@ -1449,7 +1449,7 @@ namespace Span.ViewModels
         /// <summary>
         /// Apply a color tag to a child item already in this folder (live UI update).
         /// </summary>
-        public void ApplyColorTagToChild(string path, ItemColorTag tag)
+        public void ApplyColorTagToChild(string path, string? tag)
         {
             foreach (var child in Children)
             {
