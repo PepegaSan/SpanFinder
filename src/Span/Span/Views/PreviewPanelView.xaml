@@ -343,6 +343,78 @@
                     </Grid>
                 </StackPanel>
 
+                <!-- Bearbeitbare Eigenschaften (wie der Detailbereich des Explorers): in die Datei geschrieben -->
+                <StackPanel x:Name="EditablePropsPanel" Spacing="6" Margin="0,4,0,0"
+                            Visibility="{Binding HasEditableProperties, Converter={StaticResource VisConv}}">
+                    <TextBlock x:Name="LabelProperties" Text="Eigenschaften" FontSize="11" FontWeight="SemiBold"
+                               Foreground="{ThemeResource SpanTextTertiaryBrush}"/>
+
+                    <Grid Visibility="{Binding CanEditRating, Converter={StaticResource VisConv}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="92"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="LabelRating" Text="Bewertung" FontSize="12" Foreground="{ThemeResource SpanTextTertiaryBrush}" VerticalAlignment="Center"/>
+                        <RatingControl x:Name="PropRatingControl" Grid.Column="1" HorizontalAlignment="Left"
+                                       Value="{Binding PropRating, Mode=TwoWay}" IsClearEnabled="True"/>
+                    </Grid>
+
+                    <Grid Visibility="{Binding CanEditTitle, Converter={StaticResource VisConv}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="92"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="LabelPropTitle" Text="Titel" FontSize="12" Foreground="{ThemeResource SpanTextTertiaryBrush}" VerticalAlignment="Center"/>
+                        <TextBox x:Name="PropTitleBox" Grid.Column="1" FontSize="12" MinHeight="28" Padding="6,4"
+                                 Text="{Binding PropTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyDown="OnPropertyBoxKeyDown"/>
+                    </Grid>
+
+                    <Grid Visibility="{Binding CanEditAuthors, Converter={StaticResource VisConv}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="92"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="LabelPropAuthors" Text="Autoren" FontSize="12" Foreground="{ThemeResource SpanTextTertiaryBrush}" VerticalAlignment="Center"/>
+                        <TextBox x:Name="PropAuthorsBox" Grid.Column="1" FontSize="12" MinHeight="28" Padding="6,4"
+                                 Text="{Binding PropAuthors, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyDown="OnPropertyBoxKeyDown"/>
+                    </Grid>
+
+                    <Grid Visibility="{Binding CanEditKeywords, Converter={StaticResource VisConv}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="92"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="LabelPropKeywords" Text="Markierungen" FontSize="12" Foreground="{ThemeResource SpanTextTertiaryBrush}" VerticalAlignment="Center"/>
+                        <TextBox x:Name="PropKeywordsBox" Grid.Column="1" FontSize="12" MinHeight="28" Padding="6,4"
+                                 Text="{Binding PropKeywords, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyDown="OnPropertyBoxKeyDown"/>
+                    </Grid>
+
+                    <Grid Visibility="{Binding CanEditComment, Converter={StaticResource VisConv}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="92"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="LabelPropComment" Text="Kommentare" FontSize="12" Foreground="{ThemeResource SpanTextTertiaryBrush}" VerticalAlignment="Top" Margin="0,6,0,0"/>
+                        <TextBox x:Name="PropCommentBox" Grid.Column="1" FontSize="12" MinHeight="28" MaxHeight="120" Padding="6,4"
+                                 AcceptsReturn="True" TextWrapping="Wrap"
+                                 Text="{Binding PropComment, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyDown="OnPropertyBoxKeyDown"/>
+                    </Grid>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="92,2,0,0"
+                                Visibility="{Binding IsPropertiesDirty, Converter={StaticResource VisConv}}">
+                        <Button x:Name="PropSaveButton" Content="Speichern" Style="{StaticResource AccentButtonStyle}"
+                                Click="OnPropertiesSaveClick"/>
+                        <Button x:Name="PropCancelButton" Content="Abbrechen" Click="OnPropertiesCancelClick"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding PropertiesStatus}" FontSize="11" TextWrapping="Wrap" Margin="92,0,0,0"
+                               Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                               Visibility="{Binding PropertiesStatus, Converter={StaticResource VisConv}}"/>
+                </StackPanel>
+
                 <!-- Git: Tier 1 -->
                 <StackPanel Visibility="{Binding HasGitInfo, Converter={StaticResource VisConv}}"
                             Spacing="4">

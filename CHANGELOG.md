@@ -6,6 +6,12 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 ## Summary of fork changes
 
+### Editable file properties in the preview pane (October 2026)
+
+- The preview pane gets a **Properties** section like Explorer's details pane: **Rating** (stars), **Title**, **Authors**, **Tags** and **Comments** can be edited and are written into the file's metadata (the same values Explorer, Photos and media players show). **Save**/**Cancel** appear after a change; Enter saves, Esc discards (in Comments, Ctrl+Enter saves).
+- Only offered where Windows can write the value: files with a registered property handler (JPEG, PNG, MP3, MP4, Office documents, …) and only the fields the handler supports. Text files, MKV and other types without a handler show no section; cloud-only files are skipped so selecting them does not download them.
+- The media preview releases the file before saving; if another program has the file open, the pane says so instead of failing silently. Several authors or tags are separated with `;`.
+
 ### Color tags: own names and colors, `tag:` search, Tag column (October 2026)
 
 - **Color tags can be renamed, recolored and extended** in **Settings → Browsing → Color tags**: name, color (color picker), order, delete, **Add tag**. The seven standard colors stay and existing tags keep working; **Restore standard colors** resets them.

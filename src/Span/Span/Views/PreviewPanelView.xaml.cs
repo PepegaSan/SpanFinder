@@ -487,6 +487,60 @@ namespace Span.Views
                 LabelFolderNote.Text = _loc.Get("FolderNote_Label");
             if (FolderNoteBox != null)
                 FolderNoteBox.PlaceholderText = _loc.Get("FolderNote_Placeholder");
+
+            LabelProperties.Text = _loc.Get("Prop_Section");
+            LabelRating.Text = _loc.Get("Prop_Rating");
+            LabelPropTitle.Text = _loc.Get("Prop_Title");
+            LabelPropAuthors.Text = _loc.Get("Prop_Authors");
+            LabelPropKeywords.Text = _loc.Get("Prop_Keywords");
+            LabelPropComment.Text = _loc.Get("Prop_Comment");
+            PropKeywordsBox.PlaceholderText = _loc.Get("Prop_ListHint");
+            PropAuthorsBox.PlaceholderText = _loc.Get("Prop_ListHint");
+            // Feldname für Screenreader/UI-Automation (die Beschriftung steht daneben, nicht als Header)
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(PropRatingControl, LabelRating.Text);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(PropTitleBox, LabelPropTitle.Text);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(PropAuthorsBox, LabelPropAuthors.Text);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(PropKeywordsBox, LabelPropKeywords.Text);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(PropCommentBox, LabelPropComment.Text);
+            PropSaveButton.Content = _loc.Get("Prop_Save");
+            PropCancelButton.Content = _loc.Get("Cancel");
+        }
+
+        // ── Bearbeitbare Eigenschaften ──
+
+        private async void OnPropertiesSaveClick(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (ViewModel != null) await ViewModel.SavePropertiesAsync();
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[PreviewPanel] Save properties error: {ex.Message}");
+            }
+        }
+
+        private void OnPropertiesCancelClick(object sender, RoutedEventArgs e) => ViewModel?.RevertProperties();
+
+        /// <summary>Enter speichert (im Kommentarfeld Strg+Enter, Enter ist dort Zeilenumbruch), Esc verwirft.</summary>
+        private async void OnPropertyBoxKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+        {
+            if (ViewModel == null) return;
+            if (e.Key == Windows.System.VirtualKey.Escape && ViewModel.IsPropertiesDirty)
+            {
+                ViewModel.RevertProperties();
+                e.Handled = true;
+            }
+            else if (e.Key == Windows.System.VirtualKey.Enter)
+            {
+                bool multiLine = sender is TextBox { AcceptsReturn: true };
+                bool ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+                    .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+                if (multiLine && !ctrl) return;
+                e.Handled = true;
+                try { await ViewModel.SavePropertiesAsync(); }
+                catch (Exception ex) { Helpers.DebugLogger.Log($"[PreviewPanel] Save properties error: {ex.Message}"); }
+            }
         }
 
         private async void OnFolderNoteLostFocus(object sender, RoutedEventArgs e)

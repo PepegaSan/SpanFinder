@@ -57,6 +57,28 @@ namespace Span.ViewModels
         [ObservableProperty] private string _artist = "";
         [ObservableProperty] private string _album = "";
 
+        // --- Bearbeitbare Eigenschaften (wie der Detailbereich des Explorers) ---
+        [ObservableProperty] private bool _hasEditableProperties;
+        [ObservableProperty] private bool _canEditRating;
+        [ObservableProperty] private bool _canEditTitle;
+        [ObservableProperty] private bool _canEditAuthors;
+        [ObservableProperty] private bool _canEditKeywords;
+        [ObservableProperty] private bool _canEditComment;
+        /// <summary>RatingControl-Wert: -1 = keine Bewertung, sonst 1–5 Sterne.</summary>
+        [ObservableProperty] private double _propRating = -1;
+        [ObservableProperty] private string _propTitle = "";
+        [ObservableProperty] private string _propAuthors = "";
+        [ObservableProperty] private string _propKeywords = "";
+        [ObservableProperty] private string _propComment = "";
+        [ObservableProperty] private bool _isPropertiesDirty;
+        [ObservableProperty] private bool _isSavingProperties;
+        [ObservableProperty] private string _propertiesStatus = "";
+
+        private EditableFileProperties? _loadedProps;
+        private string? _propsPath;
+        private bool _applyingProps;
+        private FileSystemViewModel? _currentItem;
+
         private string? _folderNotePath;
         private ItemAnnotationService? _annotationService;
 
@@ -192,6 +214,7 @@ namespace Span.ViewModels
         private async Task UpdatePreviewAsync(FileSystemViewModel item)
         {
             if (_disposed) return;
+            _currentItem = item;
 
             _currentCts?.Cancel();
             _currentCts = new CancellationTokenSource();
@@ -245,8 +268,9 @@ namespace Span.ViewModels
                 var contentTask = LoadContentAsync(previewType, item, previewPath, ct);
                 var gitTask = LoadGitInfoAsync(item, isFolder, ct);
                 var hashTask = LoadFileHashAsync(item, isFolder, ct);
+                var propsTask = LoadEditablePropertiesAsync(item, isFolder, ct);
 
-                await Task.WhenAll(contentTask, gitTask, hashTask);
+                await Task.WhenAll(contentTask, gitTask, hashTask, propsTask);
 
             }
             catch (OperationCanceledException)
@@ -634,6 +658,146 @@ namespace Span.ViewModels
             return $"{bytes / (1024.0 * 1024 * 1024):F1} GB";
         }
 
+        // ── Bearbeitbare Eigenschaften ──
+
+        private async Task LoadEditablePropertiesAsync(FileSystemViewModel item, bool isFolder, CancellationToken ct)
+        {
+            var path = item.Path;
+            if (isFolder || string.IsNullOrEmpty(path)
+                || FileSystemRouter.IsRemotePath(path) || Helpers.ArchivePathHelper.IsArchivePath(path)
+                || CloudSyncService.IsCloudOnlyFile(path)) // Lesen der Eigenschaften würde die Datei herunterladen
+                return;
+
+            var props = await Task.Run(() => ShellPropertyEditor.Read(path), ct).ConfigureAwait(true);
+            if (ct.IsCancellationRequested || props == null) return;
+            ApplyEditableProperties(path, props);
+        }
+
+        private void ApplyEditableProperties(string path, EditableFileProperties props)
+        {
+            _applyingProps = true;
+            try
+            {
+                _loadedProps = props;
+                _propsPath = path;
+                CanEditRating = props.CanRating;
+                CanEditTitle = props.CanTitle;
+                CanEditAuthors = props.CanAuthors;
+                CanEditKeywords = props.CanKeywords;
+                CanEditComment = props.CanComment;
+                PropRating = props.Rating > 0 ? props.Rating : -1;
+                PropTitle = props.Title;
+                PropAuthors = props.Authors;
+                PropKeywords = props.Keywords;
+                PropComment = props.Comment;
+                IsPropertiesDirty = false;
+                PropertiesStatus = "";
+                HasEditableProperties = true;
+            }
+            finally
+            {
+                _applyingProps = false;
+            }
+        }
+
+        private void ResetEditableProperties()
+        {
+            _applyingProps = true;
+            try
+            {
+                _loadedProps = null;
+                _propsPath = null;
+                HasEditableProperties = false;
+                IsPropertiesDirty = false;
+                PropertiesStatus = "";
+                PropRating = -1;
+                PropTitle = PropAuthors = PropKeywords = PropComment = "";
+            }
+            finally
+            {
+                _applyingProps = false;
+            }
+        }
+
+        partial void OnPropRatingChanged(double value) => UpdatePropertiesDirty();
+        partial void OnPropTitleChanged(string value) => UpdatePropertiesDirty();
+        partial void OnPropAuthorsChanged(string value) => UpdatePropertiesDirty();
+        partial void OnPropKeywordsChanged(string value) => UpdatePropertiesDirty();
+        partial void OnPropCommentChanged(string value) => UpdatePropertiesDirty();
+
+        private static int Stars(double ratingControlValue) => ratingControlValue <= 0 ? 0 : (int)Math.Round(ratingControlValue);
+
+        private static bool SameList(string a, string b)
+            => string.Join(";", ShellPropertyEditor.SplitList(a)) == string.Join(";", ShellPropertyEditor.SplitList(b));
+
+        private void UpdatePropertiesDirty()
+        {
+            if (_applyingProps || _loadedProps == null) return;
+            var p = _loadedProps;
+            IsPropertiesDirty = Stars(PropRating) != p.Rating
+                || PropTitle.Trim() != p.Title
+                || PropComment.Trim() != p.Comment
+                || !SameList(PropAuthors, p.Authors)
+                || !SameList(PropKeywords, p.Keywords);
+            if (IsPropertiesDirty) PropertiesStatus = "";
+        }
+
+        /// <summary>Änderungen in die Datei schreiben (wie "Speichern" im Detailbereich des Explorers).</summary>
+        public async Task SavePropertiesAsync()
+        {
+            var path = _propsPath;
+            var p = _loadedProps;
+            if (path == null || p == null || !IsPropertiesDirty || IsSavingProperties) return;
+
+            int stars = Stars(PropRating);
+            int? newStars = p.CanRating && stars != p.Rating ? stars : null;
+            string? title = p.CanTitle && PropTitle.Trim() != p.Title ? PropTitle : null;
+            string? comment = p.CanComment && PropComment.Trim() != p.Comment ? PropComment : null;
+            string? authors = p.CanAuthors && !SameList(PropAuthors, p.Authors) ? PropAuthors : null;
+            string? keywords = p.CanKeywords && !SameList(PropKeywords, p.Keywords) ? PropKeywords : null;
+
+            IsSavingProperties = true;
+            try
+            {
+                // Die Medienvorschau hält die Datei offen — dann scheitert das Schreiben
+                var media = MediaSource;
+                if (media != null)
+                {
+                    MediaSource = null;
+                    media.Dispose();
+                    await Task.Delay(200);
+                }
+
+                int? error = await Task.Run(() => ShellPropertyEditor.Write(path, newStars, title, authors, keywords, comment));
+                if (error is int hr)
+                {
+                    PropertiesStatus = hr switch
+                    {
+                        unchecked((int)0x80070020) or unchecked((int)0x80070021) => LocalizationService.L("Prop_FileInUse"),
+                        unchecked((int)0x80070005) or unchecked((int)0x80030005) => LocalizationService.L("Error_AccessDenied"),
+                        _ => string.Format(LocalizationService.L("Prop_SaveFailed"), $"0x{hr:X8}"),
+                    };
+                    Helpers.DebugLogger.Log($"[PreviewPanel] Save properties failed for {path}: 0x{hr:X8}");
+                    return;
+                }
+            }
+            finally
+            {
+                IsSavingProperties = false;
+            }
+
+            // Neu laden: zeigt die gespeicherten (vom Handler normalisierten) Werte und startet die Medienvorschau wieder
+            if (_currentItem != null && string.Equals(_currentItem.Path, path, StringComparison.OrdinalIgnoreCase))
+                await UpdatePreviewAsync(_currentItem);
+        }
+
+        /// <summary>Änderungen verwerfen.</summary>
+        public void RevertProperties()
+        {
+            if (_loadedProps != null && _propsPath != null)
+                ApplyEditableProperties(_propsPath, _loadedProps);
+        }
+
         private void ClearPreviewContent()
         {
             // Null out MediaSource before disposing to unbind from UI
@@ -674,6 +838,8 @@ namespace Span.ViewModels
             FileHashText = "";
             ShowHashSection = false;
             IsHashCalculating = false;
+
+            ResetEditableProperties();
         }
 
         public void ClearPreview()
