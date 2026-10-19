@@ -48,19 +48,11 @@
               BorderBrush="{ThemeResource SpanBorderSubtleBrush}"
               BorderThickness="0,0,0,1"
               RightTapped="OnHeaderRightTapped">
+            <!-- 0 = 아이콘, 1 = 이름. 나머지 컬럼(구분선 + 헤더)은 RebuildHeaderColumns가
+                 DetailsColumns.All 순서대로 보이는 것만 추가한다 (탐색기 "열 선택"). -->
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="40"/>
                 <ColumnDefinition Width="*" MinWidth="100"/>
-                <ColumnDefinition x:Name="Splitter1aColDef" Width="Auto"/>
-                <ColumnDefinition x:Name="LocationColumnDef" Width="0" MinWidth="0"/>
-                <ColumnDefinition x:Name="Splitter1bColDef" Width="Auto"/>
-                <ColumnDefinition x:Name="DateColumnDef" Width="200" MinWidth="80"/>
-                <ColumnDefinition x:Name="Splitter2ColDef" Width="Auto"/>
-                <ColumnDefinition x:Name="TypeColumnDef" Width="150" MinWidth="50"/>
-                <ColumnDefinition x:Name="Splitter3ColDef" Width="Auto"/>
-                <ColumnDefinition x:Name="SizeColumnDef" Width="100" MinWidth="50"/>
-                <ColumnDefinition x:Name="Splitter4ColDef" Width="Auto"/>
-                <ColumnDefinition x:Name="GitColumnDef" Width="50" MinWidth="40"/>
             </Grid.ColumnDefinitions>
 
             <!-- Name Header -->
@@ -70,102 +62,6 @@
                     Tag="Name"
                     Padding="11,0,6,0"
                     Style="{StaticResource HeaderButtonStyle}"/>
-
-            <!-- Splitter 1a: between Name and Location (검색 결과에서만 표시) -->
-            <controls:GridSplitter x:Name="Splitter1a" Grid.Column="2"
-                                   Width="2"
-                                   Padding="0"
-                                   Margin="0"
-                                   Visibility="Collapsed"
-                                   ResizeDirection="Columns"
-                                   HorizontalAlignment="Center"
-                                   Background="Transparent"
-                                   Opacity="0.3"/>
-
-            <!-- Location Header (검색 결과에서만 표시) -->
-            <Grid Grid.Column="3" x:Name="LocationHeaderContainer" Visibility="Collapsed">
-                <Button x:Name="LocationHeaderButton"
-                        Content="Location"
-                        Click="OnHeaderClick"
-                        Tag="Location"
-                        Style="{StaticResource HeaderButtonStyle}"/>
-            </Grid>
-
-            <!-- Splitter 1b: Name|Date 구분선 (Location 숨김 시에도 항상 표시) -->
-            <controls:GridSplitter x:Name="Splitter1b" Grid.Column="4"
-                                   Width="2"
-                                   Padding="0"
-                                   Margin="0"
-                                   ResizeDirection="Columns"
-                                   HorizontalAlignment="Center"
-                                   Background="Transparent"
-                                   Opacity="0.3"/>
-
-            <!-- Date Modified Header -->
-            <Grid Grid.Column="5" x:Name="DateHeaderContainer">
-                <Button x:Name="DateHeaderButton"
-                        Content="Date Modified"
-                        Click="OnHeaderClick"
-                        Tag="DateModified"
-                        Style="{StaticResource HeaderButtonStyle}"/>
-            </Grid>
-
-            <!-- Splitter 2: between Date and Type -->
-            <controls:GridSplitter x:Name="Splitter2" Grid.Column="6"
-                                   Width="2"
-                                   Padding="0"
-                                   Margin="0"
-                                   ResizeDirection="Columns"
-                                   HorizontalAlignment="Center"
-                                   Background="Transparent"
-                                   Opacity="0.3"/>
-
-            <!-- Type Header -->
-            <Grid Grid.Column="7" x:Name="TypeHeaderContainer">
-                <Button x:Name="TypeHeaderButton"
-                        Content="Type"
-                        Click="OnHeaderClick"
-                        Tag="Type"
-                        Style="{StaticResource HeaderButtonStyle}"/>
-            </Grid>
-
-            <!-- Splitter 3: between Type and Size -->
-            <controls:GridSplitter x:Name="Splitter3" Grid.Column="8"
-                                   Width="2"
-                                   Padding="0"
-                                   Margin="0"
-                                   ResizeDirection="Columns"
-                                   HorizontalAlignment="Center"
-                                   Background="Transparent"
-                                   Opacity="0.3"/>
-
-            <!-- Size Header -->
-            <Grid Grid.Column="9" x:Name="SizeHeaderContainer">
-                <Button x:Name="SizeHeaderButton"
-                        Content="Size"
-                        Click="OnHeaderClick"
-                        Tag="Size"
-                        Style="{StaticResource HeaderButtonStyle}"/>
-            </Grid>
-
-            <!-- Splitter 4: between Size and Git -->
-            <controls:GridSplitter x:Name="Splitter4" Grid.Column="10"
-                                   Width="2"
-                                   Padding="0"
-                                   Margin="0"
-                                   ResizeDirection="Columns"
-                                   HorizontalAlignment="Center"
-                                   Background="Transparent"
-                                   Opacity="0.3"/>
-
-            <!-- Git Status Header -->
-            <Grid Grid.Column="11" x:Name="GitHeaderContainer">
-                <Button x:Name="GitHeaderButton"
-                        Content="Git"
-                        Click="OnHeaderClick"
-                        Tag="Git"
-                        Style="{StaticResource HeaderButtonStyle}"/>
-            </Grid>
         </Grid>
 
         <!-- Items List -->
@@ -222,9 +118,16 @@
                           Opacity="{x:Bind ItemOpacity, Mode=OneWay}">
 <!-- 데이터 셀: splitter 간격은 각 셀의 Margin.Left에 포함.
                              ApplyCellWidths에서 Border.Width + Margin 설정. -->
+                        <!-- 셀 Grid.Column = DetailsColumns.All 인덱스 + 2 -->
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="40"/>
                             <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
@@ -333,8 +236,62 @@
                                        Padding="6,0"/>
                         </Border>
 
+                        <!-- Date Created -->
+                        <Border Grid.Column="6" Width="0" Visibility="Collapsed">
+                            <TextBlock Text="{x:Bind DateCreated, Mode=OneWay}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       FontSize="{Binding SecondaryFontSize, Source={StaticResource FontScale}}"
+                                       Padding="6,0"/>
+                        </Border>
+
+                        <!-- Attributes -->
+                        <Border Grid.Column="7" Width="0" Visibility="Collapsed">
+                            <TextBlock Text="{x:Bind AttributesText, Mode=OneWay}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       FontSize="{Binding SecondaryFontSize, Source={StaticResource FontScale}}"
+                                       Padding="6,0"/>
+                        </Border>
+
+                        <!-- Dimensions (Shell) -->
+                        <Border Grid.Column="8" Width="0" Visibility="Collapsed">
+                            <TextBlock Text="{x:Bind DimensionsText, Mode=OneWay}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       FontSize="{Binding SecondaryFontSize, Source={StaticResource FontScale}}"
+                                       Padding="6,0"/>
+                        </Border>
+
+                        <!-- Duration (Shell) -->
+                        <Border Grid.Column="9" Width="0" Visibility="Collapsed">
+                            <TextBlock Text="{x:Bind DurationText, Mode=OneWay}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       FontSize="{Binding SecondaryFontSize, Source={StaticResource FontScale}}"
+                                       Padding="6,0"/>
+                        </Border>
+
+                        <!-- Authors (Shell) -->
+                        <Border Grid.Column="10" Width="0" Visibility="Collapsed">
+                            <TextBlock Text="{x:Bind AuthorsText, Mode=OneWay}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       FontSize="{Binding SecondaryFontSize, Source={StaticResource FontScale}}"
+                                       Padding="6,0"/>
+                        </Border>
+
+                        <!-- Title (Shell) -->
+                        <Border Grid.Column="11" Width="0" Visibility="Collapsed">
+                            <TextBlock Text="{x:Bind TitleText, Mode=OneWay}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       FontSize="{Binding SecondaryFontSize, Source={StaticResource FontScale}}"
+                                       Padding="6,0"/>
+                        </Border>
+
                         <!-- Git Status -->
-                        <Border Grid.Column="6" x:Name="GitCell" Width="50">
+                        <Border Grid.Column="12" x:Name="GitCell" Width="50">
                             <TextBlock Text="{x:Bind GitStatusText, Mode=OneWay}"
                                        Foreground="{x:Bind GitStatusBrush, Mode=OneWay}"
                                        VerticalAlignment="Center"

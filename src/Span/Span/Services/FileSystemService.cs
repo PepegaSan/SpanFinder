@@ -457,6 +457,8 @@ namespace Span.Services
                             Name = d.Name,
                             Path = d.FullName,
                             DateModified = d.LastWriteTime,
+                            DateCreated = d.CreationTime,
+                            Attributes = d.Attributes,
                             IsHidden = isHidden
                         });
                     }
@@ -472,6 +474,8 @@ namespace Span.Services
                             Path = f.FullName,
                             Size = f.Length,
                             DateModified = f.LastWriteTime,
+                            DateCreated = f.CreationTime,
+                            Attributes = f.Attributes,
                             FileType = f.Extension,
                             IsHidden = isHidden
                         });

@@ -908,7 +908,7 @@ namespace Span.ViewModels
                         try { hasChild = System.IO.Directory.EnumerateFileSystemEntries(d.FullName).Any(); }
                         catch { hasChild = true; }
 
-                        var folderItem = new FolderItem { Name = d.Name, Path = Helpers.LongPathHelper.StripPrefix(d.FullName), DateModified = d.LastWriteTime, IsHidden = (attrs & System.IO.FileAttributes.Hidden) != 0, MaybeHasCustomIcon = (attrs & (System.IO.FileAttributes.ReadOnly | System.IO.FileAttributes.System)) != 0, HasChildEntries = hasChild };
+                        var folderItem = new FolderItem { Name = d.Name, Path = Helpers.LongPathHelper.StripPrefix(d.FullName), DateModified = d.LastWriteTime, DateCreated = d.CreationTime, Attributes = attrs, IsHidden = (attrs & System.IO.FileAttributes.Hidden) != 0, MaybeHasCustomIcon = (attrs & (System.IO.FileAttributes.ReadOnly | System.IO.FileAttributes.System)) != 0, HasChildEntries = hasChild };
                         folders.Add(folderItem);
                         result.Add(new FolderViewModel(folderItem, _fileService));
                     }
@@ -920,7 +920,7 @@ namespace Span.ViewModels
                         // 표시 규칙은 Helpers/FileVisibility에 모여 있다 (Issue #68).
                         if (Helpers.FileVisibility.ShouldHide(attrs, showHidden)) continue;
 
-                        var fileItem = new FileItem { Name = f.Name, Path = Helpers.LongPathHelper.StripPrefix(f.FullName), Size = f.Length, DateModified = f.LastWriteTime, FileType = f.Extension, IsHidden = (attrs & System.IO.FileAttributes.Hidden) != 0 };
+                        var fileItem = new FileItem { Name = f.Name, Path = Helpers.LongPathHelper.StripPrefix(f.FullName), Size = f.Length, DateModified = f.LastWriteTime, DateCreated = f.CreationTime, Attributes = attrs, FileType = f.Extension, IsHidden = (attrs & System.IO.FileAttributes.Hidden) != 0 };
                         files.Add(fileItem);
                         result.Add(new FileViewModel(fileItem));
                     }

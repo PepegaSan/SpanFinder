@@ -6,6 +6,14 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 ## Summary of fork changes
 
+### Details view: choose columns like Windows Explorer (October 2026)
+
+- **Right-click the column header** to show or hide columns, like Explorer: *Date modified*, *Type*, *Size*, plus new **Date created**, **Attributes** (R/H/S/A/…), **Dimensions** (images, videos), **Length** (audio, video), **Authors** and **Title**. *Reset columns* restores the Explorer defaults.
+- Dimensions, length, authors and title come from the Windows property system (the same values Explorer shows). They are read in the background only for rows on screen; cloud-only files are skipped so nothing gets downloaded, and files are never kept locked.
+- **Sorting by any column**, including the new ones. Sorting by a property column first reads the values for the whole folder, then re-sorts (as Explorer does).
+- **Column widths, visible columns, sort and grouping are now saved** (also in the unpackaged dev/Personal build, where the Details sort was previously lost on restart). All Details panes (tabs, Dual/Quad) share the same columns live; each pane keeps its own sort.
+- Header menu is localized (was English-only).
+
 ### Drag & drop like Windows Explorer (October 2026)
 
 - **Drag starts anywhere on a row or tile** (text, icon or the empty part of the row), like Explorer's full-row select. The rubber-band selection now only starts on empty space.

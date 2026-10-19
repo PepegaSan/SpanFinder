@@ -75,26 +75,49 @@ namespace Span.Views
         // 순차 발생하여 중간 상태가 렌더링되는 것을 방지
         private bool _columnWidthUpdatePending = false;
 
-        // Current column widths (read from header ColumnDefinitions)
-        private double _locationColumnWidth = 0;
-        private double _dateColumnWidth = 200;
-        private double _typeColumnWidth = 150;
-        private double _sizeColumnWidth = 100;
-        private double _gitColumnWidth = 50;
+        /// <summary>
+        /// 헤더 컬럼 하나의 상태 (DetailsColumns.All과 같은 순서). 보이는 컬럼만 헤더에
+        /// 구분선 열 + 데이터 열로 추가되므로, 숨긴 컬럼 옆의 구분선이 0px 열을 넓히는 일이 없다.
+        /// </summary>
+        private sealed class ColumnSlot
+        {
+            public ColumnSlot(DetailsColumnInfo info)
+            {
+                Info = info;
+                Width = info.DefaultWidth;
+            }
 
-        // GridSplitter 열 너비는 GetHeaderColumnOffset()에서 직접 읽으므로 캐시 불필요
+            public DetailsColumnInfo Info { get; }
+            public bool Visible;
+            /// <summary>데이터 열 너비 (구분선 제외). 숨겨도 유지되어 다시 켤 때 복원된다.</summary>
+            public double Width;
+            /// <summary>항목 셀 너비 = 앞 구분선 + 데이터 열.</summary>
+            public double CellTotalWidth;
+            public ColumnDefinition? SplitterColumn;
+            public ColumnDefinition? DataColumn;
+            public long SplitterToken;
+            public long DataToken;
+            public Button? HeaderButton;
+        }
 
-        // Callback tokens for ColumnDefinition.WidthProperty change tracking
-        private long _locationCallbackToken;
-        private long _dateCallbackToken;
-        private long _typeCallbackToken;
-        private long _sizeCallbackToken;
-        private long _gitCallbackToken;
-        private long _splitter1aCallbackToken;
-        private long _splitter1bCallbackToken;
-        private long _splitter2CallbackToken;
-        private long _splitter3CallbackToken;
-        private long _splitter4CallbackToken;
+        private readonly ColumnSlot[] _slots = DetailsColumns.All.Select(c => new ColumnSlot(c)).ToArray();
+        private ColumnSlot Slot(string id) => _slots[DetailsColumns.IndexOf(id)];
+        private bool IsColumnVisible(string id) => Slot(id).Visible;
+        private bool AnyShellColumnVisible => _slots.Any(s => s.Visible && s.Info.IsShellProperty);
+
+        /// <summary>마지막으로 측정한 구분선 열 너비 (DPI 반올림 포함). 측정 전에는 GridSplitter.Width.</summary>
+        private double _splitterWidth = 2;
+        private bool _isRebuildingHeader;
+
+        // 레이아웃 저장: 너비 드래그는 디바운스, 다른 인스턴스(탭/분할 창)의 저장은 SettingChanged로 반영
+        private Microsoft.UI.Dispatching.DispatcherQueueTimer? _layoutSaveTimer;
+        private string? _lastLayoutJson;
+        private bool _isSavingLayout;
+
+        // 셸 속성(크기·길이·작성자·제목) 비동기 로드
+        private System.Threading.CancellationTokenSource _shellCts = new();
+        private readonly Dictionary<FileViewModel, Task> _pendingShellReads = new();
+        private FolderViewModel? _shellFolder;
 
         // Guard against double cleanup (Cleanup() from OnClosed + OnUnloaded from visual tree teardown)
         private bool _isCleanedUp = false;
@@ -106,16 +129,6 @@ namespace Span.Views
 
         // ── Feature #29: Group By ──
         private string _currentGroupBy = "None";
-
-        // ── Feature #30: Column Visibility ──
-        private bool _dateColumnVisible = true;
-        private bool _typeColumnVisible = true;
-        private bool _sizeColumnVisible = true;
-        private bool _gitColumnVisible = true;
-        private GridLength _savedDateWidth = new GridLength(200);
-        private GridLength _savedTypeWidth = new GridLength(150);
-        private GridLength _savedSizeWidth = new GridLength(100);
-        private GridLength _savedGitWidth = new GridLength(50);
 
         // ── Feature #31: Column Filters ──
         private string _nameFilter = string.Empty;
@@ -146,6 +159,30 @@ namespace Span.Views
                 _isLoaded = true;
                 _isCleanedUp = false; // Allow cleanup on next Unloaded
 
+                // Apply ShowCheckboxes setting
+                try
+                {
+                    _settings = App.Current.Services.GetService(typeof(SettingsService)) as SettingsService;
+                    if (_settings != null)
+                    {
+                        ApplyCheckboxMode(_settings.ShowCheckboxes);
+                        _settings.SettingChanged += OnSettingChanged;
+                    }
+                }
+                catch (Exception ex) { Helpers.DebugLogger.Log($"[DetailsModeView] Settings init error: {ex.Message}"); }
+
+                try
+                {
+                    _loc = App.Current.Services.GetService(typeof(LocalizationService)) as LocalizationService;
+                    if (_loc != null) _loc.LanguageChanged += LocalizeUI;
+                }
+                catch (Exception ex) { Helpers.DebugLogger.Log($"[DetailsModeView] Localization init error: {ex.Message}"); }
+
+                // 컬럼 표시/너비/정렬 복원 → 헤더 구성. ViewModel 할당(정렬) 전에 해야
+                // 저장된 정렬 기준으로 한 번만 정렬된다.
+                LoadColumnLayout();
+                RebuildHeaderColumns();
+
                 if (!IsManualViewModel)
                 {
                     // Get ViewModel from MainWindow's DataContext (XAML 정의 인스턴스용)
@@ -162,63 +199,7 @@ namespace Span.Views
                     ApplyCurrentView();
                 }
 
-                // Apply ShowCheckboxes setting
-                try
-                {
-                    _settings = App.Current.Services.GetService(typeof(SettingsService)) as SettingsService;
-                    if (_settings != null)
-                    {
-                        ApplyCheckboxMode(_settings.ShowCheckboxes);
-                        _settings.SettingChanged += OnSettingChanged;
-                    }
-                }
-                catch (Exception ex) { Helpers.DebugLogger.Log($"[DetailsModeView] Settings init error: {ex.Message}"); }
-
-                try
-                {
-                    _loc = App.Current.Services.GetService(typeof(LocalizationService)) as LocalizationService;
-                    LocalizeUI();
-                    if (_loc != null) _loc.LanguageChanged += LocalizeUI;
-                }
-                catch (Exception ex) { Helpers.DebugLogger.Log($"[DetailsModeView] Localization init error: {ex.Message}"); }
-
                 // Ctrl+Wheel view mode cycling is handled globally by MainWindow.OnGlobalPointerWheelChanged
-
-                // Restore sort settings
-                RestoreSortSettings();
-
-                // Restore column visibility
-                RestoreColumnVisibility();
-
-                // Git 컬럼: 초기 숨김 (TriggerGitStateLoad에서 Git 레포 감지 시 자동 표시)
-                ToggleColumnVisibility("Git", false);
-
-                // Subscribe to ColumnDefinition.Width changes via RegisterPropertyChangedCallback.
-                // CRITICAL: HeaderGrid.SizeChanged does NOT fire when GridSplitter rearranges
-                // internal columns — the Grid's total size stays the same. We must watch
-                // each ColumnDefinition individually.
-                _locationCallbackToken = LocationColumnDef.RegisterPropertyChangedCallback(
-                    ColumnDefinition.WidthProperty, OnColumnWidthChanged);
-                _dateCallbackToken = DateColumnDef.RegisterPropertyChangedCallback(
-                    ColumnDefinition.WidthProperty, OnColumnWidthChanged);
-                _typeCallbackToken = TypeColumnDef.RegisterPropertyChangedCallback(
-                    ColumnDefinition.WidthProperty, OnColumnWidthChanged);
-                _sizeCallbackToken = SizeColumnDef.RegisterPropertyChangedCallback(
-                    ColumnDefinition.WidthProperty, OnColumnWidthChanged);
-                _gitCallbackToken = GitColumnDef.RegisterPropertyChangedCallback(
-                    ColumnDefinition.WidthProperty, OnColumnWidthChanged);
-
-                // GridSplitter 열도 콜백 등록 — splitter 실제 너비를 데이터 행에 동기화
-                _splitter1aCallbackToken = Splitter1aColDef.RegisterPropertyChangedCallback(
-                    ColumnDefinition.WidthProperty, OnColumnWidthChanged);
-                _splitter1bCallbackToken = Splitter1bColDef.RegisterPropertyChangedCallback(
-                    ColumnDefinition.WidthProperty, OnColumnWidthChanged);
-                _splitter2CallbackToken = Splitter2ColDef.RegisterPropertyChangedCallback(
-                    ColumnDefinition.WidthProperty, OnColumnWidthChanged);
-                _splitter3CallbackToken = Splitter3ColDef.RegisterPropertyChangedCallback(
-                    ColumnDefinition.WidthProperty, OnColumnWidthChanged);
-                _splitter4CallbackToken = Splitter4ColDef.RegisterPropertyChangedCallback(
-                    ColumnDefinition.WidthProperty, OnColumnWidthChanged);
 
                 // 초기 동기화: HeaderGrid의 첫 SizeChanged에서 실행.
                 // Loaded/Low dispatch 시점에는 XamlRoot.RasterizationScale이 아직
@@ -243,7 +224,7 @@ namespace Span.Views
                 if (_loc != null) _loc.LanguageChanged -= LocalizeUI;
 
                 // Save sort settings (always, even if already cleaned up)
-                SaveSortSettings();
+                SaveColumnLayout();
 
                 // Skip if Cleanup() was already called from MainWindow.OnClosed
                 if (_isCleanedUp) return;
@@ -260,14 +241,12 @@ namespace Span.Views
 
         private void LocalizeUI()
         {
-            if (_loc == null) return;
-            NameHeaderButton.Content = _loc.Get("Name");
-            DateHeaderButton.Content = _loc.Get("DateModified");
-            TypeHeaderButton.Content = _loc.Get("Type");
-            SizeHeaderButton.Content = _loc.Get("Size");
-            GitHeaderButton.Content = _loc.Get("ColumnGit");
+            // 헤더 라벨(정렬 화살표 포함)은 UpdateSortIndicators가 컬럼 목록 기준으로 채운다.
             // 필터 버튼 제거됨 — 검색 기능으로 대체
+            UpdateSortIndicators();
         }
+
+        private string ColumnLabel(DetailsColumnInfo column) => _loc?.Get(column.LocKey) ?? column.Id;
 
         #endregion
 
@@ -288,12 +267,7 @@ namespace Span.Views
         /// </summary>
         private void OnColumnWidthChanged(DependencyObject sender, DependencyProperty dp)
         {
-            // ActualWidth가 0이면 layout 미완료 → 기존값 유지
-            if (DateColumnDef.ActualWidth > 0) _dateColumnWidth = DateColumnDef.ActualWidth;
-            if (TypeColumnDef.ActualWidth > 0) _typeColumnWidth = TypeColumnDef.ActualWidth;
-            if (SizeColumnDef.ActualWidth > 0) _sizeColumnWidth = SizeColumnDef.ActualWidth;
-            if (GitColumnDef.ActualWidth > 0) _gitColumnWidth = GitColumnDef.ActualWidth;
-            _locationColumnWidth = LocationColumnDef.ActualWidth;
+            if (_isRebuildingHeader) return;
 
             // 각 셀의 총 너비(splitter 포함) 재계산
             RecalcCellTotalWidths();
@@ -310,6 +284,8 @@ namespace Span.Views
                     UpdateAllVisibleContainerWidths();
                 });
             }
+
+            ScheduleColumnLayoutSave();
         }
 
         /// <summary>
@@ -349,12 +325,17 @@ namespace Span.Views
                     _ = fileVm.LoadThumbnailAsync();
                 }
 
+                if (args.Item is ViewModels.FileViewModel shellVm && !shellVm.HasShellProperties && AnyShellColumnVisible)
+                {
+                    _ = LoadShellPropertiesAsync(shellVm);
+                }
+
                 if (args.Item is ViewModels.FileSystemViewModel fsVm)
                 {
                     var currentFolder = _viewModel?.CurrentFolder;
                     try
                     {
-                        if (_gitColumnVisible)
+                        if (IsColumnVisible(DetailsColumns.Git))
                             currentFolder?.InjectGitStateIfNeeded(fsVm);
                         currentFolder?.InjectCloudStateIfNeeded(fsVm);
                         currentFolder?.InjectColorTagIfNeeded(fsVm);
@@ -370,74 +351,33 @@ namespace Span.Views
         }
 
         /// <summary>
-        /// 헤더 컬럼의 누적 시작 위치(오프셋)를 계산.
-        /// 개별 splitter 너비를 합산하지 않고, 헤더의 ColumnDefinition 배열에서
-        /// 각 데이터 컬럼의 시작 X를 직접 계산하여 정확한 정렬 보장.
-        /// </summary>
-        private double GetHeaderColumnOffset(int headerColIndex)
-        {
-            try
-            {
-                double offset = 0;
-                var colDefs = HeaderGrid.ColumnDefinitions;
-                for (int i = 0; i < headerColIndex && i < colDefs.Count; i++)
-                {
-                    offset += colDefs[i].ActualWidth;
-                }
-                return offset;
-            }
-            catch (Exception ex)
-            {
-                Helpers.DebugLogger.Log($"[Details] GetHeaderColumnOffset error: {ex.Message}");
-                return 0;
-            }
-        }
-
-        /// <summary>
-        /// 헤더 컬럼 시작 X에서 Name 끝 X를 빼 셀의 총 너비(splitter 포함)를 계산.
+        /// 보이는 컬럼마다 셀의 총 너비(앞 구분선 + 데이터 열)를 계산해 캐시.
+        /// 데이터 열은 GridSplitter가 설정한 픽셀 Width를 그대로 쓴다 — 콜백 시점의 ActualWidth는
+        /// 아직 이전 레이아웃 값이라 드래그 중 한 박자 늦게 따라온다.
         /// 이 값은 OnColumnWidthChanged에서 캐시됨 (measure pass 중 호출 불가이므로).
         /// </summary>
-        private double _dateCellTotalWidth = 200;
-        private double _typeCellTotalWidth = 150;
-        private double _sizeCellTotalWidth = 100;
-        private double _gitCellTotalWidth = 50;
-        private double _locationCellTotalWidth = 0;
-
         private void RecalcCellTotalWidths()
         {
             try
             {
-                var colDefs = HeaderGrid.ColumnDefinitions;
-                if (colDefs.Count < 12) return;
+                foreach (var slot in _slots)
+                {
+                    if (!slot.Visible || slot.DataColumn == null || slot.SplitterColumn == null)
+                    {
+                        slot.CellTotalWidth = 0;
+                        continue;
+                    }
 
-                // Name 끝 X = col0 + col1
-                double nameEndX = colDefs[0].ActualWidth + colDefs[1].ActualWidth;
-                if (nameEndX <= 0) return;
+                    var width = slot.DataColumn.Width;
+                    double dataWidth = width.IsAbsolute ? width.Value : slot.DataColumn.ActualWidth;
+                    if (dataWidth <= 0) dataWidth = slot.Width;
+                    dataWidth = Math.Max(dataWidth, slot.Info.MinWidth);
+                    slot.Width = dataWidth;
 
-                // 각 데이터 셀의 총 너비 = (헤더 컬럼 시작 X ~ 다음 데이터 컬럼 시작 X)
-                // Location (col 3): col2(splitter1a) + col3(location)
-                double locEnd = nameEndX;
-                for (int i = 2; i <= 3; i++) locEnd += colDefs[i].ActualWidth;
-                _locationCellTotalWidth = _locationColumnWidth > 0 ? (locEnd - nameEndX) : 0;
-
-                // Date (col 5): col2+3+4까지 = splitter1a + location + splitter1b + Date자체 아닌,
-                // 시작X=col5 시작, 너비=col4(splitter1b포함) ~ col5 끝
-                // 간단히: 전체 헤더 offset 차이로 계산
-                double dateStartX = 0; for (int i = 0; i < 5; i++) dateStartX += colDefs[i].ActualWidth;
-                double dateEndX = dateStartX + colDefs[5].ActualWidth;
-                _dateCellTotalWidth = _dateColumnVisible ? (dateEndX - nameEndX - _locationCellTotalWidth) : 0;
-
-                double typeStartX = 0; for (int i = 0; i < 7; i++) typeStartX += colDefs[i].ActualWidth;
-                double typeEndX = typeStartX + colDefs[7].ActualWidth;
-                _typeCellTotalWidth = _typeColumnVisible ? (typeEndX - dateEndX) : 0;
-
-                double sizeStartX = 0; for (int i = 0; i < 9; i++) sizeStartX += colDefs[i].ActualWidth;
-                double sizeEndX = sizeStartX + colDefs[9].ActualWidth;
-                _sizeCellTotalWidth = _sizeColumnVisible ? (sizeEndX - typeEndX) : 0;
-
-                double gitStartX = 0; for (int i = 0; i < 11; i++) gitStartX += colDefs[i].ActualWidth;
-                double gitEndX = gitStartX + colDefs[11].ActualWidth;
-                _gitCellTotalWidth = _gitColumnVisible ? (gitEndX - sizeEndX) : 0;
+                    double splitterActual = slot.SplitterColumn.ActualWidth;
+                    if (splitterActual > 0) _splitterWidth = splitterActual;
+                    slot.CellTotalWidth = _splitterWidth + dataWidth;
+                }
             }
             catch (Exception ex)
             {
@@ -455,34 +395,13 @@ namespace Span.Views
         {
             foreach (var child in grid.Children)
             {
-                if (child is Border border)
-                {
-                    int col = Grid.GetColumn(border);
-                    switch (col)
-                    {
-                        case 2: // Location
-                            bool locVisible = _locationColumnWidth > 0;
-                            border.Width = locVisible ? _locationCellTotalWidth : 0;
-                            border.Visibility = locVisible ? Visibility.Visible : Visibility.Collapsed;
-                            break;
-                        case 3: // Date
-                            border.Width = _dateColumnVisible ? _dateCellTotalWidth : 0;
-                            border.Visibility = _dateColumnVisible ? Visibility.Visible : Visibility.Collapsed;
-                            break;
-                        case 4: // Type
-                            border.Width = _typeColumnVisible ? _typeCellTotalWidth : 0;
-                            border.Visibility = _typeColumnVisible ? Visibility.Visible : Visibility.Collapsed;
-                            break;
-                        case 5: // Size
-                            border.Width = _sizeColumnVisible ? _sizeCellTotalWidth : 0;
-                            border.Visibility = _sizeColumnVisible ? Visibility.Visible : Visibility.Collapsed;
-                            break;
-                        case 6: // Git Status
-                            border.Width = _gitColumnVisible ? _gitCellTotalWidth : 0;
-                            border.Visibility = _gitColumnVisible ? Visibility.Visible : Visibility.Collapsed;
-                            break;
-                    }
-                }
+                if (child is not Border border) continue;
+                int index = Grid.GetColumn(border) - DetailsColumns.FirstCellGridColumn;
+                if ((uint)index >= (uint)_slots.Length) continue;
+
+                var slot = _slots[index];
+                border.Width = slot.Visible ? slot.CellTotalWidth : 0;
+                border.Visibility = slot.Visible ? Visibility.Visible : Visibility.Collapsed;
             }
         }
 
@@ -607,10 +526,15 @@ namespace Span.Views
             {
                 Span.Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, () =>
                 {
-                    ToggleColumnVisibility("Git", gitEnabled);
+                    SetColumnVisible(DetailsColumns.Git, gitEnabled, persist: false);
                     if (gitEnabled)
                         TriggerGitStateLoad();
                 });
+            }
+            else if (key == SettingsService.DetailsColumnsJsonKey && value is string json && !_isSavingLayout)
+            {
+                // 다른 탭/분할 창의 Details 뷰가 컬럼을 바꿈 → 같은 표시/너비로 맞춘다 (정렬은 창마다 유지)
+                Span.Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, () => ApplyExternalColumnLayout(json));
             }
         }
 
@@ -1052,25 +976,27 @@ namespace Span.Views
 
         private void UpdateSortIndicators()
         {
-            if (_loc == null) return;
-            var headers = new[] { NameHeaderButton, DateHeaderButton, TypeHeaderButton, SizeHeaderButton, GitHeaderButton };
-            string[] tags = { "Name", "DateModified", "Type", "Size", "Git" };
-            string[] locKeys = { "Name", "DateModified", "Type", "Size", "ColumnGit" };
+            string Label(string id, string text)
+                => _currentSortBy == id ? $"{text} {(_isAscending ? "▲" : "▼")}" : text;
 
-            if (LocationHeaderButton != null)
+            NameHeaderButton.Content = Label("Name", _loc?.Get("Name") ?? "Name");
+            foreach (var slot in _slots)
             {
-                var locLabel = _loc.Get("Location") ?? "Location";
-                LocationHeaderButton.Content = _currentSortBy == "Location" ? $"{locLabel} {(_isAscending ? "▲" : "▼")}" : locLabel;
+                if (slot.HeaderButton != null)
+                    slot.HeaderButton.Content = Label(slot.Info.Id, ColumnLabel(slot.Info));
             }
+        }
 
-            for (int i = 0; i < headers.Length; i++)
-            {
-                if (headers[i] == null) continue;
-                var label = _loc.Get(locKeys[i]) ?? tags[i];
-                headers[i].Content = _currentSortBy == tags[i]
-                    ? $"{label} {(_isAscending ? "▲" : "▼")}"
-                    : label;
-            }
+        /// <summary>폴더 먼저/파일 나중(혼합 정렬 폴더 제외) + 키 기준 정렬.</summary>
+        private static IEnumerable<FileSystemViewModel> OrderItems<TKey>(
+            IEnumerable<FileSystemViewModel> items, Func<FileSystemViewModel, TKey> key,
+            bool ascending, bool mixFoldersFiles, IComparer<TKey>? comparer = null)
+        {
+            if (mixFoldersFiles)
+                return ascending ? items.OrderBy(key, comparer) : items.OrderByDescending(key, comparer);
+
+            var foldersFirst = items.OrderBy(x => x is FileViewModel ? 1 : 0);
+            return ascending ? foldersFirst.ThenBy(key, comparer) : foldersFirst.ThenByDescending(key, comparer);
         }
 
         private void SortItems(string sortBy, bool ascending)
@@ -1084,47 +1010,30 @@ namespace Span.Views
 
             try
             {
-                System.Collections.Generic.IEnumerable<FileSystemViewModel> sorted;
-                bool mixFoldersFiles = column.IsDownloadsFolder;
+                var children = column.Children;
+                bool mix = column.IsDownloadsFolder;
 
-                switch (sortBy)
+                IEnumerable<FileSystemViewModel>? sorted = sortBy switch
                 {
-                    case "Name":
-                        sorted = mixFoldersFiles
-                            ? (ascending ? column.Children.OrderBy(x => x.Name, Helpers.NaturalStringComparer.Instance)
-                                         : column.Children.OrderByDescending(x => x.Name, Helpers.NaturalStringComparer.Instance))
-                            : (ascending ? column.Children.OrderBy(x => x is FileViewModel ? 1 : 0).ThenBy(x => x.Name, Helpers.NaturalStringComparer.Instance)
-                                         : column.Children.OrderBy(x => x is FileViewModel ? 1 : 0).ThenByDescending(x => x.Name, Helpers.NaturalStringComparer.Instance));
-                        break;
-                    case "DateModified":
-                        sorted = mixFoldersFiles
-                            ? (ascending ? column.Children.OrderBy(x => x.DateModifiedValue)
-                                         : column.Children.OrderByDescending(x => x.DateModifiedValue))
-                            : (ascending ? column.Children.OrderBy(x => x is FileViewModel ? 1 : 0).ThenBy(x => x.DateModifiedValue)
-                                         : column.Children.OrderBy(x => x is FileViewModel ? 1 : 0).ThenByDescending(x => x.DateModifiedValue));
-                        break;
-                    case "Type":
-                        sorted = mixFoldersFiles
-                            ? (ascending ? column.Children.OrderBy(x => x.FileType)
-                                         : column.Children.OrderByDescending(x => x.FileType))
-                            : (ascending ? column.Children.OrderBy(x => x is FileViewModel ? 1 : 0).ThenBy(x => x.FileType)
-                                         : column.Children.OrderBy(x => x is FileViewModel ? 1 : 0).ThenByDescending(x => x.FileType));
-                        break;
-                    case "Size":
-                        sorted = mixFoldersFiles
-                            ? (ascending ? column.Children.OrderBy(x => x.SizeValue)
-                                         : column.Children.OrderByDescending(x => x.SizeValue))
-                            : (ascending ? column.Children.OrderBy(x => x is FileViewModel ? 1 : 0).ThenBy(x => x.SizeValue)
-                                         : column.Children.OrderBy(x => x is FileViewModel ? 1 : 0).ThenByDescending(x => x.SizeValue));
-                        break;
-                    case "Git":
-                        sorted = ascending
-                            ? column.Children.OrderBy(x => x is FileViewModel ? 1 : 0).ThenBy(x => x.GitStatusText)
-                            : column.Children.OrderBy(x => x is FileViewModel ? 1 : 0).ThenByDescending(x => x.GitStatusText);
-                        break;
-                    default:
-                        return;
-                }
+                    "Name" => OrderItems(children, x => x.Name, ascending, mix, Helpers.NaturalStringComparer.Instance),
+                    DetailsColumns.DateModified => OrderItems(children, x => x.DateModifiedValue, ascending, mix),
+                    DetailsColumns.Type => OrderItems(children, x => x.FileType, ascending, mix),
+                    DetailsColumns.Size => OrderItems(children, x => x.SizeValue, ascending, mix),
+                    DetailsColumns.Git => OrderItems(children, x => x.GitStatusText, ascending, mixFoldersFiles: false),
+                    DetailsColumns.Location => OrderItems(children, x => x.LocationPath, ascending, mix, StringComparer.CurrentCultureIgnoreCase),
+                    DetailsColumns.DateCreated => OrderItems(children, x => x.DateCreatedValue, ascending, mix),
+                    DetailsColumns.Attributes => OrderItems(children, x => x.AttributesText, ascending, mix, StringComparer.Ordinal),
+                    DetailsColumns.Dimensions => OrderItems(children, x => x.ShellProperties.PixelCount, ascending, mix),
+                    DetailsColumns.Duration => OrderItems(children, x => x.ShellProperties.DurationTicks, ascending, mix),
+                    DetailsColumns.Authors => OrderItems(children, x => x.AuthorsText, ascending, mix, StringComparer.CurrentCultureIgnoreCase),
+                    DetailsColumns.Title => OrderItems(children, x => x.TitleText, ascending, mix, StringComparer.CurrentCultureIgnoreCase),
+                    _ => null
+                };
+                if (sorted == null) return;
+
+                // 셸 속성 컬럼: 화면에 안 나온 항목은 아직 값이 없다 → 전부 읽은 뒤 다시 정렬 (탐색기와 같이)
+                if (DetailsColumns.IsShellColumn(sortBy))
+                    LoadShellPropertiesForSort(sortBy);
 
                 var sortedList = sorted.ToList();
 
@@ -1152,59 +1061,138 @@ namespace Span.Views
 
         #endregion
 
-        #region Sort Settings Persistence
+        #region Column Layout Persistence
 
-        private void SaveSortSettings()
+        /// <summary>
+        /// 컬럼 표시/너비 + 정렬/그룹화를 설정(DetailsColumnsJson)에 저장.
+        /// SettingsService를 거치므로 패키지 없는 빌드(dev/Personal)에서도 유지된다.
+        /// 다운로드 폴더의 자동 날짜 정렬은 저장하지 않고 원래 정렬을 저장한다.
+        /// </summary>
+        private void SaveColumnLayout()
         {
+            _layoutSaveTimer?.Stop();
+            if (_settings == null) return;
             try
             {
-                var composite = new ApplicationDataCompositeValue
+                var layout = new DetailsColumnLayout
                 {
-                    ["SortColumn"] = _currentSortBy,
-                    ["SortAscending"] = _isAscending,
-                    ["GroupBy"] = _currentGroupBy,
-                    ["DateColumnVisible"] = _dateColumnVisible,
-                    ["TypeColumnVisible"] = _typeColumnVisible,
-                    ["SizeColumnVisible"] = _sizeColumnVisible,
-                    ["GitColumnVisible"] = _gitColumnVisible
+                    SortBy = _isAutoSortedForDownloads ? (_savedSortBeforeDownloads ?? "Name") : _currentSortBy,
+                    SortAscending = _isAutoSortedForDownloads ? _savedAscBeforeDownloads : _isAscending,
+                    GroupBy = _currentGroupBy
                 };
-                if (_localSettings != null)
-                    _localSettings.Values["DetailsViewSort"] = composite;
-                Helpers.DebugLogger.Log("[DetailsModeView] Sort settings saved");
+                foreach (var slot in _slots)
+                {
+                    if (IsPersistedVisibility(slot.Info))
+                        layout.Visible[slot.Info.Id] = slot.Visible;
+                    layout.Widths[slot.Info.Id] = Math.Round(slot.Width, 1);
+                }
+
+                var json = layout.ToJson();
+                if (json == _lastLayoutJson) return;
+                _lastLayoutJson = json;
+
+                _isSavingLayout = true;
+                try { _settings.DetailsColumnsJson = json; }
+                finally { _isSavingLayout = false; }
             }
             catch (Exception ex)
             {
-                Helpers.DebugLogger.Log($"[DetailsModeView] Error saving sort settings: {ex.Message}");
+                Helpers.DebugLogger.Log($"[DetailsModeView] Error saving column layout: {ex.Message}");
             }
         }
 
-        private void RestoreSortSettings()
+        /// <summary>Location(검색)과 Git(저장소)은 상황에 따라 자동 표시되므로 저장하지 않는다.</summary>
+        private static bool IsPersistedVisibility(DetailsColumnInfo column)
+            => column.Id != DetailsColumns.Location && column.Id != DetailsColumns.Git;
+
+        private void ScheduleColumnLayoutSave()
+        {
+            if (_settings == null || _isCleanedUp) return;
+            if (_layoutSaveTimer == null)
+            {
+                _layoutSaveTimer = DispatcherQueue.CreateTimer();
+                _layoutSaveTimer.Interval = TimeSpan.FromMilliseconds(800);
+                _layoutSaveTimer.IsRepeating = false;
+                _layoutSaveTimer.Tick += (_, _) => SaveColumnLayout();
+            }
+            _layoutSaveTimer.Stop();
+            _layoutSaveTimer.Start();
+        }
+
+        private void LoadColumnLayout()
         {
             try
             {
-                if (_localSettings?.Values["DetailsViewSort"] is ApplicationDataCompositeValue composite)
-                {
-                    if (composite.TryGetValue("SortColumn", out var sortObj) && sortObj is string sortColumn)
-                    {
-                        _currentSortBy = sortColumn;
-                    }
-                    if (composite.TryGetValue("SortAscending", out var ascObj) && ascObj is bool ascending)
-                    {
-                        _isAscending = ascending;
-                    }
-                    if (composite.TryGetValue("GroupBy", out var groupObj) && groupObj is string groupBy)
-                    {
-                        _currentGroupBy = groupBy;
-                    }
+                var json = _settings?.DetailsColumnsJson;
+                var layout = string.IsNullOrEmpty(json)
+                    ? ReadLegacyColumnLayout()
+                    : DetailsColumnLayout.FromJson(json);
+                _lastLayoutJson = json;
 
-                    SortItems(_currentSortBy, _isAscending);
-                    Helpers.DebugLogger.Log("[DetailsModeView] Sort settings restored");
-                }
+                ApplyColumnLayout(layout);
+                _currentSortBy = layout.SortBy;
+                _isAscending = layout.SortAscending;
+                _currentGroupBy = layout.GroupBy;
             }
             catch (Exception ex)
             {
-                Helpers.DebugLogger.Log($"[DetailsModeView] Error restoring sort settings: {ex.Message}");
+                Helpers.DebugLogger.Log($"[DetailsModeView] Error loading column layout: {ex.Message}");
             }
+        }
+
+        /// <summary>표시 여부와 너비만 슬롯에 반영 (헤더 재구성은 호출자 몫).</summary>
+        private void ApplyColumnLayout(DetailsColumnLayout layout)
+        {
+            foreach (var slot in _slots)
+            {
+                slot.Width = layout.GetWidth(slot.Info);
+                if (IsPersistedVisibility(slot.Info))
+                    slot.Visible = layout.IsVisible(slot.Info);
+            }
+        }
+
+        private void ApplyExternalColumnLayout(string json)
+        {
+            if (_isCleanedUp || !_isLoaded || json == _lastLayoutJson) return;
+            _lastLayoutJson = json;
+
+            bool shellWasVisible = AnyShellColumnVisible;
+            ApplyColumnLayout(DetailsColumnLayout.FromJson(json));
+            RebuildHeaderColumns();
+            if (!shellWasVisible && AnyShellColumnVisible)
+                RequestShellPropertiesForRealizedItems();
+        }
+
+        /// <summary>
+        /// 이전 버전은 ApplicationData.LocalSettings("DetailsViewSort")에 저장했다 (패키지 빌드에서만 동작).
+        /// 새 설정이 없을 때 한 번 옮겨 온다.
+        /// </summary>
+        private DetailsColumnLayout ReadLegacyColumnLayout()
+        {
+            var layout = new DetailsColumnLayout();
+            try
+            {
+                if (_localSettings?.Values["DetailsViewSort"] is not ApplicationDataCompositeValue composite)
+                    return layout;
+
+                if (composite.TryGetValue("SortColumn", out var sortObj) && sortObj is string sortColumn)
+                    layout.SortBy = sortColumn;
+                if (composite.TryGetValue("SortAscending", out var ascObj) && ascObj is bool ascending)
+                    layout.SortAscending = ascending;
+                if (composite.TryGetValue("GroupBy", out var groupObj) && groupObj is string groupBy)
+                    layout.GroupBy = groupBy;
+                if (composite.TryGetValue("DateColumnVisible", out var d) && d is bool dateVis)
+                    layout.Visible[DetailsColumns.DateModified] = dateVis;
+                if (composite.TryGetValue("TypeColumnVisible", out var t) && t is bool typeVis)
+                    layout.Visible[DetailsColumns.Type] = typeVis;
+                if (composite.TryGetValue("SizeColumnVisible", out var sz) && sz is bool sizeVis)
+                    layout.Visible[DetailsColumns.Size] = sizeVis;
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[DetailsModeView] Error reading legacy sort settings: {ex.Message}");
+            }
+            return layout;
         }
 
         #endregion
@@ -1259,72 +1247,40 @@ namespace Span.Views
             e.Handled = true; // Prevent empty area context menu
 
             var flyout = new MenuFlyout();
+            string L(string key) => _loc?.Get(key) ?? key;
 
-            // ── Column Visibility (Feature #30) ──
-            var dateToggle = new ToggleMenuFlyoutItem
+            // ── Column Visibility (Feature #30) — 탐색기처럼 메뉴 최상위에 컬럼 목록 ──
+            flyout.Items.Add(new ToggleMenuFlyoutItem { Text = L("Name"), IsChecked = true, IsEnabled = false });
+            foreach (var slot in _slots)
             {
-                Text = "Date Modified",
-                IsChecked = _dateColumnVisible
-            };
-            dateToggle.Click += (s, _) => ToggleColumnVisibility("DateModified", !_dateColumnVisible);
-
-            var typeToggle = new ToggleMenuFlyoutItem
-            {
-                Text = "Type",
-                IsChecked = _typeColumnVisible
-            };
-            typeToggle.Click += (s, _) => ToggleColumnVisibility("Type", !_typeColumnVisible);
-
-            var sizeToggle = new ToggleMenuFlyoutItem
-            {
-                Text = "Size",
-                IsChecked = _sizeColumnVisible
-            };
-            sizeToggle.Click += (s, _) => ToggleColumnVisibility("Size", !_sizeColumnVisible);
-
-            var gitToggle = new ToggleMenuFlyoutItem
-            {
-                Text = "Git Status",
-                IsChecked = _gitColumnVisible
-            };
-            gitToggle.Click += (s, _) => ToggleColumnVisibility("Git", !_gitColumnVisible);
-
-            flyout.Items.Add(new MenuFlyoutSubItem
-            {
-                Text = "Show Columns",
-                Items =
-                {
-                    new ToggleMenuFlyoutItem { Text = "Name", IsChecked = true, IsEnabled = false },
-                    dateToggle,
-                    typeToggle,
-                    sizeToggle,
-                    gitToggle
-                }
-            });
+                if (!slot.Info.UserToggleable) continue;
+                var id = slot.Info.Id;
+                var toggle = new ToggleMenuFlyoutItem { Text = ColumnLabel(slot.Info), IsChecked = slot.Visible };
+                toggle.Click += (s, _) => SetColumnVisible(id, !IsColumnVisible(id), persist: true);
+                flyout.Items.Add(toggle);
+            }
 
             flyout.Items.Add(new MenuFlyoutSeparator());
 
             // ── Group By (Feature #29) ──
-            var groupByNone = new ToggleMenuFlyoutItem { Text = "None", IsChecked = _currentGroupBy == "None" };
-            groupByNone.Click += (s, _) => SetGroupBy("None");
-
-            var groupByName = new ToggleMenuFlyoutItem { Text = "Name", IsChecked = _currentGroupBy == "Name" };
-            groupByName.Click += (s, _) => SetGroupBy("Name");
-
-            var groupByType = new ToggleMenuFlyoutItem { Text = "Type", IsChecked = _currentGroupBy == "Type" };
-            groupByType.Click += (s, _) => SetGroupBy("Type");
-
-            var groupByDate = new ToggleMenuFlyoutItem { Text = "Date Modified", IsChecked = _currentGroupBy == "DateModified" };
-            groupByDate.Click += (s, _) => SetGroupBy("DateModified");
-
-            var groupBySize = new ToggleMenuFlyoutItem { Text = "Size", IsChecked = _currentGroupBy == "Size" };
-            groupBySize.Click += (s, _) => SetGroupBy("Size");
-
-            flyout.Items.Add(new MenuFlyoutSubItem
+            var groupBy = new MenuFlyoutSubItem { Text = L("GroupBy") };
+            foreach (var (key, label) in new[]
             {
-                Text = "Group By",
-                Items = { groupByNone, groupByName, groupByType, groupByDate, groupBySize }
-            });
+                ("None", L("None")), ("Name", L("Name")), ("Type", L("Type")),
+                ("DateModified", L("DateModified")), ("Size", L("Size"))
+            })
+            {
+                var item = new ToggleMenuFlyoutItem { Text = label, IsChecked = _currentGroupBy == key };
+                item.Click += (s, _) => SetGroupBy(key);
+                groupBy.Items.Add(item);
+            }
+            flyout.Items.Add(groupBy);
+
+            flyout.Items.Add(new MenuFlyoutSeparator());
+
+            var reset = new MenuFlyoutItem { Text = L("Details_ResetColumns") };
+            reset.Click += (s, _) => ResetColumns();
+            flyout.Items.Add(reset);
 
             flyout.ShowAt(HeaderGrid, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
             {
@@ -1341,7 +1297,7 @@ namespace Span.Views
         {
             _currentGroupBy = groupBy;
             ApplyFiltersAndGrouping();
-            SaveSortSettings();
+            SaveColumnLayout();
             Helpers.DebugLogger.Log($"[DetailsModeView] Group By set to: {groupBy}");
         }
 
@@ -1358,91 +1314,246 @@ namespace Span.Views
         /// </summary>
         public void ShowLocationColumn(bool show)
         {
-            LocationColumnDef.Width = show ? new GridLength(180) : new GridLength(0);
-            LocationColumnDef.MinWidth = show ? 100 : 0;
-            LocationHeaderContainer.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-            Splitter1a.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-            // Splitter1b는 Name|Date 구분선 역할도 하므로 Location 숨김과 무관하게 유지
-            _locationColumnWidth = show ? 180 : 0;
-            UpdateAllVisibleContainerWidths();
+            SetColumnVisible(DetailsColumns.Location, show, persist: false);
         }
 
-        private void ToggleColumnVisibility(string column, bool visible)
+        /// <summary>
+        /// 컬럼 표시를 바꾸고 헤더를 다시 구성한다. persist=false는 자동 표시(Location/Git)용.
+        /// </summary>
+        private void SetColumnVisible(string id, bool visible, bool persist)
         {
-            switch (column)
+            var slot = Slot(id);
+            if (slot.Visible == visible) return;
+
+            bool shellWasVisible = AnyShellColumnVisible;
+            slot.Visible = visible;
+            RebuildHeaderColumns();
+
+            if (!shellWasVisible && AnyShellColumnVisible)
+                RequestShellPropertiesForRealizedItems();
+            if (persist)
+                SaveColumnLayout();
+
+            Helpers.DebugLogger.Log($"[DetailsModeView] Column '{id}' visibility: {visible}");
+        }
+
+        /// <summary>탐색기 기본값(이름·수정한 날짜·유형·크기, 기본 너비)으로 되돌린다.</summary>
+        private void ResetColumns()
+        {
+            foreach (var slot in _slots)
             {
-                case "DateModified":
-                    if (!visible) _savedDateWidth = DateColumnDef.Width;
-                    _dateColumnVisible = visible;
-                    DateColumnDef.Width = visible ? _savedDateWidth : new GridLength(0);
-                    DateColumnDef.MinWidth = visible ? 80 : 0;
-                    DateHeaderContainer.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-                    Splitter1b.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-                    break;
-
-                case "Type":
-                    if (!visible) _savedTypeWidth = TypeColumnDef.Width;
-                    _typeColumnVisible = visible;
-                    TypeColumnDef.Width = visible ? _savedTypeWidth : new GridLength(0);
-                    TypeColumnDef.MinWidth = visible ? 50 : 0;
-                    TypeHeaderContainer.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-                    Splitter2.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-                    break;
-
-                case "Size":
-                    if (!visible) _savedSizeWidth = SizeColumnDef.Width;
-                    _sizeColumnVisible = visible;
-                    SizeColumnDef.Width = visible ? _savedSizeWidth : new GridLength(0);
-                    SizeColumnDef.MinWidth = visible ? 50 : 0;
-                    SizeHeaderContainer.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-                    Splitter3.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-                    break;
-
-                case "Git":
-                    if (!visible) _savedGitWidth = GitColumnDef.Width;
-                    _gitColumnVisible = visible;
-                    GitColumnDef.Width = visible ? _savedGitWidth : new GridLength(0);
-                    GitColumnDef.MinWidth = visible ? 40 : 0;
-                    GitHeaderContainer.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-                    Splitter4.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-                    break;
+                slot.Width = slot.Info.DefaultWidth;
+                if (IsPersistedVisibility(slot.Info))
+                    slot.Visible = slot.Info.DefaultVisible;
             }
-
-            // Update item cell widths to reflect visibility change
-            UpdateAllVisibleContainerWidths();
-            SaveSortSettings();
-
-            Helpers.DebugLogger.Log($"[DetailsModeView] Column '{column}' visibility: {visible}");
+            RebuildHeaderColumns();
+            SaveColumnLayout();
         }
 
-        private void RestoreColumnVisibility()
+        /// <summary>
+        /// 헤더의 컬럼(이름 뒤)을 보이는 컬럼만으로 다시 만든다. 컬럼마다 [구분선 열][데이터 열].
+        /// CRITICAL: HeaderGrid.SizeChanged does NOT fire when GridSplitter rearranges
+        /// internal columns — the Grid's total size stays the same. We must watch
+        /// each ColumnDefinition individually (RegisterPropertyChangedCallback).
+        /// </summary>
+        private void RebuildHeaderColumns()
         {
+            _isRebuildingHeader = true;
             try
             {
-                if (_localSettings?.Values["DetailsViewSort"] is ApplicationDataCompositeValue composite)
+                DetachHeaderColumnCallbacks();
+
+                for (int i = HeaderGrid.Children.Count - 1; i >= 0; i--)
                 {
-                    if (composite.TryGetValue("DateColumnVisible", out var dateObj) && dateObj is bool dateVis)
-                    {
-                        if (!dateVis) ToggleColumnVisibility("DateModified", false);
-                    }
-                    if (composite.TryGetValue("TypeColumnVisible", out var typeObj) && typeObj is bool typeVis)
-                    {
-                        if (!typeVis) ToggleColumnVisibility("Type", false);
-                    }
-                    if (composite.TryGetValue("SizeColumnVisible", out var sizeObj) && sizeObj is bool sizeVis)
-                    {
-                        if (!sizeVis) ToggleColumnVisibility("Size", false);
-                    }
-                    if (composite.TryGetValue("GitColumnVisible", out var gitObj) && gitObj is bool gitVis)
-                    {
-                        if (!gitVis) ToggleColumnVisibility("Git", false);
-                    }
+                    if (HeaderGrid.Children[i] != NameHeaderButton)
+                        HeaderGrid.Children.RemoveAt(i);
                 }
+                while (HeaderGrid.ColumnDefinitions.Count > 2)
+                    HeaderGrid.ColumnDefinitions.RemoveAt(HeaderGrid.ColumnDefinitions.Count - 1);
+
+                var headerStyle = (Style)Resources["HeaderButtonStyle"];
+                foreach (var slot in _slots)
+                {
+                    slot.SplitterColumn = null;
+                    slot.DataColumn = null;
+                    slot.HeaderButton = null;
+                    if (!slot.Visible) continue;
+
+                    var splitterColumn = new ColumnDefinition { Width = GridLength.Auto };
+                    var dataColumn = new ColumnDefinition { Width = new GridLength(slot.Width), MinWidth = slot.Info.MinWidth };
+                    HeaderGrid.ColumnDefinitions.Add(splitterColumn);
+                    HeaderGrid.ColumnDefinitions.Add(dataColumn);
+                    int splitterIndex = HeaderGrid.ColumnDefinitions.Count - 2;
+
+                    var splitter = new CommunityToolkit.WinUI.Controls.GridSplitter
+                    {
+                        Width = 2,
+                        Padding = new Thickness(0),
+                        Margin = new Thickness(0),
+                        ResizeDirection = CommunityToolkit.WinUI.Controls.GridSplitter.GridResizeDirection.Columns,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                        Opacity = 0.3
+                    };
+                    Grid.SetColumn(splitter, splitterIndex);
+                    HeaderGrid.Children.Add(splitter);
+
+                    var button = new Button { Tag = slot.Info.Id, Style = headerStyle };
+                    button.Click += OnHeaderClick;
+                    Grid.SetColumn(button, splitterIndex + 1);
+                    HeaderGrid.Children.Add(button);
+
+                    slot.SplitterColumn = splitterColumn;
+                    slot.DataColumn = dataColumn;
+                    slot.HeaderButton = button;
+                    slot.SplitterToken = splitterColumn.RegisterPropertyChangedCallback(ColumnDefinition.WidthProperty, OnColumnWidthChanged);
+                    slot.DataToken = dataColumn.RegisterPropertyChangedCallback(ColumnDefinition.WidthProperty, OnColumnWidthChanged);
+                }
+
+                UpdateSortIndicators();
             }
             catch (Exception ex)
             {
-                Helpers.DebugLogger.Log($"[DetailsModeView] Error restoring column visibility: {ex.Message}");
+                Helpers.DebugLogger.Log($"[DetailsModeView] RebuildHeaderColumns error: {ex.Message}");
             }
+            finally
+            {
+                _isRebuildingHeader = false;
+            }
+
+            RecalcCellTotalWidths();
+            UpdateAllVisibleContainerWidths();
+
+            // 새 구분선 열의 실제 너비(DPI 반올림)는 다음 레이아웃 뒤에야 알 수 있다
+            void OnHeaderLayoutUpdated(object? sender, object e)
+            {
+                HeaderGrid.LayoutUpdated -= OnHeaderLayoutUpdated;
+                if (_isCleanedUp) return;
+                RecalcCellTotalWidths();
+                UpdateAllVisibleContainerWidths();
+            }
+            HeaderGrid.LayoutUpdated += OnHeaderLayoutUpdated;
+        }
+
+        private void DetachHeaderColumnCallbacks()
+        {
+            foreach (var slot in _slots)
+            {
+                slot.SplitterColumn?.UnregisterPropertyChangedCallback(ColumnDefinition.WidthProperty, slot.SplitterToken);
+                slot.DataColumn?.UnregisterPropertyChangedCallback(ColumnDefinition.WidthProperty, slot.DataToken);
+                slot.SplitterColumn = null;
+                slot.DataColumn = null;
+            }
+        }
+
+        #endregion
+
+        #region Shell Property Columns
+
+        /// <summary>셸 속성을 읽을 수 있는 파일인지 (로컬 디스크, 클라우드 자리 표시자 아님).</summary>
+        private static bool CanReadShellProperties(Models.FileItem file)
+        {
+            if (string.IsNullOrEmpty(file.Path)) return false;
+            if (FileSystemRouter.IsRemotePath(file.Path) || Helpers.ArchivePathHelper.IsArchivePath(file.Path)) return false;
+            return !DetailsColumns.IsCloudPlaceholder(file.Attributes);
+        }
+
+        /// <summary>
+        /// 항목 하나의 셸 속성을 백그라운드에서 읽어 반영. 같은 항목의 중복 요청은 하나의 Task를 공유한다.
+        /// 폴더를 바꾸면 _shellCts 취소로 대기 중인 요청이 빠진다.
+        /// </summary>
+        private Task LoadShellPropertiesAsync(FileViewModel item)
+        {
+            if (item.HasShellProperties) return Task.CompletedTask;
+
+            // 폴더가 바뀌었으면 이전 폴더의 대기 중 요청은 버린다 (Details 뷰는 탐색 이벤트를 따로 받지 않음)
+            var folder = _viewModel?.CurrentFolder;
+            if (!ReferenceEquals(folder, _shellFolder))
+            {
+                CancelShellPropertyLoads();
+                _shellFolder = folder;
+            }
+
+            if (_pendingShellReads.TryGetValue(item, out var pending)) return pending;
+
+            if (item.Model is not Models.FileItem file || !CanReadShellProperties(file))
+            {
+                item.SetShellProperties(ShellPropertyValues.Empty);
+                return Task.CompletedTask;
+            }
+
+            var cached = ShellPropertyReader.TryGetCached(file.Path, file.DateModified, file.Size);
+            if (cached != null)
+            {
+                item.SetShellProperties(cached);
+                return Task.CompletedTask;
+            }
+
+            var task = LoadAsync(_shellCts.Token);
+            if (!task.IsCompleted) _pendingShellReads[item] = task;
+            return task;
+
+            async Task LoadAsync(System.Threading.CancellationToken ct)
+            {
+                try
+                {
+                    var values = await ShellPropertyReader.GetAsync(file.Path, file.DateModified, file.Size, ct);
+                    if (!ct.IsCancellationRequested) item.SetShellProperties(values);
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    Helpers.DebugLogger.Log($"[DetailsModeView] Shell property load failed: {ex.Message}");
+                }
+                finally
+                {
+                    _pendingShellReads.Remove(item);
+                }
+            }
+        }
+
+        /// <summary>셸 컬럼을 막 켰을 때: 이미 화면에 있는 행은 ContainerContentChanging이 다시 안 오므로 직접 요청.</summary>
+        private void RequestShellPropertiesForRealizedItems()
+        {
+            var panel = DetailsListView?.ItemsPanelRoot;
+            if (panel == null) return;
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(panel); i++)
+            {
+                if (VisualTreeHelper.GetChild(panel, i) is ListViewItem { Content: FileViewModel file })
+                    _ = LoadShellPropertiesAsync(file);
+            }
+        }
+
+        /// <summary>셸 속성 기준 정렬: 아직 안 읽은 파일을 모두 읽고 나서 같은 기준이면 다시 정렬.</summary>
+        private async void LoadShellPropertiesForSort(string sortBy)
+        {
+            try
+            {
+                var folder = ViewModel?.CurrentFolder;
+                if (folder == null) return;
+
+                var missing = folder.Children.OfType<FileViewModel>().Where(f => !f.HasShellProperties).ToList();
+                if (missing.Count == 0) return;
+
+                var ct = _shellCts.Token;
+                await Task.WhenAll(missing.Select(LoadShellPropertiesAsync));
+
+                if (ct.IsCancellationRequested || _isCleanedUp) return;
+                if (_currentSortBy != sortBy || ViewModel?.CurrentFolder != folder) return;
+                SortItems(sortBy, _isAscending);
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[DetailsModeView] Shell sort load failed: {ex.Message}");
+            }
+        }
+
+        private void CancelShellPropertyLoads()
+        {
+            try { _shellCts.Cancel(); } catch (ObjectDisposedException) { }
+            _shellCts.Dispose();
+            _shellCts = new System.Threading.CancellationTokenSource();
+            _pendingShellReads.Clear();
         }
 
         #endregion
@@ -1838,17 +1949,8 @@ namespace Span.Views
             var folder = _viewModel.CurrentFolder;
 
             // Git 레포 폴더 → 자동으로 Git 컬럼 표시, 아닌 폴더 → 자동 숨김
-            if (folder.IsGitFolder)
-            {
-                if (!_gitColumnVisible)
-                    ToggleColumnVisibility("Git", true);
-            }
-            else
-            {
-                if (_gitColumnVisible)
-                    ToggleColumnVisibility("Git", false);
-                return;
-            }
+            SetColumnVisible(DetailsColumns.Git, folder.IsGitFolder, persist: false);
+            if (!folder.IsGitFolder) return;
 
             try { _gitCts?.Cancel(); } catch (ObjectDisposedException) { }
             _gitCts = new System.Threading.CancellationTokenSource();
@@ -1920,7 +2022,7 @@ namespace Span.Views
         public void Cleanup()
         {
             if (_isCleanedUp) return;
-            SaveSortSettings();
+            SaveColumnLayout();
             PerformCleanup();
         }
 
@@ -1944,17 +2046,12 @@ namespace Span.Views
                 // Unregister column width callbacks (only if Loaded fired and registered them)
                 if (_isLoaded)
                 {
-                    LocationColumnDef.UnregisterPropertyChangedCallback(ColumnDefinition.WidthProperty, _locationCallbackToken);
-                    DateColumnDef.UnregisterPropertyChangedCallback(ColumnDefinition.WidthProperty, _dateCallbackToken);
-                    TypeColumnDef.UnregisterPropertyChangedCallback(ColumnDefinition.WidthProperty, _typeCallbackToken);
-                    SizeColumnDef.UnregisterPropertyChangedCallback(ColumnDefinition.WidthProperty, _sizeCallbackToken);
-                    GitColumnDef.UnregisterPropertyChangedCallback(ColumnDefinition.WidthProperty, _gitCallbackToken);
-                    Splitter1aColDef.UnregisterPropertyChangedCallback(ColumnDefinition.WidthProperty, _splitter1aCallbackToken);
-                    Splitter1bColDef.UnregisterPropertyChangedCallback(ColumnDefinition.WidthProperty, _splitter1bCallbackToken);
-                    Splitter2ColDef.UnregisterPropertyChangedCallback(ColumnDefinition.WidthProperty, _splitter2CallbackToken);
-                    Splitter3ColDef.UnregisterPropertyChangedCallback(ColumnDefinition.WidthProperty, _splitter3CallbackToken);
-                    Splitter4ColDef.UnregisterPropertyChangedCallback(ColumnDefinition.WidthProperty, _splitter4CallbackToken);
+                    DetachHeaderColumnCallbacks();
                 }
+
+                _layoutSaveTimer?.Stop();
+                CancelShellPropertyLoads();
+                _shellFolder = null;
 
                 if (_settings != null)
                 {

@@ -184,6 +184,8 @@ namespace Span.Services
                             Name = sub.Name,
                             Path = sub.FullName,
                             DateModified = sub.LastWriteTime,
+                            DateCreated = sub.CreationTime,
+                            Attributes = sub.Attributes,
                             IsHidden = (sub.Attributes & FileAttributes.Hidden) != 0
                         };
                         var folderVm = new FolderViewModel(folderItem, _fileService);
@@ -222,6 +224,8 @@ namespace Span.Services
                             Path = f.FullName,
                             Size = f.Length,
                             DateModified = f.LastWriteTime,
+                            DateCreated = f.CreationTime,
+                            Attributes = f.Attributes,
                             FileType = f.Extension,
                             IsHidden = (f.Attributes & FileAttributes.Hidden) != 0
                         };

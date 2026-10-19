@@ -607,6 +607,54 @@ namespace Span.ViewModels
 
         public bool HasRelativeAge => !string.IsNullOrEmpty(RelativeAgeText);
 
+        // ── Details 추가 컬럼 (탐색기 "열 선택") ──
+
+        public System.DateTime DateCreatedValue => _model switch
+        {
+            FileItem f => f.DateCreated,
+            FolderItem d => d.DateCreated,
+            _ => System.DateTime.MinValue
+        };
+
+        public string DateCreated
+        {
+            get
+            {
+                var dt = DateCreatedValue;
+                return dt == System.DateTime.MinValue || dt.Year < 1980 ? string.Empty : dt.ToString("yyyy-MM-dd HH:mm");
+            }
+        }
+
+        public System.IO.FileAttributes AttributesValue => _model switch
+        {
+            FileItem f => f.Attributes,
+            FolderItem d => d.Attributes,
+            _ => 0
+        };
+
+        public string AttributesText => Helpers.DetailsColumns.FormatAttributes(AttributesValue);
+
+        private ShellPropertyValues? _shellProperties;
+
+        /// <summary>셸 속성을 이미 읽었는지 (빈 결과 포함). 폴더는 읽지 않는다.</summary>
+        public bool HasShellProperties => _shellProperties != null;
+
+        public ShellPropertyValues ShellProperties => _shellProperties ?? ShellPropertyValues.Empty;
+
+        public string DimensionsText => ShellProperties.Dimensions;
+        public string DurationText => ShellProperties.Duration;
+        public string AuthorsText => ShellProperties.Authors;
+        public string TitleText => ShellProperties.Title;
+
+        public void SetShellProperties(ShellPropertyValues values)
+        {
+            _shellProperties = values;
+            OnPropertyChanged(nameof(DimensionsText));
+            OnPropertyChanged(nameof(DurationText));
+            OnPropertyChanged(nameof(AuthorsText));
+            OnPropertyChanged(nameof(TitleText));
+        }
+
         private static readonly string[] SizeUnits = { "B", "KB", "MB", "GB", "TB" };
 
         private static string FormatFileSize(long bytes)

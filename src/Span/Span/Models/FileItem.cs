@@ -30,6 +30,12 @@ namespace Span.Models
         /// <summary>마지막 수정 시각.</summary>
         public DateTime DateModified { get; set; }
 
+        /// <summary>만든 날짜. 열거 시 함께 읽힌다 (원격/검색 결과는 MinValue).</summary>
+        public DateTime DateCreated { get; set; }
+
+        /// <summary>파일 특성 (읽기 전용, 숨김 등). 열거 시 함께 읽힌다 (원격/검색 결과는 0).</summary>
+        public System.IO.FileAttributes Attributes { get; set; }
+
         /// <summary>현재 아이콘 팩의 기본 파일 아이콘 글리프. IconService.Current를 통해 런타임에 결정된다.</summary>
         public string IconGlyph => Span.Services.IconService.Current?.FileDefaultGlyph ?? "\uECE0";
 

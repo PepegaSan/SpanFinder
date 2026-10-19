@@ -27,6 +27,12 @@ namespace Span.Models
         /// <summary>마지막 수정 시각.</summary>
         public DateTime DateModified { get; set; }
 
+        /// <summary>만든 날짜. 열거 시 함께 읽힌다 (원격/검색 결과는 MinValue).</summary>
+        public DateTime DateCreated { get; set; }
+
+        /// <summary>폴더 특성 (읽기 전용, 숨김 등). 열거 시 함께 읽힌다 (원격/검색 결과는 0).</summary>
+        public System.IO.FileAttributes Attributes { get; set; }
+
         /// <summary>하위 파일 목록 (구조적 접근용).</summary>
         public List<FileItem> Files { get; set; } = new List<FileItem>();
 

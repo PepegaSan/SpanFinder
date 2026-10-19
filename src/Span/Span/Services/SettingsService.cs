@@ -789,6 +789,15 @@ public class SettingsService : ISettingsService
         set => Set("ViewGroupBy", value);
     }
 
+    public const string DetailsColumnsJsonKey = "DetailsColumnsJson";
+
+    /// <summary>Details 뷰 컬럼 레이아웃(표시·너비·정렬·그룹화) JSON — <see cref="Helpers.DetailsColumnLayout"/>.</summary>
+    public string DetailsColumnsJson
+    {
+        get => Get(DetailsColumnsJsonKey, string.Empty);
+        set => Set(DetailsColumnsJsonKey, value);
+    }
+
     // ── List View Settings ──
 
     public bool ListShowSize

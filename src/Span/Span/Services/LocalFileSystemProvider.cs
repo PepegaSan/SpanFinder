@@ -66,6 +66,8 @@ namespace Span.Services
                             Name = d.Name,
                             Path = LongPathHelper.StripPrefix(d.FullName),
                             DateModified = d.LastWriteTime,
+                            DateCreated = d.CreationTime,
+                            Attributes = attrs,
                             IsHidden = isHidden,
                             HasChildEntries = hasChild
                         });
@@ -84,6 +86,8 @@ namespace Span.Services
                             Path = LongPathHelper.StripPrefix(f.FullName),
                             Size = f.Length,
                             DateModified = f.LastWriteTime,
+                            DateCreated = f.CreationTime,
+                            Attributes = attrs,
                             FileType = f.Extension,
                             IsHidden = isHidden
                         });
