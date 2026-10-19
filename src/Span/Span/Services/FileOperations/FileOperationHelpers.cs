@@ -140,35 +140,42 @@ internal static class FileOperationHelpers
         IProgress<long>? progress,
         CancellationToken cancellationToken)
     {
-        using var sourceStream = new FileStream(
-            source, FileMode.Open, FileAccess.Read, FileShare.Read,
-            bufferSize, FileOptions.SequentialScan);
-
-        using var destStream = new FileStream(
-            destination, FileMode.Create, FileAccess.Write, FileShare.None,
-            bufferSize, FileOptions.SequentialScan);
-
-        var buffer = new byte[bufferSize];
         long copiedBytes = 0;
-        int bytesRead;
-        long lastReportTime = Environment.TickCount64;
 
-        while ((bytesRead = await sourceStream.ReadAsync(buffer, cancellationToken)) > 0)
+        using (var sourceStream = new FileStream(
+            source, FileMode.Open, FileAccess.Read, FileShare.Read,
+            bufferSize, FileOptions.SequentialScan))
+        using (var destStream = new FileStream(
+            destination, FileMode.Create, FileAccess.Write, FileShare.None,
+            bufferSize, FileOptions.SequentialScan))
         {
-            WaitIfPaused(pauseEvent, cancellationToken);
-            await destStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
-            copiedBytes += bytesRead;
+            var buffer = new byte[bufferSize];
+            int bytesRead;
+            long lastReportTime = Environment.TickCount64;
 
-            if (progress != null)
+            while ((bytesRead = await sourceStream.ReadAsync(buffer, cancellationToken)) > 0)
             {
-                long now = Environment.TickCount64;
-                if (now - lastReportTime >= ProgressReportIntervalMs)
+                WaitIfPaused(pauseEvent, cancellationToken);
+                await destStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+                copiedBytes += bytesRead;
+
+                if (progress != null)
                 {
-                    progress.Report(copiedBytes);
-                    lastReportTime = now;
+                    long now = Environment.TickCount64;
+                    if (now - lastReportTime >= ProgressReportIntervalMs)
+                    {
+                        progress.Report(copiedBytes);
+                        lastReportTime = now;
+                    }
                 }
             }
         }
+
+        // A stream copy carries no metadata. Keep "Date modified" like Explorer / File.Copy do
+        // (set after the destination stream is closed, otherwise the final flush would overwrite it).
+        try { File.SetLastWriteTimeUtc(destination, File.GetLastWriteTimeUtc(source)); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
 
         progress?.Report(copiedBytes);
     }

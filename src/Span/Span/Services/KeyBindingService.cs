@@ -279,6 +279,13 @@ public class KeyBindingService
             ["span.tab.openSelectedInNew"] = ["Ctrl+Enter"],
             ["span.view.switchPane"]      = ["F6"],
 
+            // Pane (Dual/Quad) — Total Commander: F5/F6 kopieren/verschieben (bei Span belegt), Shift+F2 vergleichen, Ctrl+U tauschen
+            [ShortcutCommands.CopyToOtherPane]       = ["Shift+F5"],
+            [ShortcutCommands.MoveToOtherPane]       = ["Shift+F6"],
+            [ShortcutCommands.OtherPaneToThisFolder] = ["Ctrl+Shift+U"],
+            [ShortcutCommands.SwapPanes]             = ["Ctrl+U"],
+            [ShortcutCommands.CompareFolders]        = ["Shift+F2"],
+
             // Window
             ["span.window.new"]        = ["Ctrl+N"],
             ["span.window.terminal"]   = ["Ctrl+`", "Ctrl+'"],

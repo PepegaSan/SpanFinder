@@ -725,6 +725,10 @@ namespace Span.Views
                     break;
 
                 case Windows.System.VirtualKey.F2:
+                    // Shift+F2 = Ordner vergleichen (globaler Befehl), kein Umbenennen
+                    if (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
+                            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down))
+                        break;
                     if (selected != null && IsParentDotDot(selected))
                     {
                         e.Handled = true; // Block rename on ".."

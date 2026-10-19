@@ -17,6 +17,9 @@ namespace Span.Services
         void PerformCut(string path);
         void PerformCopy(string path);
         void PerformCopyPath(string path);
+        /// <summary>Ordnername des anderen Bereichs (Ziel für "Kopieren/Verschieben nach"), null ohne geteilte Ansicht.</summary>
+        string? OtherPaneFolderName { get; }
+        void PerformTransferToOtherPane(IReadOnlyList<string> paths, bool move);
         void PerformPaste(string targetFolderPath);
         void PerformDelete(string path, string itemName);
         void PerformRename(FileSystemViewModel item);

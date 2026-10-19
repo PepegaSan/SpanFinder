@@ -47,6 +47,41 @@ public class CopyFileOperationTests
     }
 
     [TestMethod]
+    public async Task CopySingleFile_KeepsDateModified()
+    {
+        // Like Explorer: a copy keeps the source's "Date modified" (the stream copy used for progress
+        // reporting used to stamp the copy time instead, so folder compare saw every copy as newer).
+        var srcFile = Path.Combine(_sourceDir, "old.txt");
+        File.WriteAllText(srcFile, "content");
+        var stamp = new DateTime(2020, 5, 17, 9, 30, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(srcFile, stamp);
+
+        var op = new CopyFileOperation(new List<string> { srcFile }, _destDir);
+        var result = await op.ExecuteAsync();
+
+        Assert.IsTrue(result.Success);
+        Assert.AreEqual(stamp, File.GetLastWriteTimeUtc(Path.Combine(_destDir, "old.txt")));
+    }
+
+    [TestMethod]
+    public async Task CopyDirectory_LargeFile_KeepsDateModified()
+    {
+        // Files above the buffer size go through the stream copy inside directories too.
+        var subDir = Path.Combine(_sourceDir, "big");
+        Directory.CreateDirectory(subDir);
+        var bigFile = Path.Combine(subDir, "big.bin");
+        File.WriteAllBytes(bigFile, new byte[FileOperationHelpers.DefaultBufferSize + 1]);
+        var stamp = new DateTime(2019, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(bigFile, stamp);
+
+        var op = new CopyFileOperation(new List<string> { subDir }, _destDir);
+        var result = await op.ExecuteAsync();
+
+        Assert.IsTrue(result.Success);
+        Assert.AreEqual(stamp, File.GetLastWriteTimeUtc(Path.Combine(_destDir, "big", "big.bin")));
+    }
+
+    [TestMethod]
     public async Task CopyDirectory_RecursiveCopy()
     {
         var subDir = Path.Combine(_sourceDir, "mydir");

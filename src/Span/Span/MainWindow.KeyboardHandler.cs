@@ -891,6 +891,13 @@ namespace Span
                     }
                     return true;
 
+                // Pane (Dual/Quad)
+                case ShortcutCommands.CopyToOtherPane: HandleTransferToOtherPane(move: false); return true;
+                case ShortcutCommands.MoveToOtherPane: HandleTransferToOtherPane(move: true); return true;
+                case ShortcutCommands.OtherPaneToThisFolder: HandleOtherPaneToThisFolder(); return true;
+                case ShortcutCommands.SwapPanes: HandleSwapPanes(); return true;
+                case ShortcutCommands.CompareFolders: HandleCompareFolders(); return true;
+
                 // Window
                 case ShortcutCommands.NewWindow: OpenNewWindow(); return true;
                 case ShortcutCommands.OpenTerminal: HandleOpenTerminal(); return true;

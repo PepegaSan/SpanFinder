@@ -69,6 +69,13 @@ namespace Span.Models
         public const string OpenInNewTab = "span.tab.openSelectedInNew";
         public const string SwitchPane = "span.view.switchPane";
 
+        // ── Pane (Dual/Quad) ──
+        public const string CopyToOtherPane = "span.pane.copyToOther";
+        public const string MoveToOtherPane = "span.pane.moveToOther";
+        public const string OtherPaneToThisFolder = "span.pane.otherToHere";
+        public const string SwapPanes = "span.pane.swap";
+        public const string CompareFolders = "span.pane.compare";
+
         // ── Window ──────────────────────────────────────────────
         public const string NewWindow = "span.window.new";
         public const string OpenTerminal = "span.window.terminal";
@@ -213,6 +220,12 @@ namespace Span.Models
             { PrevTab, "Tab" },
             { OpenInNewTab, "Tab" },
             { SwitchPane, "View" },
+            // Pane (Dual/Quad)
+            { CopyToOtherPane, "Edit" },
+            { MoveToOtherPane, "Edit" },
+            { OtherPaneToThisFolder, "View" },
+            { SwapPanes, "View" },
+            { CompareFolders, "Selection" },
             // Window
             { NewWindow, "Window" },
             { OpenTerminal, "Window" },
@@ -353,6 +366,11 @@ namespace Span.Models
             { NextTab, "Shortcut_NextTab" },
             { PrevTab, "Shortcut_PrevTab" },
             { SwitchPane, "Shortcut_SwitchPane" },
+            { CopyToOtherPane, "Shortcut_CopyToOtherPane" },
+            { MoveToOtherPane, "Shortcut_MoveToOtherPane" },
+            { OtherPaneToThisFolder, "Shortcut_OtherPaneToThisFolder" },
+            { SwapPanes, "Shortcut_SwapPanes" },
+            { CompareFolders, "Shortcut_CompareFolders" },
             { NewWindow, "Shortcut_NewWindow" },
             { OpenTerminal, "Shortcut_OpenTerminal" },
             { OpenSettings, "Shortcut_OpenSettings" },

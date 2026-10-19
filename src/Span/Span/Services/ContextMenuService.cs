@@ -125,6 +125,17 @@ namespace Span.Services
 
             if (CanUseNativeShellMenu(path))
             {
+                // Geteilte Ansicht: Auswahl in den anderen Bereich kopieren/verschieben
+                var otherPane = host.OtherPaneFolderName;
+                if (otherPane != null)
+                {
+                    var transferPaths = host.GetSelectedPathsForContextMenu(path);
+                    items.Add(new(string.Format(_loc.Get("CopyToOtherPane"), otherPane),
+                        () => host.PerformTransferToOtherPane(transferPaths, move: false)));
+                    items.Add(new(string.Format(_loc.Get("MoveToOtherPane"), otherPane),
+                        () => host.PerformTransferToOtherPane(transferPaths, move: true)));
+                }
+
                 if (host.IsFavorite(path))
                 {
                     items.Add(new(_loc.Get("RemoveFromFavorites"), () => host.RemoveFromFavorites(path)));
@@ -503,6 +514,22 @@ namespace Span.Services
             _shellNewService = shellNewService;
         }
 
+        /// <summary>Geteilte Ansicht: "Kopieren nach ‹anderer Bereich›" / "Verschieben nach ‹anderer Bereich›".</summary>
+        private void AddOtherPaneItems(MenuFlyout menu, string path, IContextMenuHost host, bool allowMove)
+        {
+            var otherPane = host.OtherPaneFolderName;
+            if (otherPane == null) return;
+
+            var paths = host.GetSelectedPathsForContextMenu(path);
+            menu.Items.Add(CreateItem(string.Format(_loc.Get("CopyToOtherPane"), otherPane), "",
+                () => host.PerformTransferToOtherPane(paths, move: false)));
+            if (allowMove)
+            {
+                menu.Items.Add(CreateItem(string.Format(_loc.Get("MoveToOtherPane"), otherPane), "",
+                    () => host.PerformTransferToOtherPane(paths, move: true)));
+            }
+        }
+
         public async Task<MenuFlyout> BuildFileMenuAsync(FileViewModel file, IContextMenuHost host, bool forceShellExtensions = false)
         {
             try { SentrySdk.AddBreadcrumb($"BuildFileMenu file={System.IO.Path.GetFileName(file.Path)}", "shell.menu"); } catch { }
@@ -548,6 +575,7 @@ namespace Span.Services
                     menu.Items.Add(CreateItem(_loc.Get("Cut"), "\uE8C6", () => host.PerformCut(file.Path), "X"));
                 }
                 menu.Items.Add(CreateItem(_loc.Get("Copy"), "\uE8C8", () => host.PerformCopy(file.Path), "C"));
+                AddOtherPaneItems(menu, file.Path, host, allowMove: !isArchive);
                 menu.Items.Add(new MenuFlyoutSeparator());
 
                 if (!isArchive)
@@ -638,6 +666,8 @@ namespace Span.Services
                 folderPaste.IsEnabled = host.HasClipboardContent;
                 menu.Items.Add(folderPaste);
             }
+            if (!isRemote)
+                AddOtherPaneItems(menu, folder.Path, host, allowMove: !isArchive);
             menu.Items.Add(new MenuFlyoutSeparator());
 
             if (!isRemote && !isArchive)

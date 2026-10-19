@@ -6,6 +6,22 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 ## Summary of fork changes
 
+### Commands between panes (October 2026)
+
+Total Commander / OneCommander-style commands for Dual and Quad layouts. "The other pane" is the pane that was active before the current one, so in Quad you click the target first, then the source.
+
+| Shortcut | Command |
+|----------|---------|
+| `Shift+F5` | Copy selection to the other pane (asks for the target; in Quad all other panes are offered, Enter confirms) |
+| `Shift+F6` | Move selection to the other pane (same dialog) |
+| `Shift+F2` | Compare folders: selects everything here that is missing or older in the other pane, then `Shift+F5` copies the differences. The toast also counts what exists only there or is newer there. Files are matched by name, then by date modified (2 s tolerance for FAT) and size; subfolders present on both sides are not compared |
+| `Ctrl+U` | Swap the folders of the two panes |
+| `Ctrl+Shift+U` | Navigate the other pane to this folder |
+
+- Right-click a file or folder in split view: **Copy to “‹folder›”** / **Move to “‹folder›”** (native Windows menu footer and Span menu).
+- All shortcuts can be changed in Settings → Shortcuts and are in the command palette (`Ctrl+K`).
+- **Fix:** copying a file now keeps its **Date modified** like Explorer does (the progress-reporting copy used to stamp the copy time; also affected moves between drives).
+
 ### Details view: choose columns like Windows Explorer (October 2026)
 
 - **Right-click the column header** to show or hide columns, like Explorer: *Date modified*, *Type*, *Size*, plus new **Date created**, **Attributes** (R/H/S/A/…), **Dimensions** (images, videos), **Length** (audio, video), **Authors** and **Title**. *Reset columns* restores the Explorer defaults.

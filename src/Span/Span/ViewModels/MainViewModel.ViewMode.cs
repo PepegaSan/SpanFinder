@@ -523,6 +523,17 @@ namespace Span.ViewModels
             return new[] { ActivePane.Left, ActivePane.Right };
         }
 
+        /// <summary>
+        /// Zuletzt aktiver Bereich vor dem aktuellen. Ziel der Befehle "In anderen Bereich kopieren/verschieben"
+        /// im Vierfach-Layout: erst ins Ziel klicken, dann in die Quelle (wie bei Total Commander mit zwei Bereichen).
+        /// </summary>
+        public ActivePane? PreviousActivePane { get; private set; }
+
+        partial void OnActivePaneChanged(ActivePane oldValue, ActivePane newValue)
+        {
+            PreviousActivePane = oldValue;
+        }
+
         public ExplorerViewModel GetExplorerForPane(ActivePane pane) => pane switch
         {
             ActivePane.Left => LeftExplorer,
