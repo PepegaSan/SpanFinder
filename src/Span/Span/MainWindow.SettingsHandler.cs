@@ -858,6 +858,10 @@ namespace Span
                     Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, () => ApplyTheme(value as string ?? "system"));
                     break;
 
+                case "CustomCommandsJson":
+                    Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, RebuildCustomCommandsBar);
+                    break;
+
                 case "FontFamily":
                     Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, () => ApplyFontFamily(value as string ?? "Segoe UI Variable"));
                     break;

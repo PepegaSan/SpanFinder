@@ -904,6 +904,7 @@ public sealed partial class SettingsModeView : UserControl
             HomeRecentFilesLabel.Text = _loc.Get("Settings_HomeRecentFiles");
             HomeRecentFilesDesc.Text = _loc.Get("Settings_HomeRecentFilesDesc");
             LocalizeColorTags();
+            LocalizeCustomCommands();
             UseEverythingLabel.Text = _loc.Get("Settings_UseEverythingSearch");
             UseEverythingDesc.Text = _loc.Get("Settings_UseEverythingSearchDesc");
 

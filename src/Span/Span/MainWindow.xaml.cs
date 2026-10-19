@@ -1034,6 +1034,7 @@ namespace Span
             ApplyDensity(_settings.Density);
             ApplyIconFontScale(_settings.IconFontScale);
             _settings.SettingChanged += OnSettingChanged;
+            RebuildCustomCommandsBar();
 
             // Connect Language setting to LocalizationService
             // "system" resolves to OS locale via ResolveSystemLanguage()

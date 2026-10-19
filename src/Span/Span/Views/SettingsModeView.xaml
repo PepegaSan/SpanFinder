@@ -1830,6 +1830,27 @@
                         <StackPanel Padding="20" Spacing="0">
                             <TextBlock x:Name="ToolsTitle" Text="도구" Style="{StaticResource SettingsSectionTitle}" />
 
+                            <!-- Eigene Befehle: Toolbar-Buttons (Zeilen in SettingsModeView.CustomCommands.cs) -->
+                            <Border x:Name="CustomCommandsCard" Style="{StaticResource SettingsCardBorder}">
+                                <StackPanel Spacing="12">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0" Style="{StaticResource CardIconContainer}">
+                                            <FontIcon Glyph="&#xE756;" Style="{StaticResource CardIconStyle}" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock x:Name="CustomCommandsLabel" Text="Custom commands" Style="{StaticResource SettingsCardLabel}" />
+                                            <TextBlock x:Name="CustomCommandsDesc" Text="" Style="{StaticResource SettingsCardDesc}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <StackPanel x:Name="CustomCommandListPanel" Margin="48,0,0,0" Spacing="10" />
+                                    <Button x:Name="CustomCommandAddButton" Margin="48,0,0,0" Content="Add command" Click="OnCustomCommandAddClick" />
+                                </StackPanel>
+                            </Border>
+
                             <!-- File Shelf -->
                             <Border Style="{StaticResource SettingsCardBorder}">
                                 <Grid>

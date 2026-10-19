@@ -6,6 +6,12 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 ## Summary of fork changes
 
+### Custom commands as toolbar buttons (October 2026)
+
+- **Settings → Tools → Custom commands**: define buttons that start a program or script with the current selection, e.g. "convert with ffmpeg" or "open in Q-cut". Each command has a name, an icon (or its name as text), the program (with **Browse…**), arguments and **Run once for each selected file**. Order and delete like the color tags; changes apply immediately.
+- Placeholders in the arguments: `{files}` all selected files, `{file}` the first one, `{folder}` the current folder (all quoted), `{name}` file name without extension, `{ext}` extension. Environment variables such as `%USERPROFILE%` work in the program path. The program runs in the current folder.
+- Commands that need files report when nothing is selected; more than 20 single runs ask first. Remote and archive paths are not passed on.
+
 ### Editable file properties in the preview pane (October 2026)
 
 - The preview pane gets a **Properties** section like Explorer's details pane: **Rating** (stars), **Title**, **Authors**, **Tags** and **Comments** can be edited and are written into the file's metadata (the same values Explorer, Photos and media players show). **Save**/**Cancel** appear after a change; Enter saves, Esc discards (in Comments, Ctrl+Enter saves).

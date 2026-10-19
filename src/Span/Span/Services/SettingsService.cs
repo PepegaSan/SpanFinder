@@ -517,6 +517,13 @@ public class SettingsService : ISettingsService
         set => Set("HomeShowRecentFiles", value);
     }
 
+    /// <summary>Eigene Befehle (Toolbar-Buttons) als JSON — siehe CustomCommands.</summary>
+    public string CustomCommandsJson
+    {
+        get => Get("CustomCommandsJson", string.Empty);
+        set => Set("CustomCommandsJson", value);
+    }
+
     /// <summary>Farb-Tags (Id, Name, Farbe) als JSON — siehe ColorTagCatalog. Leer = Standard-Tags.</summary>
     public string ColorTagsJson
     {

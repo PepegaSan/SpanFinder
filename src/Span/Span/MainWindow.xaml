@@ -335,6 +335,8 @@
                             Visibility="{x:Bind IsNotSpecialMode(ViewModel.CurrentViewMode), Mode=OneWay}">
                         <FontIcon x:Name="QuadSplitIcon" FontFamily="{StaticResource RemixIcons}" Glyph="{StaticResource Icon_SplitOrientationQuad}" FontSize="16"/>
                     </Button>
+                    <!-- Eigene Befehle (Einstellungen → Werkzeuge), Buttons in MainWindow.CustomCommands.cs -->
+                    <StackPanel x:Name="CustomCommandsBar" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center"/>
                 </StackPanel>
 
                 <!-- ═══ RecycleBin Commands (icon-only, shown in RecycleBin mode) ═══ -->
