@@ -42,6 +42,7 @@ namespace Span.Services
         bool MinimizeToTray { get; set; }
         bool RememberWindowPosition { get; set; }
         bool ShowFavoritesTree { get; set; }
+        bool ShowDrivesTree { get; set; }
         bool ShowWindowsShellExtras { get; set; }
         bool ShowShellExtensions { get; set; }
         bool ShowCopilotMenu { get; set; }

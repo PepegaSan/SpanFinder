@@ -345,6 +345,7 @@ namespace Span
             AddSettingToggle(catalog, ShortcutCommands.SettingsTogglePreviewFolderInfo, "Settings_PreviewFolderInfo", settings.PreviewShowFolderInfo, new[] { "folder info", "폴더정보" });
             AddSettingToggle(catalog, ShortcutCommands.SettingsToggleDefaultPreview, "Settings_DefaultPreview", settings.DefaultPreviewEnabled, new[] { "default preview", "기본미리보기" });
             AddSettingToggle(catalog, ShortcutCommands.SettingsToggleFavoritesTree, "Settings_ShowFavoritesTree", settings.ShowFavoritesTree, new[] { "favorites tree", "즐겨찾기 트리" });
+            AddSettingToggle(catalog, ShortcutCommands.SettingsToggleDrivesTree, "Settings_DrivesTree", settings.ShowDrivesTree, new[] { "folder tree", "drives tree", "ordnerbaum", "navigation pane" });
             AddSettingToggle(catalog, ShortcutCommands.SettingsToggleShelf, "Settings_ShelfEnabled", settings.ShelfEnabled, new[] { "shelf", "선반" });
             AddSettingToggle(catalog, ShortcutCommands.SettingsToggleShelfSave, "Settings_ShelfSave", settings.ShelfSaveEnabled, new[] { "shelf save", "선반 저장" });
             AddSettingToggle(catalog, ShortcutCommands.SettingsToggleContextMenu, "Settings_ShowContextMenu", settings.ShowContextMenu, new[] { "context menu", "컨텍스트" });

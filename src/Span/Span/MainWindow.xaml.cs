@@ -1119,6 +1119,7 @@ namespace Span
 
                         // Populate favorites tree for tear-off window
                         ApplyFavoritesTreeMode(_settings.ShowFavoritesTree);
+                        ApplyDrivesTreeMode(_settings.ShowDrivesTree);
                         PopulateFavoritesTree();
                         ViewModel.Favorites.CollectionChanged += OnFavoritesCollectionChanged;
                         ApplySidebarSectionVisibility();
@@ -1242,6 +1243,7 @@ namespace Span
 
                     // ── Populate Favorites Tree and observe changes ──
                     ApplyFavoritesTreeMode(_settings.ShowFavoritesTree);
+                    ApplyDrivesTreeMode(_settings.ShowDrivesTree);
                     PopulateFavoritesTree();
                     ViewModel.Favorites.CollectionChanged += OnFavoritesCollectionChanged;
                     ApplySidebarSectionVisibility();

@@ -6,6 +6,12 @@ Changes in this fork compared to the official Span Finder (as of June 2026).
 
 ## Summary of fork changes
 
+### Drives as folder tree (October 2026)
+
+- New option **Settings → Sidebar → Drives as folder tree** (also in the command palette): the local drives in the sidebar become an expandable folder tree, like Explorer's navigation pane. Off by default; the favorites tree is unchanged and independent.
+- Subfolders load when a node is expanded and follow the "show hidden files" setting. The tree **expands to the folder that is open** in the active pane and highlights it.
+- Click opens the drive/folder, right-click shows the drive menu or the Windows context menu of the folder, and files can be dropped onto drives and folders in the tree. Drive usage bars stay visible.
+
 ### Sort and grouping per folder (October 2026)
 
 - **Each folder remembers its sort and grouping**: change them in a folder (column header, toolbar sort button, right-click menu) and that folder opens the same way next time. Your latest choice is also the default for folders you have not customized. The view mode (Miller/Details/List/Icons) is not changed per folder.

@@ -104,7 +104,7 @@ namespace Span.Models
         {
             nameof(TotalSize), nameof(AvailableFreeSpace), nameof(UsagePercent), nameof(HasUsage),
             nameof(IsAlmostFull), nameof(SizeDescription), nameof(TooltipText),
-            "LocalizedSizeDescription", "LocalizedTooltipText",
+            "LocalizedSizeDescription", "LocalizedTooltipText", "UsageBarVisibility",
         };
 
         private void OnSpaceChanged()

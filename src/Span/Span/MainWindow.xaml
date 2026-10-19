@@ -611,8 +611,9 @@
                                        Foreground="{ThemeResource SpanTextTertiaryBrush}" FontWeight="SemiBold"
                                        VerticalAlignment="Center"/>
                         </Grid>
-                        <ItemsControl ItemsSource="{x:Bind ViewModel.Drives, Mode=OneWay}"
-                                      Visibility="{x:Bind ViewModel.IsLocalDrivesExpanded, Mode=OneWay}">
+                        <!-- Flache Liste oder (Einstellung "Laufwerke als Ordnerbaum") Baum wie der Explorer-Navigationsbereich -->
+                        <Grid Visibility="{x:Bind ViewModel.IsLocalDrivesExpanded, Mode=OneWay}">
+                        <ItemsControl x:Name="LocalDrivesList" ItemsSource="{x:Bind ViewModel.Drives, Mode=OneWay}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="models:DriveItem">
                                     <Grid MinHeight="26" Padding="12,3,8,3" Margin="8,1" CornerRadius="6" Background="Transparent"
@@ -642,6 +643,60 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+
+                        <TreeView x:Name="DrivesTreeView"
+                                  Visibility="Collapsed"
+                                  SelectionMode="Single"
+                                  ItemInvoked="OnDrivesTreeItemInvoked"
+                                  Expanding="OnDrivesTreeExpanding"
+                                  CanDragItems="False"
+                                  CanReorderItems="False">
+                            <TreeView.ItemContainerStyle>
+                                <Style TargetType="TreeViewItem">
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="MinHeight" Value="26"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <Setter Property="helpers:CursorHelper.IsHandCursor" Value="True"/>
+                                </Style>
+                            </TreeView.ItemContainerStyle>
+                            <TreeView.ItemTemplate>
+                                <DataTemplate x:DataType="TreeViewNode">
+                                    <!-- Content: DriveItem (Wurzel) oder SidebarFolderNode (Unterordner) -->
+                                    <Grid Background="Transparent" Padding="0,2"
+                                          ToolTipService.ToolTip="{Binding Content.Path}"
+                                          RightTapped="OnDrivesTreeItemRightTapped"
+                                          AllowDrop="True" DragOver="OnDrivesTreeItemDragOver" Drop="OnDrivesTreeItemDrop" DragLeave="OnDrivesTreeItemDragLeave">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid VerticalAlignment="Center" Margin="0,0,8,0">
+                                            <Image Source="{Binding Content.CustomIcon, Mode=OneWay}"
+                                                   Visibility="{Binding Content.CustomIconVisibility, Mode=OneWay, FallbackValue=Collapsed}"
+                                                   Width="16" Height="16"/>
+                                            <TextBlock Text="{Binding Content.IconGlyph}"
+                                                       FontFamily="{StaticResource RemixIcons}"
+                                                       FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}"
+                                                       Foreground="{Binding Content.IconBrush}"
+                                                       Visibility="{Binding Content.GlyphVisibility, Mode=OneWay, FallbackValue=Visible}"/>
+                                        </Grid>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="{Binding Content.Name}"
+                                                       FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <!-- Belegungsbalken nur an Laufwerken -->
+                                            <ProgressBar Value="{Binding Content.UsagePercent, Mode=OneWay, FallbackValue=0}" Maximum="100"
+                                                         ShowError="{Binding Content.IsAlmostFull, Mode=OneWay, FallbackValue=False}"
+                                                         Visibility="{Binding Content.UsageBarVisibility, Mode=OneWay, FallbackValue=Collapsed}"
+                                                         Foreground="{ThemeResource SpanAccentBrush}"
+                                                         Height="3" MinHeight="3" CornerRadius="1.5" Margin="0,0,8,0"
+                                                         IsHitTestVisible="False"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </TreeView.ItemTemplate>
+                        </TreeView>
+                        </Grid>
 
                         </StackPanel>
 

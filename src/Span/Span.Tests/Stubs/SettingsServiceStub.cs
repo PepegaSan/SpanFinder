@@ -53,6 +53,7 @@ public class SettingsServiceStub : ISettingsService
     public bool MinimizeToTray { get; set; }
     public bool RememberWindowPosition { get; set; } = true;
     public bool ShowFavoritesTree { get; set; } = true;
+    public bool ShowDrivesTree { get; set; }
     public bool ShowWindowsShellExtras { get; set; } = true;
     public bool ShowShellExtensions { get; set; }
     public bool ShowCopilotMenu { get; set; }

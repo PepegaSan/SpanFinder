@@ -171,6 +171,7 @@ public sealed partial class SettingsModeView : UserControl
             UseEverythingToggle.IsOn = _settings.UseEverythingSearch;
 
             FavoritesTreeToggle.IsOn = _settings.ShowFavoritesTree;
+            DrivesTreeToggle.IsOn = _settings.ShowDrivesTree;
             SystemTrayToggle.IsOn = _settings.MinimizeToTray;
             WindowPositionToggle.IsOn = _settings.RememberWindowPosition;
             // v1.5.2 (Discussion #30): 온보딩 표시 안 함 토글
@@ -388,6 +389,7 @@ public sealed partial class SettingsModeView : UserControl
         };
 
         FavoritesTreeToggle.Toggled += (s, e) => { if (!_isLoading) _settings.ShowFavoritesTree = FavoritesTreeToggle.IsOn; };
+        DrivesTreeToggle.Toggled += (s, e) => { if (!_isLoading) _settings.ShowDrivesTree = DrivesTreeToggle.IsOn; };
         SystemTrayToggle.Toggled += (s, e) => { if (!_isLoading) _settings.MinimizeToTray = SystemTrayToggle.IsOn; };
         WindowPositionToggle.Toggled += (s, e) => { if (!_isLoading) _settings.RememberWindowPosition = WindowPositionToggle.IsOn; };
 
@@ -520,7 +522,7 @@ public sealed partial class SettingsModeView : UserControl
             Helpers.CursorHelper.SetHandCursor(rb);
 
         foreach (var toggle in new[] {
-            FavoritesTreeToggle, SystemTrayToggle, WindowPositionToggle,
+            FavoritesTreeToggle, DrivesTreeToggle, SystemTrayToggle, WindowPositionToggle,
             ShellExtrasToggle, ShellExtensionsToggle, GitIntegrationToggle,
             HexPreviewToggle, FileHashToggle, CopilotMenuToggle, ContextMenuToggle, CrashReportToggle,
             IsolatedThumbsToggle, WasdNavToggle,
@@ -731,6 +733,8 @@ public sealed partial class SettingsModeView : UserControl
             ShelfSaveDesc.Text = _loc.Get("Settings_ShelfSaveDesc");
             FavTreeLabel.Text = _loc.Get("Settings_FavoritesTree");
             FavTreeDesc.Text = _loc.Get("Settings_FavoritesTreeDesc");
+            DrivesTreeLabel.Text = _loc.Get("Settings_DrivesTree");
+            DrivesTreeDesc.Text = _loc.Get("Settings_DrivesTreeDesc");
             SysTrayLabel.Text = _loc.Get("Settings_SystemTray");
             SysTrayDesc.Text = _loc.Get("Settings_SystemTrayDesc");
             WinPosLabel.Text = _loc.Get("Settings_WindowPosition");

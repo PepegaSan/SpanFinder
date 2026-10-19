@@ -872,6 +872,9 @@ namespace Span
 
                 case "ShowHiddenFiles":
                 case "ShowFileExtensions":
+                    // Laufwerksbaum mit/ohne versteckte Ordner neu aufbauen
+                    if (key == "ShowHiddenFiles" && _settings.ShowDrivesTree)
+                        Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, () => ApplyDrivesTreeMode(true));
                     // Invalidate cached setting before refreshing
                     ViewModels.FileSystemViewModel.InvalidateDisplayNameCache();
                     // Refresh all columns in active explorer + notify DisplayName change
@@ -909,6 +912,10 @@ namespace Span
 
                 case "ShowFavoritesTree":
                     Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, () => ApplyFavoritesTreeMode(value is bool v && v));
+                    break;
+
+                case "ShowDrivesTree":
+                    Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, () => ApplyDrivesTreeMode(value is bool dt && dt));
                     break;
 
                 case "ShowGitIntegration":

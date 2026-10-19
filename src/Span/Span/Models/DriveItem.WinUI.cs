@@ -18,6 +18,9 @@ namespace Span.Models
             ? string.Empty
             : string.Format(Services.LocalizationService.L("Drive_FreeOf"), FormatSize(AvailableFreeSpace), FormatSize(TotalSize));
 
+        /// <summary>Belegungsbalken im Laufwerksbaum ({Binding} wandelt bool nicht selbst in Visibility um).</summary>
+        public Visibility UsageBarVisibility => HasUsage ? Visibility.Visible : Visibility.Collapsed;
+
         /// <summary>Seitenleisten-Tooltip: Name + Speicherplatz.</summary>
         public string LocalizedTooltipText => TotalSize <= 0 ? Name : $"{Name}\n{LocalizedSizeDescription}";
     }

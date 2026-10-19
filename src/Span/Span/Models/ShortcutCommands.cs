@@ -110,6 +110,7 @@ namespace Span.Models
         public const string SettingsTogglePreviewFolderInfo = "span.settings.toggle.previewFolderInfo";
         public const string SettingsToggleDefaultPreview = "span.settings.toggle.defaultPreview";
         public const string SettingsToggleFavoritesTree = "span.settings.toggle.favoritesTree";
+        public const string SettingsToggleDrivesTree = "span.settings.toggle.drivesTree";
         public const string SettingsToggleShelf = "span.settings.toggle.shelf";
         public const string SettingsToggleShelfSave = "span.settings.toggle.shelfSave";
         public const string SettingsToggleContextMenu = "span.settings.toggle.contextMenu";
@@ -257,6 +258,7 @@ namespace Span.Models
             { SettingsTogglePreviewFolderInfo, "Settings" },
             { SettingsToggleDefaultPreview, "Settings" },
             { SettingsToggleFavoritesTree, "Settings" },
+            { SettingsToggleDrivesTree, "Settings" },
             { SettingsToggleShelf, "Settings" },
             { SettingsToggleShelfSave, "Settings" },
             { SettingsToggleContextMenu, "Settings" },
@@ -401,6 +403,7 @@ namespace Span.Models
             { SettingsTogglePreviewFolderInfo, "Settings_PreviewFolderInfo" },
             { SettingsToggleDefaultPreview, "Settings_DefaultPreview" },
             { SettingsToggleFavoritesTree, "Settings_ShowFavoritesTree" },
+            { SettingsToggleDrivesTree, "Settings_DrivesTree" },
             { SettingsToggleShelf, "Settings_ShelfEnabled" },
             { SettingsToggleShelfSave, "Settings_ShelfSave" },
             { SettingsToggleContextMenu, "Settings_ShowContextMenu" },

@@ -565,6 +565,13 @@ public class SettingsService : ISettingsService
         set => Set("RememberWindowPosition", value);
     }
 
+    /// <summary>Lokale Laufwerke in der Seitenleiste als Ordnerbaum (Explorer-Navigationsbereich).</summary>
+    public bool ShowDrivesTree
+    {
+        get => Get("ShowDrivesTree", false);
+        set => Set("ShowDrivesTree", value);
+    }
+
     public bool ShowFavoritesTree
     {
         get => Get("ShowFavoritesTree", false);

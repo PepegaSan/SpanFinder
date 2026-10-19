@@ -277,6 +277,8 @@ namespace Span.Services
                 ["Settings_ViewIcon"] = "Ikony",
                 ["Settings_FavoritesTree"] = "Drzewo ulubionych",
                 ["Settings_FavoritesTreeDesc"] = "Wyświetlaj ulubione jako drzewo z możliwością przeglądania podfolderów",
+                ["Settings_DrivesTree"] = "Dyski jako drzewo folderów",
+                ["Settings_DrivesTreeDesc"] = "Pokazuje dyski lokalne jako rozwijane drzewo folderów, które podąża za otwartym folderem (jak okienko nawigacji Eksploratora)",
                 ["Settings_SystemTray"] = "Obszar powiadomień",
                 ["Settings_SystemTrayDesc"] = "Minimalizuj do obszaru powiadomień po naciśnięciu przycisku zamknięcia",
                 ["Settings_WindowPosition"] = "Zapamiętuj położenie okna",

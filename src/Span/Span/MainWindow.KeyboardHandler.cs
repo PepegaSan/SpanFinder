@@ -989,6 +989,10 @@ namespace Span
                     settings.ShowFavoritesTree = !settings.ShowFavoritesTree;
                     ShowSettingToast("Settings_ShowFavoritesTree", settings.ShowFavoritesTree);
                     return true;
+                case ShortcutCommands.SettingsToggleDrivesTree:
+                    settings.ShowDrivesTree = !settings.ShowDrivesTree;
+                    ShowSettingToast("Settings_DrivesTree", settings.ShowDrivesTree);
+                    return true;
                 case ShortcutCommands.SettingsToggleShelf:
                     settings.ShelfEnabled = !settings.ShelfEnabled;
                     ApplyShelfEnabledSetting(settings.ShelfEnabled);
