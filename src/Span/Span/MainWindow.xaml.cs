@@ -965,6 +965,18 @@ namespace Span
                 true
             );
 
+            // Aufgeschobene Aktivierung (Klick im inaktiven Fenster) beim Loslassen nachholen
+            this.Content.AddHandler(
+                UIElement.PointerReleasedEvent,
+                new PointerEventHandler(OnGlobalPointerReleased),
+                true
+            );
+            this.Content.AddHandler(
+                UIElement.PointerCaptureLostEvent,
+                new PointerEventHandler(OnGlobalPointerCaptureLost),
+                true
+            );
+
             // ★ Ctrl+Mouse Wheel view mode cycling (global — works in ALL views)
             this.Content.AddHandler(
                 UIElement.PointerWheelChangedEvent,
@@ -986,6 +998,7 @@ namespace Span
             // WM_DEVICECHANGE: detect USB drive plug/unplug
             _subclassProc = new SUBCLASSPROC(WndProc);
             SetWindowSubclass(_hwnd, _subclassProc, IntPtr.Zero, IntPtr.Zero);
+            InstallActivationHook();
             EnsureChildSubclasses();
             this.Activated += (s, e) => EnsureChildSubclasses();
 
@@ -1817,6 +1830,11 @@ namespace Span
                 {
                     if (_subclassProc != null)
                     {
+                        if (_cbtHook != IntPtr.Zero)
+                        {
+                            UnhookWindowsHookEx(_cbtHook);
+                            _cbtHook = IntPtr.Zero;
+                        }
                         RemoveWindowSubclass(_hwnd, _subclassProc, IntPtr.Zero);
                         foreach (var child in _subclassedChildren)
                             RemoveWindowSubclass(child, _subclassProc, IntPtr.Zero);
@@ -1861,6 +1879,41 @@ namespace Span
         /// Win32 subclass procedure to intercept WM_DEVICECHANGE for USB hotplug detection.
         /// </summary>
         private const uint WM_SYSCHAR = 0x0106;
+
+        // ---- Aktivierungs-Hook: Klick auf ein Element im inaktiven Fenster (Explorer-Verhalten) ----
+        // WinUI liefert Maus-/Pointer-Nachrichten nicht über die Fensterprozedur und aktiviert das Fenster
+        // beim Drücken selbst per SetForegroundWindow. Der einzige gemeinsame Punkt ist der CBT-Hook.
+        private delegate IntPtr HOOKPROC(int nCode, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(int idHook, HOOKPROC lpfn, IntPtr hMod, uint dwThreadId);
+
+        [DllImport("user32.dll")]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+        private const int WH_CBT = 5;
+        private const int HCBT_ACTIVATE = 5;
+
+        private IntPtr _cbtHook;
+        private HOOKPROC? _cbtProc; // prevent GC collection
+
+        private void InstallActivationHook()
+        {
+            _cbtProc = CbtProc;
+            _cbtHook = SetWindowsHookEx(WH_CBT, _cbtProc, IntPtr.Zero, Helpers.NativeMethods.GetCurrentThreadId());
+            if (_cbtHook == IntPtr.Zero)
+                Helpers.DebugLogger.Log($"[MainWindow] CBT hook failed: {Marshal.GetLastWin32Error()}");
+        }
+
+        private IntPtr CbtProc(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode == HCBT_ACTIVATE && wParam == _hwnd && ShouldBlockActivation())
+                return (IntPtr)1;
+            return CallNextHookEx(_cbtHook, nCode, wParam, lParam);
+        }
 
         private IntPtr WndProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData)
         {
