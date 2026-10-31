@@ -5260,6 +5260,7 @@ namespace Span
         /// </summary>
         internal void AddCurrentFolderToFavorites(string? groupId = null)
         {
+            if (!ViewModel.EnsureFavoritesWritable()) return;
             var mode = GetActivePaneViewMode();
             var path = mode is ViewMode.Home or ViewMode.RecycleBin or ViewMode.ActionLog
                 ? null
