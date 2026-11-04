@@ -37,9 +37,9 @@ namespace Span
 
             Services = ConfigureServices();
 
-            // Initialize Sentry crash reporting (must be early, before any exception can occur)
+            // Resolve settings on the UI thread, but initialize reporting in the background.
+            // Sentry startup can take a second and must not delay the first window.
             var crashService = Services.GetRequiredService<Services.CrashReportingService>();
-            crashService.Initialize();
 
             // Phase 0: WER LocalDumps 등록 — 다음 네이티브 크래시부터 자동 미니덤프 생성
             // .NET 핸들러가 못 잡는 AccessViolation/SEH 예외 (이슈 #23 본질) 추적용
@@ -51,7 +51,12 @@ namespace Span
             // I10: discard + ContinueWith로 unobserved exception 방지
             _ = Task.Run(() =>
             {
-                try { crashService.DetectPreviousAbnormalExitAndUploadDumps(); }
+                try
+                {
+                    // Keep these ordered: post-mortem detection requires an initialized SDK.
+                    crashService.Initialize();
+                    crashService.DetectPreviousAbnormalExitAndUploadDumps();
+                }
                 catch (Exception ex) { Helpers.DebugLogger.Log($"[App] post-mortem detect failed: {ex.Message}"); }
             }).ContinueWith(t =>
             {
@@ -279,8 +284,9 @@ namespace Span
                     }
                     catch { }
 
-                    // Flush Sentry events before force-killing the process
-                    try { Sentry.SentrySdk.FlushAsync(TimeSpan.FromSeconds(2)).GetAwaiter().GetResult(); } catch { }
+                    // Do not wait for telemetry uploads on normal exit. User state has
+                    // already been saved by MainWindow.OnClosed. Reporting uses a disk
+                    // cache; fatal crash handlers still perform their bounded flush.
 
                     // Force-kill BEFORE WinUI's native teardown can crash or hang.
                     // Environment.Exit(0) can deadlock when called during active COM/OLE
@@ -622,6 +628,7 @@ namespace Span
 
                 m_window = new MainWindow();
                 RegisterWindow(m_window);
+                Helpers.DebugLogger.Log("[Startup] Main window constructed; activating");
                 m_window.Activate();
 
                 // 안전장치: 첫 창의 Loaded가 예외로 끝나 시작 완료 신호가 오지 않아도, 보관된 활성화가

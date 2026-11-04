@@ -1170,16 +1170,18 @@ namespace Span
                     {
                         RestoreWindowPlacement();
                         DispatcherQueue.TryEnqueue(
-                            Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+                            Microsoft.UI.Dispatching.DispatcherQueuePriority.High,
                             () =>
                             {
-                                if (!_isClosed && _settings.RememberWindowPosition)
+                                if (_isClosed) return;
+                                if (_settings.RememberWindowPosition)
                                     RestoreWindowPlacement();
 
-                                // Uncloak — window is now at the correct size
+                                // Reveal before queued folder loads and background UI work.
                                 int cloakOff = 0;
                                 Helpers.NativeMethods.DwmSetWindowAttribute(
                                     _hwnd, Helpers.NativeMethods.DWMWA_CLOAK, ref cloakOff, sizeof(int));
+                                Helpers.DebugLogger.Log("[Startup] Main window revealed");
                             });
                     }
 
@@ -1609,6 +1611,9 @@ namespace Span
 
                 // STEP 0: Block all queued DispatcherQueue callbacks and async continuations
                 _isClosed = true;
+                // Give immediate visual feedback, then persist state and clean up as
+                // before. Hiding does not destroy the XAML tree needed by those steps.
+                try { AppWindow.Hide(); } catch { }
                 ViewModels.FolderViewModel.ColumnActivated -= OnColumnActivatedForCollapse;
 
                 // STEP 0.1: 드래그 타이머 즉시 중지 (타이머 콜백이 teardown 중 UI 접근 방지)

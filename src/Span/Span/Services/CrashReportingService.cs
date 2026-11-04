@@ -29,6 +29,7 @@ public sealed class CrashReportingService : IDisposable
 
     private volatile IDisposable? _sentryDisposable;
     private volatile bool _isEnabled;
+    private volatile bool _disposed;
     private readonly SettingsService _settings;
     private int _initializing; // 0 = idle, 1 = in progress (interlocked guard)
     private readonly object _sentryLifecycleLock = new();  // I1: Start/Stop 직렬화
@@ -54,9 +55,8 @@ public sealed class CrashReportingService : IDisposable
     }
 
     /// <summary>
-    /// Sentry SDK 동기 초기화. App 생성자에서 호출.
-    /// 글로벌 예외 핸들러 등록 전에 SDK가 준비되어야 초기 크래시를 캡처할 수 있으므로
-    /// 동기로 초기화한다. SentrySdk.Init는 약 10-50ms로 충분히 빠르다.
+    /// Initialize on a background thread, before post-mortem detection. App startup
+    /// must not wait for SDK initialization; early failures remain in the local log.
     /// </summary>
     public void Initialize()
     {
@@ -398,6 +398,11 @@ public sealed class CrashReportingService : IDisposable
         {
         try
         {
+            // The user may disable reporting (or dispose the service) while the
+            // background initializer is waiting for this lock.
+            if (!_isEnabled || _disposed || _sentryDisposable != null) return;
+
+            var timer = System.Diagnostics.Stopwatch.StartNew();
             _sentryDisposable = SentrySdk.Init(options =>
             {
                 options.Dsn = SentryDsn;
@@ -429,7 +434,7 @@ public sealed class CrashReportingService : IDisposable
                 });
             });
 
-            Helpers.DebugLogger.Log("[CrashReporting] Sentry initialized (background)");
+            Helpers.DebugLogger.Log($"[CrashReporting] Sentry initialized (background, {timer.ElapsedMilliseconds} ms)");
         }
         catch (Exception ex)
         {
@@ -642,6 +647,7 @@ public sealed class CrashReportingService : IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
         _settings.SettingChanged -= OnSettingChanged;
         StopSentry();
     }
