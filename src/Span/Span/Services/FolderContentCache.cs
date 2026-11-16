@@ -8,6 +8,14 @@ using Span.Models;
 namespace Span.Services
 {
     /// <summary>
+    /// Fingerabdruck einer Ordnerliste (Anzahl, Namens-Hash, jüngste Schreibzeit). Auf manchen externen
+    /// Laufwerken ändert sich die mtime des Ordners nicht, wenn Dateien dazukommen; die Miller-Spalten
+    /// vergleichen deshalb diesen Wert (MainWindow.ReconcileVisibleColumnsAsync). Erzeugt von
+    /// FolderViewModel.ComputeDirectoryStamp, im Cache abgelegt, damit ein Cache-Treffer ihn mitbringt.
+    /// </summary>
+    public readonly record struct DirectoryStamp(int Count, int NameHash, long MaxWriteUtcTicks);
+
+    /// <summary>
     /// Application-level directory content cache.
     /// Caches raw IFileSystemItem models (not ViewModels) keyed by normalized folder path.
     /// On cache hit, FolderViewModel creates ViewModels from cached models (CPU only, no disk I/O).
@@ -21,7 +29,8 @@ namespace Span.Services
             List<FileItem> Files,
             DateTime DirectoryLastWriteTimeUtc,
             bool IncludesHidden,
-            long AccessTick);
+            long AccessTick,
+            DirectoryStamp? ListingStamp = null);
 
         private readonly ConcurrentDictionary<string, CachedFolder> _cache
             = new(StringComparer.OrdinalIgnoreCase);
@@ -64,9 +73,10 @@ namespace Span.Services
                 return null;
             }
 
-            // LRU: 접근 시각 갱신
+            // LRU: 접근 시각 갱신. TryUpdate statt Indexer: ein gleichzeitiges Set() mit frischem Inhalt
+            // darf nicht durch das Zurückschreiben des eben gelesenen (älteren) Eintrags überschrieben werden.
             var tick = System.Threading.Interlocked.Increment(ref _accessCounter);
-            _cache[path] = cached with { AccessTick = tick };
+            _cache.TryUpdate(path, cached with { AccessTick = tick }, cached);
 
             return cached;
         }
@@ -74,7 +84,13 @@ namespace Span.Services
         /// <summary>
         /// Store folder content in cache.
         /// </summary>
-        public void Set(string path, List<FolderItem> folders, List<FileItem> files, bool showHidden)
+        /// <param name="directoryLastWriteTimeUtc">
+        /// Vom aufzählenden Thread gelesener Zeitstempel. Ohne Angabe wird er hier gelesen (ein Syscall,
+        /// bei UNC-Pfaden auf dem UI-Thread spürbar).
+        /// </param>
+        /// <param name="listingStamp">Listen-Fingerabdruck für den Spalten-Abgleich (nur lokale Laufwerke).</param>
+        public void Set(string path, List<FolderItem> folders, List<FileItem> files, bool showHidden,
+            DateTime? directoryLastWriteTimeUtc = null, DirectoryStamp? listingStamp = null)
         {
             // LRU Eviction: 가장 오래된 항목부터 제거
             if (_cache.Count >= MaxEntries)
@@ -91,9 +107,9 @@ namespace Span.Services
 
             try
             {
-                var writeTime = Directory.GetLastWriteTimeUtc(path);
+                var writeTime = directoryLastWriteTimeUtc ?? Directory.GetLastWriteTimeUtc(path);
                 var tick = System.Threading.Interlocked.Increment(ref _accessCounter);
-                _cache[path] = new CachedFolder(folders, files, writeTime, showHidden, tick);
+                _cache[path] = new CachedFolder(folders, files, writeTime, showHidden, tick, listingStamp);
             }
             catch
             {

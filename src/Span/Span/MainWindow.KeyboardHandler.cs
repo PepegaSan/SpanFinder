@@ -123,6 +123,11 @@ namespace Span
             var alt = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Menu)
                       .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
+            // Textfeld (Adressleiste, Suche, Filter, Befehlspalette) hat den Fokus? Dann greifen unten nur noch
+            // Tastenkürzel, die weder Dateien noch die Auswahl anfassen (ShortcutCommands.IsSafeWhileTyping).
+            var focusedElement = FocusManager.GetFocusedElement(this.Content.XamlRoot);
+            bool isTextInputFocused = focusedElement is TextBox or RichEditBox or PasswordBox or AutoSuggestBox;
+
             // F11: Toggle fullscreen (window-level, works in all modes)
             if (e.Key == Windows.System.VirtualKey.F11 && !ctrl && !shift && !alt)
             {
@@ -142,7 +147,9 @@ namespace Span
 
             // Shift+? (OEM_2 = /) — Help 오버레이 토글 (어디서든 동작)
             // F1은 KeyBindingService를 통해 OpenHelp(docs 사이트)로 dispatch됨
-            if (shift && !ctrl && !alt && e.Key == (Windows.System.VirtualKey)191) // VK_OEM_2 = /? key
+            // Nicht aus einem Textfeld heraus: dort ist "?" Eingabe (Wildcard in der Suche) — vorher öffnete sich
+            // die Hilfe, das Zeichen ging verloren, und der nächste Tastendruck schloss sie nur wieder.
+            if (shift && !ctrl && !alt && !isTextInputFocused && e.Key == (Windows.System.VirtualKey)191) // VK_OEM_2 = /? key
             {
                 ToggleHelpOverlay();
                 e.Handled = true;
@@ -278,8 +285,6 @@ namespace Span
             {
                 // While typing in SearchBox / rename / address bar, never run file commands
                 // (especially Delete) — global handler uses handledEventsToo=true.
-                var focused = FocusManager.GetFocusedElement(this.Content.XamlRoot);
-                bool isTextInputFocused = focused is TextBox or RichEditBox or PasswordBox or AutoSuggestBox;
                 bool deferToTextInput = isTextInputFocused && (
                     (!ctrl && !alt && e.Key is Windows.System.VirtualKey.Delete
                         or Windows.System.VirtualKey.Back or Windows.System.VirtualKey.F1 or Windows.System.VirtualKey.F2)
@@ -293,9 +298,9 @@ namespace Span
                     // QuickLook은 뷰별 핸들러(Miller/Details/List/Icon)에서 독립 처리.
                     // 글로벌 핸들러(handledEventsToo=true)에서 중복 실행 시 Open→즉시Close → AV 크래시.
                     if (commandId == ShortcutCommands.QuickLook) commandId = null;
-                    // Extra safety: never delete files while a text box has focus
-                    if (isTextInputFocused && (commandId == ShortcutCommands.Delete
-                        || commandId == ShortcutCommands.PermanentDelete))
+                    // Im Textfeld laufen nur Befehle, die weder Dateien noch Auswahl berühren (Navigation, Ansicht,
+                    // Tabs). Vorher griffen hier Ctrl+Z/Y (Datei-Undo/-Redo!), Ctrl+D (Duplizieren) usw.
+                    if (isTextInputFocused && commandId != null && !ShortcutCommands.IsSafeWhileTyping(commandId))
                         commandId = null;
                     if (commandId != null && ExecuteCommand(commandId))
                     {
@@ -353,6 +358,13 @@ namespace Span
             if (ctrl)
             {
                 Helpers.DebugLogger.Log($"[Keyboard] Ctrl+Key: Key={(int)e.Key} ({e.Key}), OriginalKey={(int)e.OriginalKey} ({e.OriginalKey}), ScanCode={e.KeyStatus.ScanCode}");
+
+                // Textfeld hat den Fokus: Ctrl+Z/Y bleiben Text-Undo/-Redo; Ctrl+D/I/Enter und Ctrl+Shift+N
+                // (Duplizieren, Auswahl umkehren, in Tab öffnen, neuer Ordner) gehören nicht in die Eingabe.
+                if (isTextInputFocused && (e.Key is Windows.System.VirtualKey.Z or Windows.System.VirtualKey.Y
+                    or Windows.System.VirtualKey.D or Windows.System.VirtualKey.I or Windows.System.VirtualKey.Enter
+                    || (shift && e.Key == Windows.System.VirtualKey.N)))
+                    return;
 
                 // TextBox/RichEditBox에 포커스가 있으면 텍스트 편집 단축키(C/X/V/A)를 네이티브 처리에 위임
                 if (e.Key is Windows.System.VirtualKey.C or Windows.System.VirtualKey.X
@@ -434,14 +446,7 @@ namespace Span
                         }
                         else
                         {
-                            var closingTab = ViewModel.ActiveTab;
-                            if (closingTab != null) RemoveMillerPanel(closingTab.Id);
-                            ViewModel.CloseTab(ViewModel.ActiveTabIndex);
-                            if (ViewModel.ActiveTab != null)
-                                SwitchMillerPanel(ViewModel.ActiveTab.Id);
-                            ResubscribeLeftExplorer();
-                            UpdateViewModeVisibility();
-                            FocusActiveView();
+                            CloseActiveTabWithPanels();
                         }
                         e.Handled = true;
                         break;
@@ -2285,14 +2290,7 @@ namespace Span
             }
             else
             {
-                var closingTab = ViewModel.ActiveTab;
-                if (closingTab != null) RemoveMillerPanel(closingTab.Id);
-                ViewModel.CloseTab(ViewModel.ActiveTabIndex);
-                if (ViewModel.ActiveTab != null)
-                    SwitchMillerPanel(ViewModel.ActiveTab.Id);
-                ResubscribeLeftExplorer();
-                UpdateViewModeVisibility();
-                FocusActiveView();
+                CloseActiveTabWithPanels();
             }
         }
 

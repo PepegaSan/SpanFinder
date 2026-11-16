@@ -79,14 +79,15 @@ namespace Span.Services
         {
             if (!IsAnnotatable(path)) return string.Empty;
             EnsureLoadedSync();
-            return _notes.TryGetValue(Normalize(path), out var note) ? note : string.Empty;
+            // lock wie bei _tags: der UI-Thread liest, während Set/Move auf Thread-Pool-Fortsetzungen schreiben.
+            lock (_notes) return _notes.TryGetValue(Normalize(path), out var note) ? note : string.Empty;
         }
 
         public bool HasFolderNote(string path)
         {
             if (!IsAnnotatable(path)) return false;
             EnsureLoadedSync();
-            return _notes.TryGetValue(Normalize(path), out var note) && !string.IsNullOrWhiteSpace(note);
+            lock (_notes) return _notes.TryGetValue(Normalize(path), out var note) && !string.IsNullOrWhiteSpace(note);
         }
 
         /// <param name="tag">Tag-Id; null/leer entfernt den Tag.</param>
@@ -187,13 +188,16 @@ namespace Span.Services
                     }
                 }
                 bool notesMoved = false;
-                foreach (var (path, note) in _notes.ToList())
+                lock (_notes)
                 {
-                    var target = Rebase(path, oldKey, newKey);
-                    if (target == null) continue;
-                    _notes.Remove(path);
-                    _notes[target] = note;
-                    notesMoved = true;
+                    foreach (var (path, note) in _notes.ToList())
+                    {
+                        var target = Rebase(path, oldKey, newKey);
+                        if (target == null) continue;
+                        _notes.Remove(path);
+                        _notes[target] = note;
+                        notesMoved = true;
+                    }
                 }
                 if (moved.Count > 0 || notesMoved)
                     await SaveUnlockedAsync().ConfigureAwait(false);
@@ -236,10 +240,13 @@ namespace Span.Services
                     _loaded = true;
                 }
 
-                if (string.IsNullOrWhiteSpace(text))
-                    _notes.Remove(key);
-                else
-                    _notes[key] = text;
+                lock (_notes)
+                {
+                    if (string.IsNullOrWhiteSpace(text))
+                        _notes.Remove(key);
+                    else
+                        _notes[key] = text;
+                }
 
                 await SaveUnlockedAsync().ConfigureAwait(false);
             }
@@ -283,26 +290,32 @@ namespace Span.Services
             var data = await TryReadAsync(filePath).ConfigureAwait(false)
                 ?? await TryReadAsync(bakPath).ConfigureAwait(false);
 
-            _tags.Clear();
-            _notes.Clear();
+            lock (_tags) _tags.Clear();
+            lock (_notes) _notes.Clear();
             if (data == null) return;
 
             if (data.Tags != null)
             {
-                foreach (var (path, tagId) in data.Tags)
+                lock (_tags)
                 {
-                    // Werte sind Tag-Ids; die eingebauten heißen wie das frühere Enum ("Red" …)
-                    if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(tagId) || tagId == "None") continue;
-                    _tags[Normalize(path)] = tagId;
+                    foreach (var (path, tagId) in data.Tags)
+                    {
+                        // Werte sind Tag-Ids; die eingebauten heißen wie das frühere Enum ("Red" …)
+                        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(tagId) || tagId == "None") continue;
+                        _tags[Normalize(path)] = tagId;
+                    }
                 }
             }
 
             if (data.Notes != null)
             {
-                foreach (var (path, note) in data.Notes)
+                lock (_notes)
                 {
-                    if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(note)) continue;
-                    _notes[Normalize(path)] = note;
+                    foreach (var (path, note) in data.Notes)
+                    {
+                        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(note)) continue;
+                        _notes[Normalize(path)] = note;
+                    }
                 }
             }
         }
@@ -324,8 +337,11 @@ namespace Span.Services
                 foreach (var (path, tag) in _tags)
                     data.Tags[path] = tag;
             }
-            foreach (var (path, note) in _notes)
-                data.Notes[path] = note;
+            lock (_notes)
+            {
+                foreach (var (path, note) in _notes)
+                    data.Notes[path] = note;
+            }
 
             var json = JsonSerializer.Serialize(data, JsonOptions);
             await Task.Run(() =>

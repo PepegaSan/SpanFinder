@@ -16,9 +16,15 @@ namespace Span.Services;
 public class SettingsService : ISettingsService
 {
     private readonly ApplicationDataContainer? _localSettings;
-    private readonly Dictionary<string, object?> _fallbackSettings = new();
+    // ConcurrentDictionary: Hintergrund-Threads lesen Einstellungen (z. B. ShowHiddenFiles je Eintrag in der
+    // Ordner-Aufzählung), während der UI-Thread schreibt — ein plain Dictionary ist dabei nicht sicher.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, object?> _fallbackSettings = new();
     private readonly string _fallbackSettingsPath;
     private readonly bool _useFallback;
+
+    /// <summary>In-Memory-Kopie der JSON-Spiegeldatei (packaged). Siehe <see cref="UpdateJsonMirrorOnSet{T}"/>.</summary>
+    private Dictionary<string, object?>? _mirrorCache;
+    private readonly object _mirrorLock = new();
 
     public event Action<string, object?>? SettingChanged;
 
@@ -205,29 +211,35 @@ public class SettingsService : ISettingsService
     {
         try
         {
-            Dictionary<string, object?> dict;
-            if (File.Exists(_fallbackSettingsPath))
+            lock (_mirrorLock)
             {
-                var loaded = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(_fallbackSettingsPath));
-                dict = new Dictionary<string, object?>();
-                if (loaded != null)
-                {
-                    foreach (var (k, element) in loaded)
-                        dict[k] = ConvertJsonElement(element);
-                }
+                // Die Spiegeldatei wurde bisher bei JEDEM Set von der Platte gelesen, geparst und komplett neu
+                // geschrieben (Slider-Ticks, Tastendrücke in Pfadfeldern, Tab-Zustand ...). Einmal laden, im Speicher
+                // fortschreiben, nur noch schreiben.
+                _mirrorCache ??= LoadMirrorDictionary();
+                _mirrorCache[key] = value;
+                WriteSettingsMirrorFile(_mirrorCache);
             }
-            else
-            {
-                dict = new Dictionary<string, object?>();
-            }
-
-            dict[key] = value;
-            WriteSettingsMirrorFile(dict);
         }
         catch (Exception ex)
         {
             Helpers.DebugLogger.Log($"[SettingsService] JSON mirror write failed for '{key}': {ex.Message}");
         }
+    }
+
+    private Dictionary<string, object?> LoadMirrorDictionary()
+    {
+        var dict = new Dictionary<string, object?>();
+        if (!File.Exists(_fallbackSettingsPath))
+            return dict;
+
+        var loaded = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(_fallbackSettingsPath));
+        if (loaded != null)
+        {
+            foreach (var (k, element) in loaded)
+                dict[k] = ConvertJsonElement(element);
+        }
+        return dict;
     }
 
     private void WriteSettingsMirrorFile(Dictionary<string, object?> dict)
@@ -238,12 +250,25 @@ public class SettingsService : ISettingsService
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
 
-            File.WriteAllText(_fallbackSettingsPath, JsonSerializer.Serialize(dict));
+            WriteAllTextAtomic(_fallbackSettingsPath, JsonSerializer.Serialize(dict));
+            lock (_mirrorLock) { _mirrorCache = dict; }
         }
         catch (Exception ex)
         {
             Helpers.DebugLogger.Log($"[SettingsService] Failed to write settings mirror: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Erst eine .tmp-Datei schreiben, dann atomar ersetzen. Ein Kill mitten im Schreiben (MainWindow.OnClosed
+    /// speichert, danach beendet App.UnregisterWindow den Prozess hart) hinterließ sonst eine abgeschnittene
+    /// settings.json — beim nächsten Start nicht lesbar, und ALLE Einstellungen fielen still auf Standardwerte zurück.
+    /// </summary>
+    private static void WriteAllTextAtomic(string path, string contents)
+    {
+        var tmp = path + ".tmp";
+        File.WriteAllText(tmp, contents);
+        File.Move(tmp, path, overwrite: true);
     }
 
     private void ExportLocalSettingsToJsonMirrorIfMissing()
@@ -293,7 +318,7 @@ public class SettingsService : ISettingsService
                 Directory.CreateDirectory(dir);
 
             var json = JsonSerializer.Serialize(_fallbackSettings);
-            File.WriteAllText(_fallbackSettingsPath, json);
+            WriteAllTextAtomic(_fallbackSettingsPath, json);
         }
         catch (Exception ex)
         {
@@ -338,7 +363,7 @@ public class SettingsService : ISettingsService
             }
             else
             {
-                _fallbackSettings.Remove(key);
+                _fallbackSettings.TryRemove(key, out _);
             }
         }
         return defaultValue;

@@ -724,6 +724,18 @@ namespace Span.Services
             return menu;
         }
 
+        /// <summary>
+        /// 사이드바 섹션 헤더(Local / Network) 우클릭 메뉴 (Issue #76).
+        /// 드라이브 없이 여는 "네트워크 드라이브 연결…" — 처음 연결하는 사용자의 진입점이다.
+        /// </summary>
+        public MenuFlyout BuildSidebarSectionMenu(IContextMenuHost host)
+        {
+            var menu = new MenuFlyout();
+            menu.Items.Add(CreateItem(_loc.Get("MapNetworkDrive"), "\uE8CE", () => host.PerformMapNetworkDrive(null), "K"));
+            TrackFlyout(menu);
+            return menu;
+        }
+
         public MenuFlyout BuildDriveMenu(DriveItem drive, IContextMenuHost host)
         {
             var menu = new MenuFlyout();
@@ -772,6 +784,14 @@ namespace Span.Services
                 if (isRemovableOrCdrom)
                 {
                     menu.Items.Add(CreateItem(_loc.Get("Eject"), "\uE7E7", () => host.PerformEjectDrive(drive), "J"));
+                    menu.Items.Add(new MenuFlyoutSeparator());
+                }
+
+                // 네트워크 드라이브 연결 (Issue #76)
+                // UNC 위치는 아직 드라이브 문자가 없다 — 매핑된 드라이브는 경로가 "Z:\" 형태다.
+                if (drive.Path.StartsWith(@"\\"))
+                {
+                    menu.Items.Add(CreateItem(_loc.Get("MapNetworkDrive"), "\uE8CE", () => host.PerformMapNetworkDrive(drive), "K"));
                     menu.Items.Add(new MenuFlyoutSeparator());
                 }
 
@@ -1332,14 +1352,9 @@ namespace Span.Services
             // 세션 참조와 CommandId 캡처
             int cmdId = shellItem.CommandId;
             var session = _currentSession;
-            Action invokeAction = () =>
-            {
-                var success = session?.InvokeCommand(cmdId) ?? false;
-                if (!success)
-                {
-                    InvokeFailedCallback?.Invoke(translatedText);
-                }
-            };
+            // Asynchron: Der Shell-Befehl läuft auf dem STA-Thread der Sitzung, der UI-Thread wartet nicht mehr
+            // (Erweiterungen mit modalem Dialog ließen Span vorher minutenlang "nicht reagieren").
+            Action invokeAction = () => _ = InvokeShellCommandAsync(session, cmdId, translatedText);
 
             Helpers.DebugLogger.Log($"[ConvertShell] Creating MenuFlyoutItem text='{translatedText}' cmdId={cmdId}");
             var item = new MenuFlyoutItem
@@ -1355,14 +1370,38 @@ namespace Span.Services
             if (shellItem.HasIcon)
                 item.Icon = CreateIconFromPixels(shellItem);
 
-            item.Click += (s, e) =>
-            {
-                try { invokeAction(); }
-                finally { ShellCommandExecutedCallback?.Invoke(); }
-            };
+            item.Click += (s, e) => invokeAction();
             Helpers.DebugLogger.Log($"[ConvertShell] MenuFlyoutItem created OK");
 
             return item;
+        }
+
+        /// <summary>
+        /// Shell-Befehl ausführen und danach die Rückmeldungen geben (Fehlschlag-Toast, "Befehl ausgeführt" für den
+        /// Toolbar-Zustand). Fortsetzung auf dem UI-Thread, da von dort gestartet.
+        /// </summary>
+        private async Task InvokeShellCommandAsync(ShellContextMenu.Session? session, int cmdId, string text)
+        {
+            bool success = false;
+            try
+            {
+                success = session != null && await session.InvokeCommandAsync(cmdId);
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[ContextMenu] InvokeCommand failed: {ex.Message}");
+            }
+
+            try
+            {
+                if (!success)
+                    InvokeFailedCallback?.Invoke(text);
+                ShellCommandExecutedCallback?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Helpers.DebugLogger.Log($"[ContextMenu] post-invoke callback failed: {ex.Message}");
+            }
         }
 
         /// <summary>

@@ -141,7 +141,7 @@ namespace Span.Services
             return Task.Run(() =>
             {
                 var items = new List<IFileSystemItem>();
-                if (_client == null) return (IReadOnlyList<IFileSystemItem>)items;
+                if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
 
                 try
                 {
@@ -219,7 +219,7 @@ namespace Span.Services
         {
             return Task.Run(() =>
             {
-                if (_client == null) return;
+                if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
                 EnsureConnected();
                 _client.CreateDirectory(path);
             }, ct);
@@ -229,7 +229,7 @@ namespace Span.Services
         {
             return Task.Run(() =>
             {
-                if (_client == null) return;
+                if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
                 EnsureConnected();
 
                 var attrs = _client.GetAttributes(path);
@@ -251,7 +251,7 @@ namespace Span.Services
         {
             return Task.Run(() =>
             {
-                if (_client == null) return;
+                if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
                 EnsureConnected();
                 _client.RenameFile(oldPath, newPath);
             }, ct);
@@ -261,7 +261,7 @@ namespace Span.Services
         {
             return Task.Run(async () =>
             {
-                if (_client == null) return;
+                if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
                 EnsureConnected();
 
                 using var stream = new MemoryStream();
@@ -295,7 +295,7 @@ namespace Span.Services
         {
             return Task.Run(() =>
             {
-                if (_client == null) return;
+                if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
                 EnsureConnected();
                 _client.UploadFile(content, path);
             }, ct);
@@ -331,7 +331,7 @@ namespace Span.Services
         {
             return Task.Run(() =>
             {
-                if (_client == null) return;
+                if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
                 EnsureConnected();
 
                 Action<ulong>? callback = progress != null
@@ -350,7 +350,7 @@ namespace Span.Services
         {
             return Task.Run(() =>
             {
-                if (_client == null) return;
+                if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
                 EnsureConnected();
 
                 Action<ulong>? callback = progress != null
@@ -363,7 +363,7 @@ namespace Span.Services
 
         private void DeleteDirectoryRecursive(string path, CancellationToken ct)
         {
-            if (_client == null) return;
+            if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
 
             foreach (var entry in _client.ListDirectory(path))
             {

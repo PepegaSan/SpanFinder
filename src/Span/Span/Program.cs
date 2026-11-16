@@ -52,7 +52,10 @@ class Program
 
         // 기존 인스턴스로 활성화 리다이렉트
         var activatedArgs = AppInstance.GetCurrent().GetActivatedEventArgs();
-        appInstance.RedirectActivationToAsync(activatedArgs).AsTask().Wait();
+        // Begrenzt warten: Die Weiterleitung wird auf diesen STA-Thread zurückgemeldet; bleibt die erste Instanz
+        // stumm (eingefroren, beim Beenden), hing der zweite Prozess sonst für immer im Wait() als unsichtbarer Zombie.
+        if (!appInstance.RedirectActivationToAsync(activatedArgs).AsTask().Wait(TimeSpan.FromSeconds(10)))
+            Helpers.DebugLogger.Log("[Program] Activation redirect did not complete within 10 s — exiting anyway");
         return true; // 현재 프로세스 종료
     }
 }

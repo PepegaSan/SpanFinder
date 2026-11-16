@@ -752,7 +752,7 @@ namespace Span.Views
                 var rows = ViewModel.CsvRows;
                 if (headers == null || rows == null || headers.Length == 0)
                 {
-                    CsvTableRepeater.ItemsSource = null;
+                    CsvTableScrollViewer.Content = null;
                     return;
                 }
 
@@ -802,13 +802,10 @@ namespace Span.Views
                     tablePanel.Children.Add(countText);
                 }
 
-                // ItemsRepeater 대신 직접 ScrollViewer 안의 Content로 설정
-                // CsvTableRepeater의 부모 ScrollViewer의 Content로 교체
-                var scrollViewer = CsvTableRepeater.Parent as ScrollViewer;
-                if (scrollViewer != null)
-                {
-                    scrollViewer.Content = tablePanel;
-                }
+                // Direkt als Content des benannten ScrollViewers. Vorher wurde der ScrollViewer über den Parent eines
+                // ItemsRepeaters gesucht und dessen Content ersetzt — ab der zweiten CSV war der Repeater nicht mehr
+                // im Baum, Parent war null, und die Tabelle der ersten Datei blieb stehen.
+                CsvTableScrollViewer.Content = tablePanel;
             }
             catch (Exception ex)
             {
@@ -978,17 +975,6 @@ namespace Span.Views
                     _ => Windows.Graphics.Imaging.BitmapRotation.None
                 };
 
-                // 확장자 기반 인코더 결정
-                var ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
-                var encoderId = ext switch
-                {
-                    ".png" => Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId,
-                    ".bmp" => Windows.Graphics.Imaging.BitmapEncoder.BmpEncoderId,
-                    ".gif" => Windows.Graphics.Imaging.BitmapEncoder.GifEncoderId,
-                    ".tif" or ".tiff" => Windows.Graphics.Imaging.BitmapEncoder.TiffEncoderId,
-                    _ => Windows.Graphics.Imaging.BitmapEncoder.JpegEncoderId
-                };
-
                 // 1) 원본 파일을 메모리로 읽기
                 byte[] sourceBytes = await System.IO.File.ReadAllBytesAsync(path);
 
@@ -1002,7 +988,6 @@ namespace Span.Views
                     memStream.Seek(0);
 
                     var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(memStream);
-                    var bitmap = await decoder.GetSoftwareBitmapAsync();
 
                     // 임시 파일에 회전 적용하여 저장
                     var tmpFile = await Windows.Storage.StorageFile.GetFileFromPathAsync(
@@ -1014,13 +999,14 @@ namespace Span.Views
 
                     using (var outStream = await tmpFile.OpenAsync(Windows.Storage.FileAccessMode.ReadWrite))
                     {
-                        var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(encoderId, outStream);
-                        encoder.SetSoftwareBitmap(bitmap);
+                        // Transcoding statt Neu-Encodieren: behält EXIF/XMP/ICC-Metadaten, alle Frames und das
+                        // Containerformat. Vorher wurde zu SoftwareBitmap decodiert und per Endung neu encodiert —
+                        // JPEG verlustbehaftet neu komprimiert, Metadaten weg, und unbekannte Endungen (.webp, .heic)
+                        // bekamen JPEG-Bytes unter ihrem alten Namen. Formate ohne Encoder scheitern jetzt sauber.
+                        var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateForTranscodingAsync(outStream, decoder);
                         encoder.BitmapTransform.Rotation = rotation;
                         await encoder.FlushAsync();
                     }
-
-                    bitmap.Dispose();
                 }
 
                 // 3) 임시 파일 크기 검증 후 원본 교체

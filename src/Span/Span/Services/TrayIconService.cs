@@ -60,9 +60,11 @@ namespace Span.Services
 
         private void OnSettingChanged(string key, object? value)
         {
-            Helpers.DebugLogger.Log($"[TrayIcon] SettingChanged: {key}={value}");
+            // Nur die eigene Einstellung loggen: Vorher stand hier JEDER Einstellungswert im Log — auch TabsJson mit
+            // allen offenen Pfaden, Tastenbelegungen und Shelf-Inhalten — und das Log geht als Sentry-Anhang mit.
             if (key == "MinimizeToTray")
             {
+                Helpers.DebugLogger.Log($"[TrayIcon] SettingChanged: {key}={value}");
                 // UI thread required for TaskbarIcon creation.
                 var dq = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
                 if (dq != null)

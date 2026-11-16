@@ -144,6 +144,7 @@
             // ── Drive actions ───────────────────────────────────────────────
             ("Eject", "Eject", "꺼내기", "取り出す", "弹出", "退出", "Auswerfen", "Expulsar", "Éjecter", "Ejetar"),
             ("DisconnectDrive", "Disconnect", "연결 끊기", "切断", "断开连接", "中斷連線", "Trennen", "Desconectar", "Déconnecter", "Desconectar"),
+            ("MapNetworkDrive", "Map network drive…", "네트워크 드라이브 연결…", "ネットワーク ドライブの割り当て…", "映射网络驱动器…", "連線網路磁碟機…", "Netzlaufwerk verbinden…", "Conectar a unidad de red…", "Connecter un lecteur réseau…", "Mapear unidade de rede…"),
             ("DriveCapacity", "{0} free of {1}", "{1} 중 {0} 사용 가능", "{1}のうち{0}空き", "{1} 中 {0} 可用", "{1} 中 {0} 可用", "{0} frei von {1}", "{0} libres de {1}", "{0} libres sur {1}", "{0} livres de {1}"),
             ("Opening", "Opening", "여는 중", "開いています", "正在打开", "正在開啟", "Wird geöffnet", "Abriendo", "Ouverture en cours", "Abrindo"),
 
@@ -455,6 +456,7 @@
             ("Settings_GitHub", "GitHub Repository", "GitHub 저장소", "GitHubリポジトリ", "GitHub 仓库", "GitHub 存放庫", "GitHub-Repository", "Repositorio de GitHub", "Dépôt GitHub", "Repositório do GitHub"),
             ("Settings_BugReport", "Report a Bug", "버그 제보", "バグ報告", "报告错误", "回報錯誤", "Fehler melden", "Reportar un error", "Signaler un bug", "Relatar um bug"),
             ("Settings_Privacy", "Privacy Policy", "개인정보 처리방침", "プライバシーポリシー", "隐私政策", "隱私權原則", "Datenschutzrichtlinie", "Política de privacidad", "Politique de confidentialité", "Política de privacidade"),
+            ("Settings_Website", "Website", "홈페이지", "ホームページ", "官方网站", "官方網站", "Website", "Sitio web", "Site web", "Site"),
             ("Settings_EvalCopy", "Evaluation Copy (Unregistered)", "Evaluation Copy (미등록)", "評価版（未登録）", "评估版 (未注册)", "評估版 (未註冊)", "Evaluierungsversion (nicht registriert)", "Copia de evaluación (sin registrar)", "Version d'évaluation (non enregistrée)", "Cópia de avaliação (não registrada)"),
             ("Settings_GitDetected", "Git {0} detected", "Git {0} 감지됨", "Git {0} 検出済み", "检测到 Git {0}", "偵測到 Git {0}", "Git {0} erkannt", "Git {0} detectado", "Git {0} détecté", "Git {0} detectado"),
             ("Settings_GitNotInstalled", "Git is not installed", "Git이 설치되지 않았습니다", "Gitがインストールされていません", "Git 未安装", "Git 未安裝", "Git ist nicht installiert", "Git no está instalado", "Git n'est pas installé", "Git não está instalado"),
@@ -691,6 +693,8 @@
             ("Op_FailedTo_Delete", "Failed to delete {0}: {1}", "{0} 삭제 실패: {1}", "{0}の削除に失敗: {1}", "删除 {0} 失败: {1}", "刪除 {0} 失敗: {1}", "Löschen von {0} fehlgeschlagen: {1}", "Error al eliminar {0}: {1}", "Échec de la suppression de {0} : {1}", "Falha ao excluir {0}: {1}"),
             ("Op_FailedTo_Rename", "Rename error: {0}", "이름 변경 오류: {0}", "名前変更エラー: {0}", "重命名错误: {0}", "重新命名錯誤: {0}", "Umbenennungsfehler: {0}", "Error de renombrar: {0}", "Erreur de renommage : {0}", "Erro ao renomear: {0}"),
             ("CannotCopyToSelf", "Cannot copy a folder into itself", "폴더를 자기 자신 안에 복사할 수 없습니다", "フォルダーを自分自身にコピーできません", "无法将文件夹复制到自身", "無法將資料夾複製到本身", "Ordner kann nicht in sich selbst kopiert werden", "No se puede copiar una carpeta en sí misma", "Impossible de copier un dossier dans lui-même", "Não é possível copiar uma pasta para dentro dela mesma"),
+            ("Op_FailedTo_Compress", "Failed to compress {0}: {1}", "{0} 압축 실패: {1}", "{0}の圧縮に失敗: {1}", "压缩 {0} 失败: {1}", "壓縮 {0} 失敗: {1}", "Komprimieren von {0} fehlgeschlagen: {1}", "Error al comprimir {0}: {1}", "Échec de la compression de {0} : {1}", "Falha ao compactar {0}: {1}"),
+            ("Op_SomeNotCompressed", "Some items could not be compressed", "일부 항목을 압축할 수 없음", "一部の項目を圧縮できませんでした", "部分项目无法压缩", "部分項目無法壓縮", "Einige Elemente konnten nicht komprimiert werden", "Algunos elementos no se pudieron comprimir", "Certains éléments n'ont pas pu être compressés", "Alguns itens não puderam ser compactados"),
             ("Op_SomeNotCopied", "Some items could not be copied", "일부 항목을 복사할 수 없음", "一部の項目をコピーできませんでした", "部分项目无法复制", "部分項目無法複製", "Einige Elemente konnten nicht kopiert werden", "Algunos elementos no se pudieron copiar", "Certains éléments n'ont pas pu être copiés", "Alguns itens não puderam ser copiados"),
             ("Op_SomeNotMoved", "Some items could not be moved", "일부 항목을 이동할 수 없음", "一部の項目を移動できませんでした", "部分项目无法移动", "部分項目無法移動", "Einige Elemente konnten nicht verschoben werden", "Algunos elementos no se pudieron mover", "Certains éléments n'ont pas pu être déplacés", "Alguns itens não puderam ser movidos"),
             ("Op_SomeNotExtracted", "Some items could not be extracted", "일부 항목의 압축을 풀 수 없음", "一部の項目を展開できませんでした", "部分项目无法解压", "部分項目無法解壓縮", "Einige Elemente konnten nicht entpackt werden", "Algunos elementos no se pudieron extraer", "Certains éléments n'ont pas pu être extraits", "Alguns itens não puderam ser extraídos"),

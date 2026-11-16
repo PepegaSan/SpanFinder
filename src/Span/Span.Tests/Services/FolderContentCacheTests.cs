@@ -69,6 +69,34 @@ public class FolderContentCacheTests
         Assert.AreEqual(1, result.Files.Count);
     }
 
+    [TestMethod]
+    public void Set_WithListingStamp_RoundTripsStampAndProvidedWriteTime()
+    {
+        // Der Listen-Fingerabdruck wird vom aufzählenden Thread mitgeliefert und muss mit dem Cache-Treffer
+        // zurückkommen, damit der Spalten-Abgleich auch nach einem Treffer eine veraltete Liste erkennt.
+        var folders = MakeFolders("A");
+        var files = MakeFiles("b.txt");
+        var writeUtc = Directory.GetLastWriteTimeUtc(_tempDir);
+        var stamp = new DirectoryStamp(Count: 2, NameHash: 12345, MaxWriteUtcTicks: 777);
+
+        _cache.Set(_tempDir, folders, files, showHidden: false, writeUtc, stamp);
+
+        var result = _cache.TryGet(_tempDir, showHidden: false);
+        Assert.IsNotNull(result);
+        Assert.AreEqual(stamp, result.ListingStamp);
+        Assert.AreEqual(writeUtc, result.DirectoryLastWriteTimeUtc);
+    }
+
+    [TestMethod]
+    public void Set_WithoutListingStamp_LeavesStampNull()
+    {
+        _cache.Set(_tempDir, MakeFolders(), MakeFiles(), showHidden: false);
+
+        var result = _cache.TryGet(_tempDir, showHidden: false);
+        Assert.IsNotNull(result);
+        Assert.IsNull(result.ListingStamp);
+    }
+
     // ── 2. TryGet_NotCached_ReturnsNull ─────────────────────
 
     [TestMethod]

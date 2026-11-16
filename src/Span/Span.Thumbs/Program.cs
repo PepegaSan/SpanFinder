@@ -390,12 +390,20 @@ internal static class Program
         }
     }
 
+    // Alle Antworten gehen über EINEN StreamWriter, aber aus vielen gleichzeitigen Gen-Tasks. Ohne Sperre warf
+    // WriteLineAsync "stream is currently in use by a previous operation", die Antwort ging verloren → Client-Timeout
+    // → der gesunde Worker wurde getötet. Die Client-Seite (WorkerProcess._writeLock) sperrt längst; hier fehlte
+    // das Gegenstück.
+    private static readonly System.Threading.SemaphoreSlim s_writeLock = new(1, 1);
+
     private static async Task SendAsync(StreamWriter writer, IpcEnvelope msg)
     {
         var json = JsonSerializer.Serialize(msg, IpcJson.Options);
         try
         {
-            await writer.WriteLineAsync(json);
+            await s_writeLock.WaitAsync();
+            try { await writer.WriteLineAsync(json); }
+            finally { s_writeLock.Release(); }
         }
         catch (Exception ex) { WorkerLogger.Log($"[Worker] send failed: {ex.Message}"); }
     }

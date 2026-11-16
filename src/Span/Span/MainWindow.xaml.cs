@@ -857,51 +857,11 @@ namespace Span
                 catch (Exception ex) { Helpers.DebugLogger.Log($"[MainWindow] SetIcon failed: {ex.Message}"); }
             }
 
-            // Pass context menu service and HWND to child views
-            _contextMenuService.OwnerHwnd = _hwnd;
-            _contextMenuService.XamlRootProvider = () => Content.XamlRoot;
-            _contextMenuService.InvokeFailedCallback = (itemName) =>
-            {
-                Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, () =>
-                {
-                    ViewModel.ShowToast(string.Format(_loc.Get("Toast_ShellCommandFailed"), itemName), 3000, isError: true);
-                });
-            };
-            _contextMenuService.ShellCommandExecutedCallback = () =>
-            {
-                DispatcherQueue.TryEnqueue(async () =>
-                {
-                    await Task.Delay(100);
-                    SyncClipboardFromSystemIfNeeded();
-                    UpdateToolbarButtonStates();
-                });
-                DispatcherQueue.TryEnqueue(async () =>
-                {
-                    try
-                    {
-                        await Task.Delay(1000);
-                        if (ViewModel == null) return;
-                        await ViewModel.RefreshAllSplitExplorersAsync();
-                    }
-                    catch (Exception ex)
-                    {
-                        Helpers.DebugLogger.Log($"[MainWindow] Post-shell refresh error: {ex.Message}");
-                    }
-                });
-            };
-            _contextMenuService.NativeShellMenuClosedCallback = () =>
-            {
-                DispatcherQueue.TryEnqueue(async () =>
-                {
-                    await Task.Delay(100);
-                    SyncClipboardFromSystemIfNeeded();
-                    UpdateToolbarButtonStates();
-                });
-            };
-            Windows.ApplicationModel.DataTransfer.Clipboard.ContentChanged += (_, _) =>
-            {
-                DispatcherQueue.TryEnqueue(UpdateToolbarButtonStates);
-            };
+            // Pass context menu service and HWND to child views. Neu verdrahtet bei jeder Aktivierung: der Service
+            // ist prozessweit, Shell-Menüs gehörten sonst immer dem zuletzt ERZEUGTEN Fenster.
+            WireContextMenuService();
+            this.Activated += OnWindowActivatedForContextMenu;
+            Windows.ApplicationModel.DataTransfer.Clipboard.ContentChanged += OnClipboardChangedForToolbar;
             DetailsView.ContextMenuService = _contextMenuService;
             DetailsView.ContextMenuHost = this;
             DetailsView.OwnerHwnd = _hwnd;
@@ -1056,7 +1016,10 @@ namespace Span
             _loc.LanguageChanged += LocalizeViewModeTooltips;
             // v1.4.15: 드라이브 표시명("로컬 디스크" 등)이 LoadDrivesAsync 시점 언어로 캐시되어
             // 언어 전환 후 이전 언어로 남는 버그 — 언어 변경 시 재생성.
-            _loc.LanguageChanged += () => ViewModel?.RefreshDrives();
+            // Als Feld gehalten, damit OnClosed beide Abonnements am Singleton wieder löst: sonst blieb jedes
+            // geschlossene Fenster verwurzelt, und der nächste Sprachwechsel schrieb in seinen toten XAML-Baum.
+            _refreshDrivesOnLanguageChanged = () => ViewModel?.RefreshDrives();
+            _loc.LanguageChanged += _refreshDrivesOnLanguageChanged;
 
             // Restore split view state and preview state from persisted settings
             if (this.Content is FrameworkElement rootElement)
@@ -1086,15 +1049,21 @@ namespace Span
                         _tabMillerPanels[tabId] = (MillerScrollViewer, MillerColumnsControl);
                         _activeMillerTabId = tabId;
 
-                        // Re-bind Details/Icon panels
+                        // Re-bind Details/List/Icon panels. Die Listenansicht fehlte hier: sie blieb unter der alten
+                        // Tab-Id am verworfenen Explorer hängen und baute bei jeder Navigation weiter neu, während
+                        // der Listenmodus eine zweite ListModeView anlegte.
                         _tabDetailsPanels.Clear();
+                        _tabListPanels.Clear();
                         _tabIconPanels.Clear();
                         _tabDetailsPanels[tabId] = DetailsView;
+                        _tabListPanels[tabId] = ListView;
                         _tabIconPanels[tabId] = IconView;
                         _activeDetailsTabId = tabId;
+                        _activeListTabId = tabId;
                         _activeIconTabId = tabId;
 
                         DetailsView.ViewModel = ViewModel.Explorer;
+                        ListView.ViewModel = ViewModel.Explorer;
                         IconView.ViewModel = ViewModel.Explorer;
                         SyncAddressBarControls(ViewModel.Explorer);
 
@@ -1714,6 +1683,11 @@ namespace Span
                 try { MillerScrollViewerBottomRight.BringIntoViewRequested -= OnMillerBringIntoViewRequested; } catch { }
                 // v1.4.19: 정적 forward 이벤트 해제 (메모리 누수 방지)
                 try { Windows.ApplicationModel.DataTransfer.Clipboard.ContentChanged -= OnSystemClipboardChanged; } catch { }
+                try { Windows.ApplicationModel.DataTransfer.Clipboard.ContentChanged -= OnClipboardChangedForToolbar; } catch { }
+                try { _loc.LanguageChanged -= LocalizeViewModeTooltips; } catch { }
+                try { if (_refreshDrivesOnLanguageChanged != null) _loc.LanguageChanged -= _refreshDrivesOnLanguageChanged; } catch { }
+                try { this.Activated -= OnWindowActivatedForContextMenu; } catch { }
+                try { UnwireContextMenuService(); } catch { }
                 try { ViewModels.ExplorerViewModel.AnyBeforeReplaceLastColumn -= OnAnyBeforeReplaceLastColumn; } catch { }
                 try { ViewModels.ExplorerViewModel.AnyAfterReplaceLastColumn -= OnAnyAfterReplaceLastColumn; } catch { }
                 if (ViewModel?.RightExplorer != null)
@@ -3033,7 +3007,7 @@ namespace Span
                 return;
 
             bool showHidden = _settings.ShowHiddenFiles;
-            var snapshot = new List<(ExplorerViewModel Explorer, string Path, bool HasStamp, FolderViewModel.DirectoryStamp Stamp)>();
+            var snapshot = new List<(ExplorerViewModel Explorer, string Path, bool HasStamp, Span.Services.DirectoryStamp Stamp)>();
             foreach (var explorer in EnumerateVisibleExplorers())
             {
                 foreach (var col in explorer.Columns.ToList())
@@ -3052,7 +3026,7 @@ namespace Span
             {
                 var measured = await System.Threading.Tasks.Task.Run(() =>
                 {
-                    var result = new List<(string Path, bool HasStamp, FolderViewModel.DirectoryStamp Previous, FolderViewModel.DirectoryStamp Current)>();
+                    var result = new List<(string Path, bool HasStamp, Span.Services.DirectoryStamp Previous, Span.Services.DirectoryStamp Current)>();
                     foreach (var item in snapshot)
                     {
                         try
@@ -3253,6 +3227,10 @@ namespace Span
             {
                 // Sidebar 스케일은 이제 FontScaleService + XAML {Binding} 으로 자동 반영됨.
                 // (기존 _iconFontScaleLevel 기반 fan-out 재적용 불필요 — Phase B/C 제거)
+
+                // 드라이브가 생기거나 사라졌으므로 클라우드/네트워크 섹션 표시 여부를 다시 계산한다.
+                // 숨김 설정(Settings → Sidebar)을 존중해야 하므로 XAML 바인딩이 아니라 이 경로로만 갱신한다.
+                ApplySidebarSectionVisibility();
             }
             else if (e.PropertyName == nameof(MainViewModel.IsToastError))
             {
@@ -3785,11 +3763,15 @@ namespace Span
                 switch (viewMode)
                 {
                     case Models.ViewMode.MillerColumns:
-                        var columns = ViewModel.ActiveExplorer?.Columns;
-                        if (columns != null && columns.Count > 0)
+                        var activeExplorer = ViewModel.ActiveExplorer;
+                        var columns = activeExplorer?.Columns;
+                        if (activeExplorer != null && columns != null && columns.Count > 0)
                         {
                             // H3: 동기 스크롤 (이미 Low priority 내부이므로 추가 디스패치 불필요)
-                            ScrollToLastColumnSync(ViewModel.LeftExplorer, GetActiveMillerScrollViewer());
+                            // Explorer und ScrollViewer derselben Pane: vorher wurden die Spalten der LINKEN Pane
+                            // mit dem Scroller der AKTIVEN Pane verrechnet — im Split mit aktiver rechter Pane stimmte
+                            // der Offset nicht.
+                            ScrollToLastColumnSync(activeExplorer, GetActiveMillerScrollViewer());
                             // 마지막 컬럼으로 포커스 (GetActiveColumnIndex 비주얼트리 순회 생략)
                             FocusColumnAsync(columns.Count - 1);
                         }
@@ -3836,6 +3818,7 @@ namespace Span
         /// </summary>
         private void OnDriveItemClick(object sender, ItemClickEventArgs e)
         {
+            // 잠긴 BitLocker 드라이브(Issue #79)는 OpenDrive가 잠금 해제 창으로 돌린다.
             if (e.ClickedItem is DriveItem drive)
             {
                 Helpers.DebugLogger.Log($"[OnDriveItemClick] BEFORE: CurrentViewMode={ViewModel.CurrentViewMode}");
@@ -3863,6 +3846,25 @@ namespace Span
                     case "Cloud": ViewModel.IsCloudDrivesExpanded = !ViewModel.IsCloudDrivesExpanded; break;
                     case "Network": ViewModel.IsNetworkDrivesExpanded = !ViewModel.IsNetworkDrivesExpanded; break;
                 }
+            }
+        }
+
+        /// <summary>
+        /// 사이드바 섹션 헤더 우클릭 — Local / Network 헤더에서 "네트워크 드라이브 연결…" (Issue #76).
+        /// Network 섹션은 네트워크 드라이브가 하나라도 있어야 보이므로(ApplySidebarSectionVisibility),
+        /// 처음 연결하는 사용자는 항상 보이는 Local 헤더로 들어온다.
+        /// 탐색기의 "내 PC 우클릭 → 네트워크 드라이브 연결"과 같은 자리다.
+        /// </summary>
+        private void OnSidebarSectionHeaderRightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
+        {
+            if (sender is Grid grid && grid.Tag is string tag && (tag == "Local" || tag == "Network"))
+            {
+                var flyout = _contextMenuService.BuildSidebarSectionMenu(this);
+                flyout.ShowAt(grid, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
+                {
+                    Position = e.GetPosition(grid)
+                });
+                e.Handled = true;
             }
         }
 
@@ -3987,25 +3989,33 @@ namespace Span
 
             networkList.DoubleTapped += async (s, args) =>
             {
-                if (networkList.SelectedItem is NetworkItem item)
+                // async void: eine unbehandelte Ausnahme (z. B. UI-Zugriff nach geschlossenem Dialog) beendet den Prozess.
+                try
                 {
-                    if (item.Type == NetworkItemType.Server)
+                    if (networkList.SelectedItem is NetworkItem item)
                     {
-                        // Load shares for this server
-                        statusText.Text = string.Format(_loc.Get("SearchingShares"), item.Name);
-                        networkList.ItemsSource = null;
+                        if (item.Type == NetworkItemType.Server)
+                        {
+                            // Load shares for this server
+                            statusText.Text = string.Format(_loc.Get("SearchingShares"), item.Name);
+                            networkList.ItemsSource = null;
 
-                        var shares = await networkService.GetServerSharesAsync(item.Name);
-                        if (shares.Count > 0)
-                        {
-                            networkList.ItemsSource = shares;
-                            statusText.Text = string.Format(_loc.Get("SharesFound"), shares.Count);
-                        }
-                        else
-                        {
-                            statusText.Text = _loc.Get("NoSharesFound");
+                            var shares = await networkService.GetServerSharesAsync(item.Name);
+                            if (shares.Count > 0)
+                            {
+                                networkList.ItemsSource = shares;
+                                statusText.Text = string.Format(_loc.Get("SharesFound"), shares.Count);
+                            }
+                            else
+                            {
+                                statusText.Text = _loc.Get("NoSharesFound");
+                            }
                         }
                     }
+                }
+                catch (Exception ex)
+                {
+                    Helpers.DebugLogger.Log($"[Network] share listing failed: {ex.Message}");
                 }
             };
 
@@ -4274,12 +4284,22 @@ namespace Span
                 };
                 browseBtn.Click += async (s, args) =>
                 {
-                    var picker = new Windows.Storage.Pickers.FileOpenPicker();
-                    WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
-                    picker.FileTypeFilter.Add("*");
-                    picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.HomeGroup;
-                    var file = await picker.PickSingleFileAsync();
-                    if (file != null) sshKeyPathInput.Text = file.Path;
+                    // async void: FileOpenPicker wirft eine COMException, wenn die App erhöht läuft — ohne try/catch
+                    // beendete das den Prozess (der Extrahieren-Dialog fängt denselben Fall bereits ab).
+                    try
+                    {
+                        var picker = new Windows.Storage.Pickers.FileOpenPicker();
+                        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+                        picker.FileTypeFilter.Add("*");
+                        picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.HomeGroup;
+                        var file = await picker.PickSingleFileAsync();
+                        if (file != null) sshKeyPathInput.Text = file.Path;
+                    }
+                    catch (Exception ex)
+                    {
+                        Helpers.DebugLogger.Log($"[Connection] SSH key picker failed: {ex.Message}");
+                        ViewModel?.ShowToast(ex.Message);
+                    }
                 };
                 Grid.SetColumn(browseBtn, 1);
                 keyInputRow.Children.Add(browseBtn);
@@ -4975,9 +4995,16 @@ namespace Span
         // =================================================================
 
         /// <summary>
-        /// 즐겨찾기 사이드바의 표시 모드(Tree/Flat)를 설정에 따라 적용한다.
+        /// 사이드바 각 섹션의 표시 여부를 적용한다.
+        /// 클라우드/네트워크는 설정(Settings → Sidebar)과 해당 드라이브 존재 여부를 AND로 결합한다 —
+        /// 설정이 켜져 있어도 드라이브가 없으면 빈 섹션 헤더가 남지 않도록 숨긴다.
         /// </summary>
-        /// <param name="showTree">true면 트리 모드, false면 플랫 리스트 모드를 표시한다.</param>
+        /// <remarks>
+        /// 이 메서드가 두 섹션 Visibility의 단일 소유자다. 예전에는 XAML이
+        /// HasCloudDrives/HasNetworkDrives에 직접 x:Bind 하고 있었는데, 드라이브 목록이 갱신될 때마다
+        /// 그 바인딩이 여기서 세팅한 값을 덮어써서 숨김 설정이 먹지 않았다(v2.0.8).
+        /// 드라이브 수가 바뀌면 OnViewModelPropertyChanged에서 다시 호출된다.
+        /// </remarks>
         internal void ApplySidebarSectionVisibility()
         {
             var v = Microsoft.UI.Xaml.Visibility.Visible;
@@ -4985,11 +5012,15 @@ namespace Span
             SidebarHomeSection.Visibility = _settings.SidebarShowHome ? v : c;
             SidebarFavoritesSection.Visibility = _settings.SidebarShowFavorites ? v : c;
             SidebarLocalDrivesSection.Visibility = _settings.SidebarShowLocalDrives ? v : c;
-            SidebarCloudSection.Visibility = _settings.SidebarShowCloud ? v : c;
-            SidebarNetworkSection.Visibility = _settings.SidebarShowNetwork ? v : c;
+            SidebarCloudSection.Visibility = _settings.SidebarShowCloud && ViewModel.HasCloudDrives ? v : c;
+            SidebarNetworkSection.Visibility = _settings.SidebarShowNetwork && ViewModel.HasNetworkDrives ? v : c;
             SidebarRecycleBinSection.Visibility = _settings.SidebarShowRecycleBin ? v : c;
         }
 
+        /// <summary>
+        /// 즐겨찾기 사이드바의 표시 모드(Tree/Flat)를 설정에 따라 적용한다.
+        /// </summary>
+        /// <param name="showTree">true면 트리 모드, false면 플랫 리스트 모드를 표시한다.</param>
         private void ApplyFavoritesTreeMode(bool showTree)
         {
             FavoritesTreeView.Visibility = showTree
@@ -5871,6 +5902,10 @@ namespace Span
                     _ = fileVm.LoadThumbnailAsync();
                 }
 
+                // Pfeil "hat Inhalt": erst prüfen, wenn die Zeile erscheint (früher öffnete das Laden jeden Unterordner).
+                if (args.Item is ViewModels.FolderViewModel rowFolder)
+                    rowFolder.RequestChildProbe();
+
                 // On-demand 클라우드 + Git 상태 주입: 보이는 아이템만
                 if (args.Item is ViewModels.FileSystemViewModel fsVm
                     && sender.DataContext is ViewModels.FolderViewModel folderVm)
@@ -6237,12 +6272,20 @@ namespace Span
         {
             if (items.Count == 0) return;
 
-            var wanted = items.Where(item => ListViewContainsItem(listView, item)).ToList();
+            // Einmal ein Set der Listen-Elemente bauen statt pro gewünschtem Element alle Items zu durchsuchen:
+            // das war O(n·k) — bei "Alles auswählen" in großen Ordnern ~10^8 Vergleiche je Neuladen auf dem UI-Thread.
+            var present = new HashSet<object>(ReferenceEqualityComparer.Instance);
+            foreach (var obj in listView.Items)
+                present.Add(obj);
+            var wanted = items.Where(item => present.Contains(item)).ToList();
             // Auswahl schon so → nicht anfassen: Clear + Add holte die markierte Zeile wieder ins Bild, die Liste
             // sprang nach jedem Neuladen (Dateiwächter, Rückkehr ins Fenster) dorthin zurück
-            if (wanted.Count == listView.SelectedItems.Count
-                && wanted.All(item => listView.SelectedItems.Any(selected => ReferenceEquals(selected, item))))
-                return;
+            if (wanted.Count == listView.SelectedItems.Count)
+            {
+                var selected = new HashSet<object>(listView.SelectedItems, ReferenceEqualityComparer.Instance);
+                if (wanted.All(selected.Contains))
+                    return;
+            }
 
             _isSyncingSelection = true;
             try
@@ -6838,11 +6881,113 @@ namespace Span
         // UNIFIED BAR BUTTON HANDLERS
         // =================================================================
 
+        private Action? _refreshDrivesOnLanguageChanged;
+
+        private void OnWindowActivatedForContextMenu(object sender, WindowActivatedEventArgs args)
+        {
+            if (args.WindowActivationState != WindowActivationState.Deactivated)
+                WireContextMenuService();
+        }
+
+        /// <summary>
+        /// Den prozessweiten ContextMenuService an dieses Fenster binden (Owner-HWND, XamlRoot, Rückrufe).
+        /// Vorher geschah das nur im Konstruktor: Mit mehreren Fenstern zeigten Owner-HWND und XamlRoot nach dem
+        /// Schließen des zuletzt erzeugten Fensters auf ein zerstörtes Fenster, und die Rückrufe liefen ohne
+        /// _isClosed-Prüfung auf dessen totem XAML-Baum.
+        /// </summary>
+        private void WireContextMenuService()
+        {
+            if (_isClosed) return;
+            _contextMenuService.OwnerHwnd = _hwnd;
+            _contextMenuService.XamlRootProvider = () => _isClosed ? null : Content?.XamlRoot;
+            _contextMenuService.InvokeFailedCallback = (itemName) =>
+            {
+                if (_isClosed) return;
+                Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, () =>
+                {
+                    if (_isClosed || ViewModel == null) return;
+                    ViewModel.ShowToast(string.Format(_loc.Get("Toast_ShellCommandFailed"), itemName), 3000, isError: true);
+                });
+            };
+            _contextMenuService.ShellCommandExecutedCallback = () =>
+            {
+                if (_isClosed) return;
+                DispatcherQueue.TryEnqueue(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(100);
+                        if (_isClosed) return;
+                        SyncClipboardFromSystemIfNeeded();
+                        UpdateToolbarButtonStates();
+                    }
+                    catch (Exception ex)
+                    {
+                        Helpers.DebugLogger.Log($"[MainWindow] Post-shell toolbar refresh error: {ex.Message}");
+                    }
+                });
+                DispatcherQueue.TryEnqueue(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(1000);
+                        if (_isClosed || ViewModel == null) return;
+                        await ViewModel.RefreshAllSplitExplorersAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        Helpers.DebugLogger.Log($"[MainWindow] Post-shell refresh error: {ex.Message}");
+                    }
+                });
+            };
+            _contextMenuService.NativeShellMenuClosedCallback = () =>
+            {
+                if (_isClosed) return;
+                DispatcherQueue.TryEnqueue(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(100);
+                        if (_isClosed) return;
+                        SyncClipboardFromSystemIfNeeded();
+                        UpdateToolbarButtonStates();
+                    }
+                    catch (Exception ex)
+                    {
+                        Helpers.DebugLogger.Log($"[MainWindow] Post-shell-menu toolbar refresh error: {ex.Message}");
+                    }
+                });
+            };
+        }
+
+        /// <summary>Beim Schließen lösen, falls dieses Fenster den Service gerade besitzt; das nächste aktive Fenster übernimmt.</summary>
+        private void UnwireContextMenuService()
+        {
+            if (_contextMenuService.OwnerHwnd != _hwnd) return;
+            _contextMenuService.OwnerHwnd = IntPtr.Zero;
+            _contextMenuService.XamlRootProvider = null;
+            _contextMenuService.InvokeFailedCallback = null;
+            _contextMenuService.ShellCommandExecutedCallback = null;
+            _contextMenuService.NativeShellMenuClosedCallback = null;
+        }
+
+        /// <summary>
+        /// Systemweites Zwischenablage-Event (statisch, prozessweit). Früher ein Lambda ohne Abmeldung: jedes
+        /// geschlossene Fenster blieb verwurzelt und schrieb bei der nächsten Änderung in seine toten Buttons —
+        /// eine COMException aus einem Dispatcher-Callback umgeht UnhandledException und beendet den Prozess.
+        /// </summary>
+        private void OnClipboardChangedForToolbar(object? sender, object e)
+        {
+            if (_isClosed) return;
+            Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, UpdateToolbarButtonStates);
+        }
+
         /// <summary>
         /// Update toolbar button enabled/disabled states based on current selection and clipboard.
         /// </summary>
         private void UpdateToolbarButtonStates()
         {
+            if (_isClosed) return;
             bool hasSelection = HasAnySelection();
             bool hasClipboard = _clipboardPaths.Count > 0
                 || Helpers.ShellClipboardHelper.HasPasteableFiles()
@@ -7726,6 +7871,23 @@ namespace Span
             var shellService = App.Current.Services.GetRequiredService<ShellService>();
             shellService.EjectDrive(drive.Path);
             // WM_DEVICECHANGE 이벤트가 자동으로 드라이브 목록 갱신
+        }
+
+        void Services.IContextMenuHost.PerformMapNetworkDrive(DriveItem? drive)
+        {
+            var shellService = App.Current.Services.GetRequiredService<ShellService>();
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+
+            // UNC 위치에서 왔으면 경로를 미리 채워 넣는다.
+            // 섹션 헤더에서 왔으면 drive가 null이라 빈 대화상자를 연다.
+            string? remote = drive != null && drive.Path.StartsWith(@"\\") ? drive.Path : null;
+
+            if (shellService.MapNetworkDrive(hwnd, remote))
+            {
+                // 드라이브 폴링은 5초 주기이고 문자 집합이 바뀔 때만 갱신하므로,
+                // 직접 부르지 않으면 새 드라이브가 최대 5초간 보이지 않는다.
+                ViewModel.RefreshDrives();
+            }
         }
 
         void Services.IContextMenuHost.PerformDisconnectDrive(DriveItem drive)

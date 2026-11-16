@@ -1647,6 +1647,37 @@ namespace Span
         }
 
         /// <summary>
+        /// Aktiven Tab schließen und alle vier Ansichts-Panels entsorgen (Miller/Details/List/Icon) — derselbe
+        /// Ablauf wie beim Schließen über das X. Ctrl+W entfernte früher nur das Miller-Panel; Details-/List-/
+        /// Icon-Views blieben samt Explorer-Abonnements bis zum Programmende in den Hosts hängen.
+        /// </summary>
+        private void CloseActiveTabWithPanels()
+        {
+            var closingTab = ViewModel.ActiveTab;
+            if (closingTab != null)
+            {
+                RemoveMillerPanel(closingTab.Id);
+                RemoveDetailsPanel(closingTab.Id);
+                RemoveListPanel(closingTab.Id);
+                RemoveIconPanel(closingTab.Id);
+            }
+            ViewModel.CloseTab(ViewModel.ActiveTabIndex);
+            if (ViewModel.ActiveTab != null)
+            {
+                if (ViewModel.ActiveTab.Explorer is ViewModels.ExplorerViewModel switchExpl)
+                    switchExpl.TabSwitchSuppressionTicks = Environment.TickCount64 + 500;
+                SwitchMillerPanel(ViewModel.ActiveTab.Id);
+                SwitchDetailsPanel(ViewModel.ActiveTab.Id, ViewModel.ActiveTab.ViewMode == ViewMode.Details);
+                SwitchListPanel(ViewModel.ActiveTab.Id, ViewModel.ActiveTab.ViewMode == ViewMode.List);
+                SwitchIconPanel(ViewModel.ActiveTab.Id, Helpers.ViewModeExtensions.IsIconMode(ViewModel.ActiveTab.ViewMode));
+            }
+            ResubscribeLeftExplorer();
+            UpdateViewModeVisibility();
+            FocusActiveView();
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, UpdateTitleBarRegions);
+        }
+
+        /// <summary>
         /// 새 탭 버튼 클릭 이벤트. 현재 활성 탭의 경로로 새 탭을 생성한다.
         /// </summary>
         private void OnNewTabClick(object sender, RoutedEventArgs e)
@@ -2339,6 +2370,9 @@ namespace Span
                         RemoveDetailsPanel(oldTab.Id);
                         RemoveListPanel(oldTab.Id);
                         RemoveIconPanel(oldTab.Id);
+                        // Wie jeder andere Schließpfad: Explorer aufräumen (Debounce-/Such-CTS, Spalten-Handler,
+                        // Thumbnails) — sonst blieb bei jedem Workspace-Wechsel der ganze alte Tab-Satz im Speicher.
+                        oldTab.Explorer?.Cleanup();
                         ViewModel.Tabs.Remove(oldTab);
                     }
                 }

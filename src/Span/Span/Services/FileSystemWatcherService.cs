@@ -57,6 +57,10 @@ namespace Span.Services
                         watcher.Dispose();
                         _watchers.Remove(path);
                     }
+
+                    // Debounce-Timer des nicht mehr beobachteten Pfads mit entsorgen (ein Timer je Pfad, siehe DebouncedNotify).
+                    if (_debounceTimers.TryRemove(path, out var timer))
+                        timer.Dispose();
                 }
 
                 // 컬럼 구성이 바뀌었으니 재생성 포기 이력을 지운다 — 사용자가 다시 찾아온
@@ -275,27 +279,46 @@ namespace Span.Services
 
         private void DebouncedNotify(string folderPath, int delayMs = DebounceMs)
         {
-            _debounceTimers.AddOrUpdate(
-                folderPath,
-                // 신규: 타이머 생성
-                _ => new Timer(TimerCallback, folderPath, delayMs, Timeout.Infinite),
-                // 기존: 타이머 재설정 (원자적 교체로 경합 조건 방지)
-                (_, existing) =>
+            // Ein Timer je Pfad, der zwischen den Ereignissen nur neu gestellt wird (siehe TimerCallback).
+            if (!_debounceTimers.TryGetValue(folderPath, out var timer))
+            {
+                var created = new Timer(TimerCallback, folderPath, Timeout.Infinite, Timeout.Infinite);
+                if (_debounceTimers.TryAdd(folderPath, created))
                 {
-                    existing.Change(delayMs, Timeout.Infinite);
-                    return existing;
-                });
+                    timer = created;
+                }
+                else
+                {
+                    created.Dispose();
+                    // Ein anderer Thread war schneller; ist der Eintrag inzwischen weg (StopAll), wird der Pfad
+                    // nicht mehr beobachtet und die Benachrichtigung entfällt.
+                    if (!_debounceTimers.TryGetValue(folderPath, out timer))
+                        return;
+                }
+            }
+
+            try
+            {
+                timer.Change(delayMs, Timeout.Infinite);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Wettlauf mit StopAll/SetWatchedPaths: der Pfad wird nicht mehr beobachtet.
+            }
         }
 
         private void TimerCallback(object? state)
         {
             // v1.4.15: ThreadPool Timer callback throw → AppDomain unhandled.
             // PathChanged 구독자 throw가 메인 크래시로 번지지 않도록 봉인.
+            //
+            // Der Timer bleibt im Dictionary (ein Timer je Pfad, entfernt in SetWatchedPaths/StopAll).
+            // Früher wurde er hier entfernt und freigegeben — ein gleichzeitig eintreffendes Ereignis rief dann
+            // Change() auf dem freigegebenen Timer (ObjectDisposedException auf dem Watcher-Thread = Prozessabsturz)
+            // oder hatte den Timer eben erst neu gestellt, der dann verworfen wurde (letzte Änderung ging verloren).
             try
             {
                 if (state is not string folderPath) return;
-                if (_debounceTimers.TryRemove(folderPath, out var removed))
-                    removed.Dispose();
                 PathChanged?.Invoke(folderPath);
             }
             catch (Exception ex)

@@ -43,6 +43,8 @@
     <Compile Include="..\Span\Models\ShelfItem.cs" Link="Sources\Models\ShelfItem.cs" />
     <Compile Include="..\Span\Models\CommandPaletteItem.cs" Link="Sources\Models\CommandPaletteItem.cs" />
     <Compile Include="..\Span\Models\TabStateDto.cs" Link="Sources\Models\TabStateDto.cs" />
+    <Compile Include="..\Span\Models\WorkspaceDto.cs" Link="Sources\Models\WorkspaceDto.cs" />
+    <Compile Include="..\Span\Services\WorkspaceService.cs" Link="Sources\Services\WorkspaceService.cs" />
     <Compile Include="..\Span\Models\ShortcutCommands.cs" Link="Sources\Models\ShortcutCommands.cs" />
     <Compile Include="..\Span\Models\ConnectionInfo.cs" Link="Sources\Models\ConnectionInfo.cs" />
     <Compile Include="..\Span\Models\CloudState.cs" Link="Sources\Models\CloudState.cs" />
@@ -98,6 +100,7 @@
     <Compile Include="..\Span\Services\FileOperations\BatchRenameOperation.cs" Link="Sources\Services\BatchRenameOperation.cs" />
     <Compile Include="..\Span\Services\FileOperations\DeleteFileOperation.cs" Link="Sources\Services\DeleteFileOperation.cs" />
     <Compile Include="..\Span\Services\FileOperations\ShellDeleteWithProgress.cs" Link="Sources\Services\ShellDeleteWithProgress.cs" />
+    <Compile Include="..\Span\Services\FileOperations\ShellTransferWithProgress.cs" Link="Sources\Services\ShellTransferWithProgress.cs" />
     <Compile Include="..\Span\Services\FileOperations\CompressOperation.cs" Link="Sources\Services\CompressOperation.cs" />
     <Compile Include="..\Span\Services\FileOperations\ExtractOperation.cs" Link="Sources\Services\ExtractOperation.cs" />
     <!-- Services - folder size (pure C#) -->
@@ -105,6 +108,7 @@
     <Compile Include="..\Span\Services\FolderSizeIndex.cs" Link="Sources\Services\FolderSizeIndex.cs" />
     <!-- Services - cache (pure C#) -->
     <Compile Include="..\Span\Services\FolderContentCache.cs" Link="Sources\Services\FolderContentCache.cs" />
+    <Compile Include="..\Span\Services\FolderListing.cs" Link="Sources\Services\FolderListing.cs" />
     <!-- Services - routing (pure C#) -->
     <Compile Include="..\Span\Services\FileSystemRouter.cs" Link="Sources\Services\FileSystemRouter.cs" />
     <Compile Include="..\Span\Services\IFileSystemProvider.cs" Link="Sources\Services\IFileSystemProvider.cs" />

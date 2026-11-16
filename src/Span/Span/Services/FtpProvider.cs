@@ -138,7 +138,7 @@ namespace Span.Services
         public async Task<IReadOnlyList<IFileSystemItem>> GetItemsAsync(string path, CancellationToken ct = default)
         {
             var items = new List<IFileSystemItem>();
-            if (_client == null) return items;
+            if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
 
             try
             {
@@ -293,14 +293,14 @@ namespace Span.Services
 
         public async Task CreateDirectoryAsync(string path, CancellationToken ct = default)
         {
-            if (_client == null) return;
+            if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
             await EnsureConnectedAsync();
             await _client.CreateDirectory(path, ct);
         }
 
         public async Task DeleteAsync(string path, bool recursive, CancellationToken ct = default)
         {
-            if (_client == null) return;
+            if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
             await EnsureConnectedAsync();
 
             if (await _client.DirectoryExists(path, ct))
@@ -318,20 +318,15 @@ namespace Span.Services
 
         public async Task RenameAsync(string oldPath, string newPath, CancellationToken ct = default)
         {
-            if (_client == null) return;
+            if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
             await EnsureConnectedAsync();
             await _client.Rename(oldPath, newPath, ct);
         }
 
         public async Task CopyAsync(string sourcePath, string destPath, CancellationToken ct = default)
         {
-            if (_client == null) return;
-            await EnsureConnectedAsync();
-
-            using var stream = new MemoryStream();
-            await _client.DownloadStream(stream, sourcePath, token: ct);
-            stream.Position = 0;
-            await _client.UploadStream(stream, destPath, token: ct);
+            using var stream = await OpenReadAsync(sourcePath, ct);
+            await WriteAsync(destPath, stream, ct);
         }
 
         public async Task MoveAsync(string sourcePath, string destPath, CancellationToken ct = default)
@@ -346,16 +341,21 @@ namespace Span.Services
 
             await EnsureConnectedAsync();
             var stream = new MemoryStream();
-            await _client.DownloadStream(stream, path, token: ct);
+            if (!await _client.DownloadStream(stream, path, token: ct))
+            {
+                stream.Dispose();
+                throw new IOException("FTP download did not complete.");
+            }
             stream.Position = 0;
             return stream;
         }
 
         public async Task WriteAsync(string path, Stream content, CancellationToken ct = default)
         {
-            if (_client == null) return;
+            if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
             await EnsureConnectedAsync();
-            await _client.UploadStream(content, path, token: ct);
+            if (await _client.UploadStream(content, path, token: ct) != FtpStatus.Success)
+                throw new IOException("FTP upload did not complete.");
         }
 
         /// <summary>
@@ -373,14 +373,15 @@ namespace Span.Services
         /// </summary>
         public async Task DownloadWithProgressAsync(string remotePath, Stream destStream, IProgress<long>? progress, CancellationToken ct)
         {
-            if (_client == null) return;
+            if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
             await EnsureConnectedAsync();
 
             IProgress<FtpProgress>? ftpProgress = progress != null
                 ? new Progress<FtpProgress>(p => progress.Report(p.TransferredBytes))
                 : null;
 
-            await _client.DownloadStream(destStream, remotePath, 0, ftpProgress, ct);
+            if (!await _client.DownloadStream(destStream, remotePath, 0, ftpProgress, ct))
+                throw new IOException("FTP download did not complete.");
         }
 
         /// <summary>
@@ -388,14 +389,15 @@ namespace Span.Services
         /// </summary>
         public async Task UploadWithProgressAsync(string remotePath, Stream sourceStream, IProgress<long>? progress, CancellationToken ct)
         {
-            if (_client == null) return;
+            if (_client == null) throw new InvalidOperationException("Remote connection is not available.");
             await EnsureConnectedAsync();
 
             IProgress<FtpProgress>? ftpProgress = progress != null
                 ? new Progress<FtpProgress>(p => progress.Report(p.TransferredBytes))
                 : null;
 
-            await _client.UploadStream(sourceStream, remotePath, FtpRemoteExists.Overwrite, false, ftpProgress, ct);
+            if (await _client.UploadStream(sourceStream, remotePath, FtpRemoteExists.Overwrite, false, ftpProgress, ct) != FtpStatus.Success)
+                throw new IOException("FTP upload did not complete.");
         }
 
         private void ConfigureCertificateValidation(AsyncFtpClient client, Models.ConnectionInfo connInfo)

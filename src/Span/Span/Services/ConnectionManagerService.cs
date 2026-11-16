@@ -327,9 +327,21 @@ namespace Span.Services
             if (encrypted.Length == 0)
                 return new Dictionary<string, string>();
 
-            var decrypted = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
-            var json = Encoding.UTF8.GetString(decrypted);
-            return JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new();
+            try
+            {
+                var decrypted = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
+                var json = Encoding.UTF8.GetString(decrypted);
+                return JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new();
+            }
+            catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or JsonException)
+            {
+                // Unlesbare Datei (abgebrochener Schreibvorgang, anderes Benutzerprofil): beiseitelegen und leer
+                // weitermachen. Vorher warf jeder Lade-, Speicher- und Löschversuch hier — ab dann ließ sich kein
+                // Passwort mehr speichern, bis die Datei von Hand gelöscht wurde.
+                DebugLogger.Log($"[ConnectionManager] credentials.dat unreadable ({ex.GetType().Name}) — moved aside as .corrupt");
+                try { File.Move(filePath, filePath + ".corrupt", overwrite: true); } catch { }
+                return new Dictionary<string, string>();
+            }
         }
 
         /// <summary>
@@ -350,7 +362,11 @@ namespace Span.Services
             var json = JsonSerializer.Serialize(credentials);
             var plainBytes = Encoding.UTF8.GetBytes(json);
             var encrypted = ProtectedData.Protect(plainBytes, null, DataProtectionScope.CurrentUser);
-            File.WriteAllBytes(filePath, encrypted);
+            // Erst .tmp, dann atomar ersetzen — wie connections.json. Ein halb geschriebener DPAPI-Blob ist
+            // nicht entschlüsselbar.
+            var tmpPath = filePath + ".tmp";
+            File.WriteAllBytes(tmpPath, encrypted);
+            File.Move(tmpPath, filePath, overwrite: true);
         }
 
         /// <summary>

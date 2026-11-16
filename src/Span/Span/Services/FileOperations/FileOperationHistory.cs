@@ -65,9 +65,13 @@ public class FileOperationHistory
             // Limit stack size to prevent memory issues
             if (_undoStack.Count > _maxHistorySize)
             {
+                // Stack.ToArray() liefert LIFO (temp[0] = jüngste Operation). Die ältesten überzähligen Einträge
+                // verwerfen und die behaltenen in umgekehrter Reihenfolge zurücklegen, damit die jüngste wieder
+                // oben liegt. Vorher wurde aufsteigend gepusht: nach dem Überschreiten der Obergrenze machte
+                // Ctrl+Z die ÄLTESTE Operation rückgängig statt der letzten.
                 var temp = _undoStack.ToArray();
                 _undoStack.Clear();
-                for (int i = 0; i < _maxHistorySize; i++)
+                for (int i = _maxHistorySize - 1; i >= 0; i--)
                 {
                     _undoStack.Push(temp[i]);
                 }

@@ -1,4 +1,4 @@
-﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
@@ -908,7 +908,7 @@ namespace Span.Views
 
             if (e.Key == Windows.System.VirtualKey.Enter)
             {
-                vm.CommitRename();
+                _ = vm.CommitRenameAsync();
                 _justFinishedRename = true;
                 _renameTargetPath = null;
                 e.Handled = true;
@@ -938,7 +938,7 @@ namespace Span.Views
             if ((ContextMenuHost as MainWindow)?.IsRenameFocusPending == true)
                 return;
 
-            vm.CommitRename();
+            _ = vm.CommitRenameAsync();
             _renameTargetPath = null;
         }
 
@@ -1385,7 +1385,9 @@ namespace Span.Views
         {
             e.Handled = true;
             if (Helpers.GroupHeaderHelper.GroupOf(sender) is { } group)
-                Helpers.GroupHeaderHelper.SelectGroup(DetailsListView, group);
+                Helpers.GroupHeaderHelper.SelectGroup(DetailsListView, group,
+                    setSyncing: v => _isSyncingSelection = v,
+                    afterSelect: () => OnDetailsSelectionChanged(DetailsListView, null!)); // einmaliger Sync (e wird nicht ausgewertet)
         }
 
         private void OnGroupHeaderDoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
@@ -1988,20 +1990,28 @@ namespace Span.Views
                 };
 
                 DetailsListView.ItemsSource = cvs.View;
+                _itemsSourceBoundToCurrentItems = false;
             }
             else if (HasAnyFilter)
             {
                 // Filters active but no grouping — set filtered list directly
                 DetailsListView.ItemsSource = filtered;
+                _itemsSourceBoundToCurrentItems = false;
             }
-            else
+            else if (!_itemsSourceBoundToCurrentItems)
             {
-                // No filters, no grouping — bind back to ViewModel
+                // No filters, no grouping — bind back to ViewModel. Nur wenn die Bindung nicht schon steht: Nach jedem
+                // Sortieren wurde sie neu gesetzt und realisierte alle Container ein zweites Mal, direkt nach dem Reset
+                // durch ReplaceChildren.
                 DetailsListView.SetBinding(
                     ListView.ItemsSourceProperty,
                     new Binding { Path = new PropertyPath("CurrentItems"), Mode = BindingMode.OneWay });
+                _itemsSourceBoundToCurrentItems = true;
             }
         }
+
+        /// <summary>ItemsSource ist aktuell per Binding an CurrentItems gebunden (kein Filter, keine Gruppierung).</summary>
+        private bool _itemsSourceBoundToCurrentItems;
 
         /// <summary>
         /// Gets a snapshot of current items for filtering/grouping.
@@ -2238,6 +2248,7 @@ namespace Span.Views
                     DetailsListView.KeyDown -= OnDetailsKeyDown;
                     DetailsListView.ContainerContentChanging -= OnContainerContentChanging;
                     DetailsListView.ItemsSource = null;
+                    _itemsSourceBoundToCurrentItems = false;
                     DetailsListView.SelectedItem = null;
                 }
 

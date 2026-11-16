@@ -52,7 +52,7 @@ namespace Span
             foreach (var drive in ViewModel.Drives)
             {
                 // Keine Vorabprüfung auf Unterordner: schlafende USB-Platten würden sonst geweckt
-                DrivesTreeView.RootNodes.Add(new TreeViewNode { Content = drive, HasUnrealizedChildren = true });
+                DrivesTreeView.RootNodes.Add(new TreeViewNode { Content = drive, HasUnrealizedChildren = !drive.IsLocked });
             }
             SyncDrivesTreeToPath(ViewModel.ActiveExplorer?.CurrentPath);
         }

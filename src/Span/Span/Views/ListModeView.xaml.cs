@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System.Collections.Generic;
@@ -252,7 +252,11 @@ namespace Span.Views
             var newPathSet = new System.Collections.Generic.HashSet<string>(
                 newItems.Select(x => x.Path), StringComparer.OrdinalIgnoreCase);
 
-            int addCount = newItems.Count(x => !oldItems.Any(o => string.Equals(o.Path, x.Path, StringComparison.OrdinalIgnoreCase)));
+            // Set statt oldItems.Any(...) je neuem Element: das war O(n·m) String-Vergleiche auf dem UI-Thread
+            // (10.000 Dateien → 10^8 Vergleiche je Navigation).
+            var oldPathSet = new System.Collections.Generic.HashSet<string>(
+                oldItems.Select(o => o.Path), StringComparer.OrdinalIgnoreCase);
+            int addCount = newItems.Count(x => !oldPathSet.Contains(x.Path));
             int removeCount = oldItems.Count(x => !newPathSet.Contains(x.Path));
 
             if (addCount + removeCount > Math.Max(oldItems.Count, newItems.Count) / 2)
@@ -383,7 +387,9 @@ namespace Span.Views
         {
             e.Handled = true;
             if (Helpers.GroupHeaderHelper.GroupOf(sender) is { } group)
-                Helpers.GroupHeaderHelper.SelectGroup(ListGridView, group);
+                Helpers.GroupHeaderHelper.SelectGroup(ListGridView, group,
+                    setSyncing: v => _isSyncingSelection = v,
+                    afterSelect: () => OnListSelectionChanged(ListGridView, null!)); // einmaliger Sync (e wird nicht ausgewertet)
         }
 
         private void OnGroupHeaderDoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
@@ -988,17 +994,18 @@ namespace Span.Views
         /// </summary>
         private void FocusListRenameTextBox(FileSystemViewModel item)
         {
-            int idx = _listItems.IndexOf(item);
-            if (idx < 0) return;
+            if (!_listItems.Contains(item)) return;
 
-            var container = ListGridView.ContainerFromIndex(idx) as UIElement;
+            // ContainerFromItem: in der gruppierten Ansicht stimmt der flache Index der CollectionViewSource nicht
+            // mit _listItems überein — F2 fokussierte dann das Textfeld eines anderen Elements.
+            var container = ListGridView.ContainerFromItem(item) as UIElement;
             if (container == null)
             {
                 // Virtualized — scroll into view and retry
                 Helpers.ListScrollHelper.ScrollIntoViewWithMargin(ListGridView, item);
                 DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
                 {
-                    var retryContainer = ListGridView.ContainerFromIndex(idx) as UIElement;
+                    var retryContainer = ListGridView.ContainerFromItem(item) as UIElement;
                     if (retryContainer != null)
                     {
                         var tb = VisualTreeHelpers.FindChild<TextBox>(retryContainer as DependencyObject);
@@ -1023,7 +1030,7 @@ namespace Span.Views
 
             if (e.Key == Windows.System.VirtualKey.Enter)
             {
-                vm.CommitRename();
+                _ = vm.CommitRenameAsync();
                 _justFinishedRename = true;
                 _renameTargetPath = null;
                 e.Handled = true;
@@ -1055,7 +1062,7 @@ namespace Span.Views
             if ((ContextMenuHost as MainWindow)?.IsRenameFocusPending == true)
                 return;
 
-            vm.CommitRename();
+            _ = vm.CommitRenameAsync();
             _renameTargetPath = null;
         }
 
@@ -1067,12 +1074,11 @@ namespace Span.Views
             var selected = GetSelectedItem();
             if (selected == null) return;
 
-            int idx = _listItems.IndexOf(selected);
-            if (idx < 0) return;
+            if (!_listItems.Contains(selected)) return;
 
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
             {
-                if (ListGridView.ContainerFromIndex(idx) is GridViewItem container)
+                if (ListGridView.ContainerFromItem(selected) is GridViewItem container)
                 {
                     container.Focus(FocusState.Programmatic);
                 }

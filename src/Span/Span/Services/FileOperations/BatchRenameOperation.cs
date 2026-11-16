@@ -52,7 +52,9 @@ public class BatchRenameOperation : IFileOperation
 
             try
             {
-                if (oldPath.Equals(newPath, StringComparison.OrdinalIgnoreCase))
+                // Ordinal: eine reine Groß-/Kleinschreibungsänderung (file.txt → File.txt) ist ein echtes Umbenennen,
+                // das File.Move auf NTFS beherrscht; mit OrdinalIgnoreCase wurde sie stillschweigend übersprungen.
+                if (oldPath.Equals(newPath, StringComparison.Ordinal))
                     continue;
 
                 if (File.Exists(oldPath))

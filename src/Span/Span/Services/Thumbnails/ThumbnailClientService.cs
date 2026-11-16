@@ -22,6 +22,14 @@ namespace Span.Services.Thumbnails;
 /// - Cancel batch (P2-3)
 /// - 폴더 단위 폴백 (P2-5)
 /// - 적응형 타임아웃 cold 7s / warm 3s (P2-6)
+///
+/// Fehlerpolitik (überarbeitet): Drei verschiedene Dinge wurden früher in einem Zähler mit hartem Sitzungs-
+/// Abschaltpunkt (3) vermengt — eine langsame Datei, ein toter/hängender Worker, eine kaputte Umgebung.
+/// In der Praxis schaltete sich das Feature nach wenigen Minuten normalen Blätterns selbst ab.
+///   - langsame Anfrage (Timeout, Worker lebt): nur diese Id wird abgebrochen, der Worker bleibt;
+///     erst mehrere Timeouts in Folge gelten als hängender Worker (Neustart mit Backoff, zählt nicht zur Sitzung)
+///   - toter Worker / fehlgeschlagener Spawn: Neustart mit Backoff, zählt zur Sitzung
+///   - jede erfolgreiche Antwort setzt den Sitzungszähler zurück
 /// </summary>
 public sealed class ThumbnailClientService : IDisposable
 {
@@ -33,12 +41,17 @@ public sealed class ThumbnailClientService : IDisposable
     // D3D surface 회수 지연 → WinUI composition 크래시 (STATUS_STOWED_EXCEPTION).
     // 3회면 충분히 환경 문제임을 확정할 수 있음.
     private const int SessionFailureThreshold = 3;     // 누적 실패 N회 → 세션 동안 영구 비활성
+    /// <summary>Timeouts in Folge auf demselben lebenden Worker, ab denen er als hängend gilt und neu gestartet wird.</summary>
+    private const int HungWorkerTimeoutThreshold = 3;
 
     private readonly object _lock = new();
     private readonly ThumbnailDiskCache _cache = new();
     private readonly JobObjectHelper? _jobObject;  // I7: null이면 격리 비활성
     private readonly WorkerProcess?[] _workers = new WorkerProcess?[PoolSize];
+    /// <summary>Laufender Spawn je Slot — gleichzeitige Aufrufer hängen sich an denselben Task.</summary>
+    private readonly Task<WorkerProcess?>?[] _spawning = new Task<WorkerProcess?>?[PoolSize];
     private readonly int[] _workerFailures = new int[PoolSize];
+    private readonly int[] _consecutiveTimeouts = new int[PoolSize];
     private readonly DateTime[] _nextRetryAt = new DateTime[PoolSize];
     private readonly bool[] _workerWarm = new bool[PoolSize];
     private int _roundRobinIndex;
@@ -137,6 +150,7 @@ public sealed class ThumbnailClientService : IDisposable
     /// <summary>
     /// 썸네일 요청 — 캐시 hit 시 즉시 경로 반환, miss 시 워커 호출.
     /// 실패 또는 워커 미동작 시 null → 호출자가 인프로세스 폴백.
+    /// Abbruch (Aufrufer-Token oder CancelAllInflight) → OperationCanceledException; der Aufrufer fällt dann nicht zurück.
     /// </summary>
     public async Task<Uri?> GetThumbnailUriAsync(
         string filePath,
@@ -159,29 +173,31 @@ public sealed class ThumbnailClientService : IDisposable
             return null;  // 이 폴더는 인프로세스 폴백
         }
 
-        // ── 2. 캐시 키 계산 ──
-        long fileSize = 0;
-        DateTime mtimeUtc = DateTime.MinValue;
+        // ── 2+3. 캐시 키 계산 + 캐시 hit ──
+        // Stat der Quelldatei, Cache-Probe und LastAccess-Touch im Hintergrund: bis zum ersten echten await lief
+        // das bisher auf dem aufrufenden UI-Thread (bei Netzlaufwerken ein Round-Trip je Thumbnail, dazu ein
+        // Schreibzugriff je Cache-Treffer).
+        string cachePath;
+        bool cacheHit;
         try
         {
-            var fi = new FileInfo(filePath);
-            if (!fi.Exists) return null;
-            fileSize = fi.Length;
-            mtimeUtc = fi.LastWriteTimeUtc;
+            (cachePath, cacheHit) = await Task.Run(() =>
+            {
+                var fi = new FileInfo(filePath);
+                if (!fi.Exists) return (string.Empty, false);
+                var cp = _cache.GetCachePath(
+                    filePath, fi.Length, fi.LastWriteTimeUtc,
+                    requestedSize, mode, theme, dpi, applyExif, isCloudOnly);
+                if (!_cache.IsCached(cp)) return (cp, false);
+                try { File.SetLastAccessTimeUtc(cp, DateTime.UtcNow); } catch { }
+                return (cp, true);
+            }, ct).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) { throw; }
         catch { return null; }
 
-        var cachePath = _cache.GetCachePath(
-            filePath, fileSize, mtimeUtc,
-            requestedSize, mode, theme, dpi, applyExif, isCloudOnly);
-
-        // ── 3. 캐시 hit ──
-        if (_cache.IsCached(cachePath))
-        {
-            try { File.SetLastAccessTimeUtc(cachePath, DateTime.UtcNow); }
-            catch { }
-            return new Uri(cachePath);
-        }
+        if (cachePath.Length == 0) return null;
+        if (cacheHit) return new Uri(cachePath);
 
         // ── 4. 워커 보장 (라운드로빈) ──
         var worker = await EnsureWorkerAsync(ct).ConfigureAwait(false);
@@ -218,11 +234,7 @@ public sealed class ThumbnailClientService : IDisposable
             var resp = await worker.RequestAsync(req, timeoutCts.Token).ConfigureAwait(false);
             if (resp.Type == IpcMessageTypes.Ok && !string.IsNullOrEmpty(resp.CachePath) && File.Exists(resp.CachePath))
             {
-                // 첫 성공 → warm 표시 (C3: Volatile.Write로 cross-thread visibility)
-                System.Threading.Volatile.Write(ref _workerWarm[workerId], true);
-                // 폴더/워커 실패 카운터 리셋
-                if (parentDir != null) _folderFailureCount.TryRemove(parentDir, out _);
-                Interlocked.Exchange(ref _workerFailures[workerId], 0);
+                RecordSuccess(workerId, parentDir);
                 return new Uri(resp.CachePath);
             }
 
@@ -233,6 +245,11 @@ public sealed class ThumbnailClientService : IDisposable
             }
             return null;
         }
+        catch (ThumbnailBatchCancelledException)
+        {
+            // Ordnerwechsel (CancelAllInflight): weder Timeout noch toter Worker — nichts zählen, nicht zurückfallen.
+            throw;
+        }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // 호출자 취소 — 워커 책임 아님
@@ -240,11 +257,18 @@ public sealed class ThumbnailClientService : IDisposable
         }
         catch (OperationCanceledException)
         {
-            // 타임아웃 — 워커 응답 없음, 워커 죽었을 가능성
-            DebugLogger.Log($"[ThumbnailClient] worker#{workerId} timeout (warm={isWarm})");
-            HandleWorkerFailure(workerId);
+            // Timeout. Lebt der Worker, war nur diese Datei langsam (RAW, 4K-Video, PSD): die Token-Registrierung in
+            // RequestAsync hat dem Worker bereits ein cancel für diese Id geschickt. Erst mehrere Timeouts in Folge
+            // gelten als hängender Worker. Vorher tötete jeder einzelne Timeout den gesunden Worker, und jede
+            // Geschwister-Anfrage lief dabei in ObjectDisposedException — drei davon schalteten das Feature ab.
+            bool alive = worker.IsAlive;
+            DebugLogger.Log($"[ThumbnailClient] worker#{workerId} timeout (warm={isWarm}, alive={alive})");
             if (parentDir != null)
                 _folderFailureCount.AddOrUpdate(parentDir, 1, (_, n) => n + 1);
+            if (!alive)
+                HandleWorkerFailure(worker, countTowardsSessionLimit: true);
+            else if (Interlocked.Increment(ref _consecutiveTimeouts[workerId]) >= HungWorkerTimeoutThreshold)
+                HandleWorkerFailure(worker, countTowardsSessionLimit: false);
             return null;
         }
         catch (Exception ex) when (
@@ -256,13 +280,13 @@ public sealed class ThumbnailClientService : IDisposable
             // → InvalidOperationException 외에 IOException, ObjectDisposedException도 retry.
             // 워커 spawn 직후 첫 요청 IOException 시 폴더 fallback 진입까지 3-9초 지연 방지.
             DebugLogger.Log($"[ThumbnailClient] worker#{workerId} died before/during request ({ex.GetType().Name}) — single retry");
-            HandleWorkerFailure(workerId);
+            HandleWorkerFailure(worker, countTowardsSessionLimit: true);
             return await GetThumbnailUriAsyncInternalRetry(req, parentDir, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             DebugLogger.Log($"[ThumbnailClient] worker#{workerId} call failed: {ex.Message}");
-            HandleWorkerFailure(workerId);
+            HandleWorkerFailure(worker, countTowardsSessionLimit: !worker.IsAlive);
             if (parentDir != null)
                 _folderFailureCount.AddOrUpdate(parentDir, 1, (_, n) => n + 1);
             return null;
@@ -289,13 +313,19 @@ public sealed class ThumbnailClientService : IDisposable
             var resp = await worker.RequestAsync(req, timeoutCts.Token).ConfigureAwait(false);
             if (resp.Type == IpcMessageTypes.Ok && !string.IsNullOrEmpty(resp.CachePath) && File.Exists(resp.CachePath))
             {
-                System.Threading.Volatile.Write(ref _workerWarm[workerId], true);
-                if (parentDir != null) _folderFailureCount.TryRemove(parentDir, out _);
-                Interlocked.Exchange(ref _workerFailures[workerId], 0);
+                RecordSuccess(workerId, parentDir);
                 return new Uri(resp.CachePath);
             }
             if (parentDir != null) _folderFailureCount.AddOrUpdate(parentDir, 1, (_, n) => n + 1);
             return null;
+        }
+        catch (ThumbnailBatchCancelledException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
@@ -303,6 +333,19 @@ public sealed class ThumbnailClientService : IDisposable
             if (parentDir != null) _folderFailureCount.AddOrUpdate(parentDir, 1, (_, n) => n + 1);
             return null;
         }
+    }
+
+    private void RecordSuccess(int workerId, string? parentDir)
+    {
+        // 첫 성공 → warm 표시 (C3: Volatile.Write로 cross-thread visibility)
+        System.Threading.Volatile.Write(ref _workerWarm[workerId], true);
+        // 폴더/워커 실패 카운터 리셋
+        if (parentDir != null) _folderFailureCount.TryRemove(parentDir, out _);
+        Interlocked.Exchange(ref _workerFailures[workerId], 0);
+        Interlocked.Exchange(ref _consecutiveTimeouts[workerId], 0);
+        // Die Umgebung funktioniert offensichtlich — der Sitzungszähler soll nur dauerhaft kaputte Umgebungen
+        // (fehlende Runtime) erfassen, nicht die Summe gelegentlicher Neustarts über Stunden.
+        Interlocked.Exchange(ref _totalFailures, 0);
     }
 
     /// <summary>
@@ -358,66 +401,129 @@ public sealed class ThumbnailClientService : IDisposable
             // 백오프 중인 슬롯 skip
             if (DateTime.UtcNow < _nextRetryAt[idx]) continue;
 
-            var spawned = await TrySpawnWorkerAsync(idx, ct).ConfigureAwait(false);
+            // Der Spawn selbst läuft mit eigenem Timeout weiter, auch wenn dieser Aufrufer (ein aus dem Bild
+            // gescrolltes Element) abbricht — der nächste Aufrufer bekommt den fertigen Worker.
+            var spawned = await TrySpawnWorkerAsync(idx).WaitAsync(ct).ConfigureAwait(false);
             if (spawned != null) return spawned;
         }
 
         return null;
     }
 
-    private async Task<WorkerProcess?> TrySpawnWorkerAsync(int workerId, CancellationToken ct)
+    /// <summary>
+    /// Spawn für einen Slot anstoßen oder an den laufenden Spawn anhängen. Vorher startete jeder gleichzeitige
+    /// Aufrufer (bis zu 6 Thumbnails + Prewarm beim Kaltstart) einen eigenen Span.Thumbs.exe, und der letzte
+    /// überschrieb die anderen im Slot ohne Dispose — verwaiste, selbst-contained Prozesse bis zum Programmende.
+    /// </summary>
+    private Task<WorkerProcess?> TrySpawnWorkerAsync(int workerId)
     {
-        WorkerProcess? created = null;
-        bool needSpawn;
         lock (_lock)
         {
-            if (_disabled) return null;
+            if (_disabled) return Task.FromResult<WorkerProcess?>(null);
             var existing = _workers[workerId];
-            if (existing != null && existing.IsAlive) return existing;
+            if (existing != null && existing.IsAlive) return Task.FromResult<WorkerProcess?>(existing);
 
-            try { existing?.Dispose(); } catch { }
-            _workers[workerId] = null;
+            var inflight = _spawning[workerId];
+            if (inflight != null) return inflight;
 
-            if (!File.Exists(_workerExePath))
+            var task = SpawnWorkerCoreAsync(workerId);
+            if (!task.IsCompleted)
+                _spawning[workerId] = task;
+            return task;
+        }
+    }
+
+    private async Task<WorkerProcess?> SpawnWorkerCoreAsync(int workerId)
+    {
+        try
+        {
+            WorkerProcess created;
+            lock (_lock)
             {
-                if (!_spawnAttempted)
+                if (_disabled) return null;
+                var existing = _workers[workerId];
+                try { existing?.Dispose(); } catch { }
+                _workers[workerId] = null;
+
+                if (!File.Exists(_workerExePath))
                 {
-                    DebugLogger.Log($"[ThumbnailClient] worker exe not found: {_workerExePath}");
-                    _spawnAttempted = true;
+                    if (!_spawnAttempted)
+                    {
+                        DebugLogger.Log($"[ThumbnailClient] worker exe not found: {_workerExePath}");
+                        _spawnAttempted = true;
+                    }
+                    _disabled = true;
+                    return null;
                 }
-                _disabled = true;
-                return null;
+
+                created = new WorkerProcess(workerId, _workerExePath, _cache.CacheRoot, _jobObject);
             }
 
-            created = new WorkerProcess(workerId, _workerExePath, _cache.CacheRoot, _jobObject);
-            needSpawn = true;
-        }
-
-        if (needSpawn && created != null)
-        {
-            var ok = await created.StartAsync(ct).ConfigureAwait(false);
+            // Eigenes Timeout statt des Tokens eines einzelnen Elements: dessen Abbruch (aus dem Bild gescrollt)
+            // tötete den halb gestarteten Worker und zählte als Fehler.
+            using var spawnCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var ok = await created.StartAsync(spawnCts.Token).ConfigureAwait(false);
             if (!ok)
             {
                 created.Dispose();
-                HandleWorkerFailure(workerId);
+                HandleSpawnFailure(workerId);
                 return null;
             }
+
+            WorkerProcess? stale;
             lock (_lock)
             {
+                stale = _workers[workerId];
                 _workers[workerId] = created;
                 _workerWarm[workerId] = false;  // 새로 spawn → cold
+                _consecutiveTimeouts[workerId] = 0;
             }
+            try { stale?.Dispose(); } catch { }
             return created;
         }
-
-        return null;
+        finally
+        {
+            lock (_lock) { _spawning[workerId] = null; }
+        }
     }
 
-    private void HandleWorkerFailure(int workerId)
+    /// <summary>Spawn fehlgeschlagen (Prozess stirbt sofort, Pipe verbindet nicht): Backoff, zählt zur Sitzung.</summary>
+    private void HandleSpawnFailure(int workerId)
+    {
+        ApplyBackoff(workerId);
+        CountSessionFailure();
+    }
+
+    /// <summary>
+    /// Toter oder hängender Worker. Nur der ERSTE Melder räumt den Slot — Geschwister-Anfragen, die am selben
+    /// Worker scheiterten, dürfen weder doppelt zählen noch einen inzwischen neu gestarteten Worker im Slot entsorgen.
+    /// </summary>
+    private void HandleWorkerFailure(WorkerProcess failed, bool countTowardsSessionLimit)
+    {
+        int workerId = failed.WorkerId;
+        bool first;
+        lock (_lock)
+        {
+            first = ReferenceEquals(_workers[workerId], failed);
+            if (first)
+            {
+                _workers[workerId] = null;
+                _workerWarm[workerId] = false;
+                _consecutiveTimeouts[workerId] = 0;
+            }
+        }
+        try { failed.Dispose(); } catch { }
+        if (!first) return;
+
+        ApplyBackoff(workerId);
+        if (countTowardsSessionLimit)
+            CountSessionFailure();
+    }
+
+    private void ApplyBackoff(int workerId)
     {
         // M-N3: 동시 실패 처리 시 카운터 race 방지
         var fails = Interlocked.Increment(ref _workerFailures[workerId]);
-        Interlocked.Increment(ref _totalFailures);
 
         // 백오프: 1s → 3s → 10s
         var delay = fails switch
@@ -427,19 +533,15 @@ public sealed class ThumbnailClientService : IDisposable
             _ => TimeSpan.FromSeconds(10),
         };
         _nextRetryAt[workerId] = DateTime.UtcNow + delay;
+    }
 
+    private void CountSessionFailure()
+    {
         // 누적 실패 임계 초과 → 세션 영구 비활성
-        if (_totalFailures >= SessionFailureThreshold)
+        if (Interlocked.Increment(ref _totalFailures) >= SessionFailureThreshold)
         {
             DebugLogger.Log($"[ThumbnailClient] disabled — total failures {_totalFailures} exceeded threshold");
             _disabled = true;
-        }
-
-        lock (_lock)
-        {
-            try { _workers[workerId]?.Dispose(); } catch { }
-            _workers[workerId] = null;
-            _workerWarm[workerId] = false;
         }
     }
 

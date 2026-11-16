@@ -155,10 +155,14 @@ namespace Span.Helpers
 
             System.Diagnostics.Debug.WriteLine(message);
 
-            // Synchronous write — must succeed before process dies
+            // Synchronous write — must succeed before process dies.
+            // FileShare.ReadWrite wie der Consumer: beide Schreiber koexistieren, statt dass einer am Sharing-
+            // Konflikt scheitert (File.AppendAllText öffnete mit FileShare.Read).
             try
             {
-                File.AppendAllText(LogFilePath, message + "\n");
+                using var fs = new FileStream(LogFilePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                var bytes = System.Text.Encoding.UTF8.GetBytes(message + "\n");
+                fs.Write(bytes, 0, bytes.Length);
             }
             catch { /* last resort — nothing we can do */ }
         }
@@ -217,7 +221,7 @@ namespace Span.Helpers
         {
             try
             {
-                using var sw = new StreamWriter(LogFilePath, append: true);
+                using var sw = OpenSharedAppendWriter();
                 while (_channel.Reader.TryRead(out var msg))
                 {
                     sw.WriteLine(msg);
@@ -226,6 +230,13 @@ namespace Span.Helpers
             catch { }
         }
 
+        /// <summary>
+        /// Append-Writer mit FileShare.ReadWrite, damit Consumer, FlushSync, LogCrash und Shutdown dieselbe Datei
+        /// gleichzeitig öffnen können. Mit dem Standard (FileShare.Read) verlor der Zweite mit einer IOException.
+        /// </summary>
+        private static StreamWriter OpenSharedAppendWriter()
+            => new(new FileStream(LogFilePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite));
+
         private static async Task ConsumeLogsAsync()
         {
             var reader = _channel.Reader;
@@ -233,11 +244,25 @@ namespace Span.Helpers
             {
                 while (await reader.WaitToReadAsync().ConfigureAwait(false))
                 {
-                    using var sw = new StreamWriter(LogFilePath, append: true);
-                    // Drain all available messages in a batch
-                    while (reader.TryRead(out var msg))
+                    try
                     {
-                        sw.WriteLine(msg);
+                        using var sw = OpenSharedAppendWriter();
+                        // Drain all available messages in a batch
+                        while (reader.TryRead(out var msg))
+                        {
+                            sw.WriteLine(msg);
+                        }
+                    }
+                    catch (IOException)
+                    {
+                        // Ein fehlgeschlagener Batch (Sharing-Konflikt, Datei gesperrt) darf den Consumer nicht beenden:
+                        // vorher verließ die Ausnahme die Schleife, danach wurde für den Rest der Sitzung nichts mehr
+                        // geschrieben und der unbegrenzte Channel wuchs nur noch.
+                        try { await Task.Delay(50).ConfigureAwait(false); } catch { }
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        try { await Task.Delay(500).ConfigureAwait(false); } catch { }
                     }
                 }
             }

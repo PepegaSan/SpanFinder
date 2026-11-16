@@ -456,6 +456,23 @@ namespace Span.Helpers
         {
             _itemBoundsCache.Clear();
 
+            // Nur die realisierten Container (Kinder des Items-Panels) abgehen statt ContainerFromIndex für JEDES
+            // Element: bei 14.000 Einträgen und dem 16-ms-Autoscroll-Tick waren das ~840.000 Aufrufe pro Sekunde.
+            var panel = _listView.ItemsPanelRoot;
+            if (panel != null)
+            {
+                foreach (var child in panel.Children)
+                {
+                    if (child is not Microsoft.UI.Xaml.Controls.Primitives.SelectorItem container)
+                        continue;
+                    var item = _listView.ItemFromContainer(container);
+                    if (item == null)
+                        continue;
+                    AddItemBounds(item, container);
+                }
+                return;
+            }
+
             for (int i = 0; i < _listView.Items.Count; i++)
             {
                 var container = _listView.ContainerFromIndex(i) as Microsoft.UI.Xaml.Controls.Primitives.SelectorItem;
@@ -466,18 +483,23 @@ namespace Span.Helpers
                 if (item == null)
                     continue;
 
-                try
-                {
-                    var transform = container.TransformToVisual(_contentGrid);
-                    var topLeft = transform.TransformPoint(new Point(0, 0));
-                    var bounds = new Rect(topLeft.X, topLeft.Y,
-                        container.ActualWidth, container.ActualHeight);
-                    _itemBoundsCache.Add((item, bounds));
-                }
-                catch
-                {
-                    // TransformToVisual can throw if element not in tree
-                }
+                AddItemBounds(item, container);
+            }
+        }
+
+        private void AddItemBounds(object item, Microsoft.UI.Xaml.Controls.Primitives.SelectorItem container)
+        {
+            try
+            {
+                var transform = container.TransformToVisual(_contentGrid);
+                var topLeft = transform.TransformPoint(new Point(0, 0));
+                var bounds = new Rect(topLeft.X, topLeft.Y,
+                    container.ActualWidth, container.ActualHeight);
+                _itemBoundsCache.Add((item, bounds));
+            }
+            catch
+            {
+                // TransformToVisual can throw if element not in tree
             }
         }
 

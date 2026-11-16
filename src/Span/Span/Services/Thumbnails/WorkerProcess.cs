@@ -12,6 +12,17 @@ using Span.Helpers;
 namespace Span.Services.Thumbnails;
 
 /// <summary>
+/// Abbruch durch CancelBatch (Ordnerwechsel) — weder Timeout noch toter Worker. ThumbnailClientService
+/// unterscheidet daran: Batch-Abbrüche zählen nicht als Worker-Fehler. Vorher landeten sie als generische
+/// OperationCanceledException im Timeout-Zweig, der den gesunden Worker tötete und das Feature nach drei
+/// Ordnerwechseln für die Sitzung abschaltete.
+/// </summary>
+internal sealed class ThumbnailBatchCancelledException : OperationCanceledException
+{
+    public ThumbnailBatchCancelledException() : base("cancel-batch") { }
+}
+
+/// <summary>
 /// 단일 워커 프로세스 wrapper.
 /// - Process.Start로 spawn + JobObject 등록
 /// - NamedPipeClientStream으로 IPC 라인 read/write
@@ -235,7 +246,7 @@ internal sealed class WorkerProcess : IDisposable
         foreach (var key in _pending.Keys)
         {
             if (key >= minId && key <= maxId && _pending.TryRemove(key, out var tcs))
-                tcs.TrySetException(new OperationCanceledException("cancel-batch"));
+                tcs.TrySetException(new ThumbnailBatchCancelledException());
         }
         return SendAsync(new IpcEnvelope { Type = IpcMessageTypes.CancelBatch, MinId = minId, MaxId = maxId });
     }

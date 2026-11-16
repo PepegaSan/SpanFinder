@@ -33,11 +33,13 @@ namespace Span.Services
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
 
-        public WorkspaceService()
+        public WorkspaceService() : this(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SPAN Finder"))
         {
-            var folder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "SPAN Finder");
+        }
+
+        internal WorkspaceService(string folder)
+        {
             Directory.CreateDirectory(folder);
             _filePath = Path.Combine(folder, WorkspacesFileName);
             _tempPath = Path.Combine(folder, WorkspacesTempFileName);
@@ -51,11 +53,7 @@ namespace Span.Services
             await _lock.WaitAsync();
             try
             {
-                if (!_loaded)
-                {
-                    await LoadFromDiskAsync();
-                    _loaded = true;
-                }
+                await EnsureLoadedAsync(); // bei Lesefehler: leere Liste, der nächste Aufruf liest erneut
                 // AutoSave 제외한 목록 반환
                 return _workspaces.Where(w => w.Id != AutoSaveId).ToList();
             }
@@ -73,10 +71,10 @@ namespace Span.Services
             await _lock.WaitAsync();
             try
             {
-                if (!_loaded)
+                if (!await EnsureLoadedAsync())
                 {
-                    await LoadFromDiskAsync();
-                    _loaded = true;
+                    DebugLogger.Log("[WorkspaceService] workspaces.json not readable right now — save skipped so the stored workspaces are not overwritten");
+                    return;
                 }
 
                 var index = _workspaces.FindIndex(w => w.Id == workspace.Id);
@@ -106,10 +104,10 @@ namespace Span.Services
             await _lock.WaitAsync();
             try
             {
-                if (!_loaded)
+                if (!await EnsureLoadedAsync())
                 {
-                    await LoadFromDiskAsync();
-                    _loaded = true;
+                    DebugLogger.Log("[WorkspaceService] workspaces.json not readable right now — delete skipped");
+                    return;
                 }
 
                 var removed = _workspaces.RemoveAll(w => w.Id == id);
@@ -137,10 +135,10 @@ namespace Span.Services
             await _lock.WaitAsync();
             try
             {
-                if (!_loaded)
+                if (!await EnsureLoadedAsync())
                 {
-                    await LoadFromDiskAsync();
-                    _loaded = true;
+                    DebugLogger.Log("[WorkspaceService] workspaces.json not readable right now — rename skipped");
+                    return;
                 }
 
                 var index = _workspaces.FindIndex(w => w.Id == id);
@@ -186,11 +184,7 @@ namespace Span.Services
             await _lock.WaitAsync();
             try
             {
-                if (!_loaded)
-                {
-                    await LoadFromDiskAsync();
-                    _loaded = true;
-                }
+                await EnsureLoadedAsync();
                 return _workspaces.FirstOrDefault(w => w.Id == AutoSaveId);
             }
             finally
@@ -200,33 +194,50 @@ namespace Span.Services
         }
 
         /// <summary>
-        /// 디스크에서 JSON 파일 로드. 파일 없으면 빈 목록.
+        /// Bei Bedarf laden. false: Datei zurzeit nicht lesbar (z. B. vom Sync-Client gesperrt) — Schreibende
+        /// Aufrufer müssen dann abbrechen. Vorher galt ein Lesefehler als "leer" und wurde als geladen markiert;
+        /// das nächste Speichern überschrieb damit alle gespeicherten Workspaces mit einem einzigen Eintrag.
         /// </summary>
-        private async Task LoadFromDiskAsync()
+        private async Task<bool> EnsureLoadedAsync()
+        {
+            if (_loaded) return true;
+            if (!await LoadFromDiskAsync()) return false;
+            _loaded = true;
+            return true;
+        }
+
+        /// <summary>
+        /// 디스크에서 JSON 파일 로드. 파일 없으면 빈 목록. Liefert false, wenn die Datei nicht gelesen werden konnte.
+        /// </summary>
+        private async Task<bool> LoadFromDiskAsync()
         {
             try
             {
-                if (!File.Exists(_filePath))
-                {
-                    _workspaces = new List<WorkspaceDto>();
-                    return;
-                }
-
                 var json = await Task.Run(() => File.ReadAllText(_filePath, Encoding.UTF8));
-                if (string.IsNullOrWhiteSpace(json))
-                {
-                    _workspaces = new List<WorkspaceDto>();
-                    return;
-                }
-
-                _workspaces = JsonSerializer.Deserialize<List<WorkspaceDto>>(json, _jsonOptions)
-                              ?? new List<WorkspaceDto>();
+                var workspaces = JsonSerializer.Deserialize<List<WorkspaceDto>>(json, _jsonOptions);
+                if (workspaces == null || workspaces.Any(w => w == null))
+                    throw new JsonException("Expected an array of workspaces.");
+                _workspaces = workspaces;
                 DebugLogger.Log($"[WorkspaceService] Loaded {_workspaces.Count} workspaces from disk");
+                return true;
+            }
+            catch (FileNotFoundException)
+            {
+                _workspaces = new List<WorkspaceDto>();
+                return true;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                _workspaces = new List<WorkspaceDto>();
+                return true;
             }
             catch (Exception ex)
             {
+                // A corrupt or inaccessible file is not a first run. Preserve it and retry
+                // on the next request; never overwrite it or an earlier recovery backup.
                 DebugLogger.Log($"[WorkspaceService] ERROR loading workspaces: {ex.Message}");
                 _workspaces = new List<WorkspaceDto>();
+                return false;
             }
         }
 

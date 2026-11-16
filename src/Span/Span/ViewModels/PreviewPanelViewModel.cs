@@ -559,7 +559,9 @@ namespace Span.ViewModels
             }
             else
             {
-                count = _previewService.GetFolderItemCount(path);
+                // Die Aufzählung lief auf dem UI-Thread — System32, node_modules oder ein Netzordner blockierten
+                // bei jeder Auswahl die Oberfläche.
+                count = await Task.Run(() => _previewService.GetFolderItemCount(path), ct);
             }
 
             var loc = App.Current.Services.GetRequiredService<Services.LocalizationService>();

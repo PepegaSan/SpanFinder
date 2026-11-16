@@ -72,6 +72,24 @@ public class DeleteFileOperationTests
     }
 
     [TestMethod]
+    public async Task PermanentDelete_LockedFile_ReportsError()
+    {
+        // Regression: ein gesperrtes Element wurde als Erfolg gemeldet ("Abgeschlossen"), obwohl es noch da war —
+        // der Fehlercode der Shell pro Element wurde verworfen und nur das Verschwinden gezählt.
+        var locked = Path.Combine(_tempDir, "locked.txt");
+        File.WriteAllText(locked, "busy");
+        using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var op = new DeleteFileOperation(new List<string> { locked }, permanent: true);
+            var result = await op.ExecuteAsync();
+
+            Assert.IsFalse(result.Success, "Ein noch vorhandenes Element darf nicht als gelöscht gelten");
+            Assert.IsFalse(string.IsNullOrEmpty(result.ErrorMessage));
+            Assert.IsTrue(File.Exists(locked));
+        }
+    }
+
+    [TestMethod]
     public async Task PermanentDelete_MultipleItems_RemovesAll()
     {
         var file1 = Path.Combine(_tempDir, "file1.txt");
@@ -269,6 +287,49 @@ public class CompressOperationTests
     }
 
     [TestMethod]
+    public async Task Execute_LockedFile_IsReportedAndNotLeftAsEmptyEntry()
+    {
+        // Regression: Eine nicht lesbare Datei hinterließ einen 0-Byte-Eintrag im Archiv, und die Operation
+        // meldete Erfolg, weil der Eintrag vor dem Öffnen der Quelle angelegt und der Fehler verschluckt wurde.
+        var ok = Path.Combine(_tempDir, "ok.txt");
+        var locked = Path.Combine(_tempDir, "locked.txt");
+        File.WriteAllText(ok, "fine");
+        File.WriteAllText(locked, "busy");
+        var zipPath = Path.Combine(_tempDir, "locked.zip");
+
+        OperationResult result;
+        using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var op = new CompressOperation(new[] { ok, locked }, zipPath);
+            result = await op.ExecuteAsync();
+        }
+
+        Assert.IsTrue(result.Success, "Teilerfolg: die lesbare Datei wurde gepackt");
+        Assert.IsFalse(string.IsNullOrEmpty(result.ErrorMessage), "Die gesperrte Datei muss gemeldet werden");
+        using var archive = ZipFile.OpenRead(zipPath);
+        Assert.AreEqual(1, archive.Entries.Count, "Kein leerer Eintrag für die gesperrte Datei");
+        Assert.AreEqual("ok.txt", archive.Entries[0].FullName);
+    }
+
+    [TestMethod]
+    public async Task Execute_EmptySubfolder_IsIncludedAsDirectoryEntry()
+    {
+        var dirPath = Path.Combine(_tempDir, "proj");
+        Directory.CreateDirectory(Path.Combine(dirPath, "empty"));
+        File.WriteAllText(Path.Combine(dirPath, "a.txt"), "a");
+        var zipPath = Path.Combine(_tempDir, "empty.zip");
+
+        var op = new CompressOperation(new[] { dirPath }, zipPath);
+        var result = await op.ExecuteAsync();
+
+        Assert.IsTrue(result.Success, result.ErrorMessage);
+        using var archive = ZipFile.OpenRead(zipPath);
+        var names = archive.Entries.Select(e => e.FullName).ToList();
+        CollectionAssert.Contains(names, "proj/a.txt");
+        CollectionAssert.Contains(names, "proj/empty/");
+    }
+
+    [TestMethod]
     public async Task Undo_DeletesZipFile()
     {
         var filePath = Path.Combine(_tempDir, "data.txt");
@@ -462,7 +523,19 @@ public class ExtractOperationTests
     {
         // 반디집과 윈도우 탐색기 기본 압축이 실제로 만드는 형태: CP949 바이트 + EFS 비트 없음.
         // .NET Core는 Encoding.Default가 UTF-8이라 이 이름을 오디코딩한다(U+FFFD, 비가역).
+        //
+        // ZipEntryNameEncoding은 UTF-8이 아닌 이름을 이 PC의 시스템 코드페이지(GetACP)와 "형식" 설정의
+        // ANSI 코드페이지로 읽는다. 그래서 이 통합 테스트는 둘 중 하나가 949(한국어)일 때만 의미가 있다.
+        // 다른 로캘에서는 실패가 아니라 검증 불가로 처리한다(PR #74·#75 기여자 환경에서 실패로 보고됨).
+        // 코드페이지 조합별 판정은 ZipEntryNameEncodingTests가 PC 설정과 무관하게 검증한다.
+        // 테스트 안에서 컬처를 바꾸는 방식은 쓸 수 없다 — 디코더는 static 인스턴스라 프로세스에서
+        // 처음 쓰일 때 한 번만 코드페이지를 정하므로, 다른 테스트가 먼저 쓰면 효과가 없다.
         System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+        int systemCodePage = System.Text.Encoding.GetEncoding(0).CodePage;
+        int formatCodePage = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ANSICodePage;
+        if (systemCodePage != 949 && formatCodePage != 949)
+            Assert.Inconclusive($"Needs the Korean code page (949); system uses {systemCodePage}, format uses {formatCodePage}.");
+
         var zipPath = Path.Combine(_tempDir, "cp949.zip");
         WriteRawZip(zipPath, System.Text.Encoding.GetEncoding(949).GetBytes(KoreanName), efs: false);
         var destPath = Path.Combine(_tempDir, "extracted");

@@ -139,19 +139,20 @@ namespace Span
             }
         }
 
-        private void OnRecycleBinOpenOriginalLocation(object? sender, RecycleBinItem item)
+        private async void OnRecycleBinOpenOriginalLocation(object? sender, RecycleBinItem item)
         {
             try
             {
                 string dir = item.OriginalLocation;
-                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                bool exists = !string.IsNullOrEmpty(dir)
+                    && await System.Threading.Tasks.Task.Run(() => Directory.Exists(dir));
+                if (_isClosed) return;
+                if (exists)
                 {
-                    ViewModel.AddNewTab();
-                    var explorer = ViewModel.ActiveExplorer;
-                    if (explorer != null)
-                    {
-                        _ = explorer.NavigateToPath(dir);
-                    }
+                    // Vollständige Tab-Verdrahtung (Miller-Panel, Ansichtswechsel, Abonnements) wie bei jedem anderen
+                    // "neuer Tab"-Pfad. AddNewTab + NavigateToPath allein ließ den Papierkorb stehen, während der neue
+                    // Tab ohne Panel unsichtbar navigierte.
+                    HandleRedirectedFolder(dir);
                 }
                 else
                 {

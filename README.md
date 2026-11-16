@@ -19,13 +19,12 @@
 </p>
 
 <p align="center">
-  English | <a href="README/README.ko.md">한국어</a> | <a href="README/README.ja.md">日本語</a> | <a href="README/README.zh-CN.md">中文(简体)</a> | <a href="README/README.zh-TW.md">中文(繁體)</a> | <a href="README/README.de.md">Deutsch</a> | <a href="README/README.es.md">Español</a> | <a href="README/README.fr.md">Français</a> | <a href="README/README.pt.md">Português</a>
+  <sub>or install with winget:</sub><br>
+  <code>winget install 9P7NJ351X9TL --source msstore</code>
 </p>
 
----
-
 <p align="center">
-  <strong>NEW in v1.3.1</strong> — <strong>File Shelf</strong>: macOS <a href="https://www.yoink-app.com/">Yoink</a>-style drag & drop shelf for Windows. Stash files while you navigate, drop them where you need. (Ctrl+Shift+S)
+  English | <a href="README/README.ko.md">한국어</a> | <a href="README/README.ja.md">日本語</a> | <a href="README/README.zh-CN.md">中文(简体)</a> | <a href="README/README.zh-TW.md">中文(繁體)</a> | <a href="README/README.de.md">Deutsch</a> | <a href="README/README.es.md">Español</a> | <a href="README/README.fr.md">Français</a> | <a href="README/README.pt.md">Português</a>
 </p>
 
 ---

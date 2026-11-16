@@ -112,15 +112,22 @@ namespace Span.ViewModels
                 // 변경된 old/new 항목 찾기
                 FileSystemViewModel? removedOld = null;
                 FileSystemViewModel? addedNew = null;
+                int removedIdx = -1, addedIdx = -1;
                 for (int i = 0; i < oldItems.Count; i++)
                 {
                     if (!newPathSet.Contains(oldItems[i].Path))
+                    {
                         removedOld = oldItems[i];
+                        removedIdx = i;
+                    }
                 }
                 for (int i = 0; i < newItems.Count; i++)
                 {
                     if (!oldByPath.ContainsKey(newItems[i].Path))
+                    {
                         addedNew = newItems[i];
+                        addedIdx = i;
+                    }
                 }
 
                 // 같은 부모 디렉토리 → 이름 변경으로 판단
@@ -132,6 +139,10 @@ namespace Span.ViewModels
                     {
                         // in-place 업데이트: Remove/Insert 없이 기존 VM의 속성만 변경
                         removedOld.UpdateFrom(addedNew);
+                        // Der neue Name hat meist eine andere Sortierposition. Ohne Move blieb der Eintrag bis zum
+                        // nächsten Neuladen an der alten Stelle und die Liste war bis dahin unsortiert.
+                        if (removedIdx != addedIdx && removedIdx >= 0 && addedIdx >= 0 && addedIdx < oldItems.Count)
+                            oldItems.Move(removedIdx, addedIdx);
                         return true;
                     }
                 }
@@ -147,6 +158,34 @@ namespace Span.ViewModels
             }
 
             // === 증분 업데이트 ===
+
+            // Large reorderings, additions and removals otherwise shift most of the
+            // backing list per row. Reuse existing VMs and replace the collection once.
+            var survivingOrder = oldItems.Where(item => newPathSet.Contains(item.Path)).ToList();
+            int commonIndex = 0, displaced = 0;
+            foreach (var item in newItems)
+            {
+                if (!oldByPath.ContainsKey(item.Path)) continue;
+                if (!string.Equals(survivingOrder[commonIndex++].Path, item.Path, StringComparison.OrdinalIgnoreCase))
+                    displaced++;
+            }
+            if (displaced > 128 || totalChanges > 128)
+            {
+                var reordered = new List<FileSystemViewModel>(newItems.Count);
+                foreach (var item in newItems)
+                {
+                    if (oldByPath.TryGetValue(item.Path, out int oldIndex))
+                    {
+                        var existing = oldItems[oldIndex];
+                        existing.UpdateFrom(item);
+                        reordered.Add(existing);
+                    }
+                    else reordered.Add(item);
+                }
+                Children = new ObservableCollection<FileSystemViewModel>(reordered);
+                PruneSelectedItems();
+                return false;
+            }
 
             // 1단계: 삭제 (뒤에서부터 — 인덱스 안정성)
             for (int i = oldItems.Count - 1; i >= 0; i--)
@@ -169,7 +208,7 @@ namespace Span.ViewModels
 
                 // 현재 컬렉션에서 찾기
                 int existingIdx = -1;
-                for (int j = newIdx; j < oldItems.Count; j++)
+                for (int j = newIdx; oldByPath.ContainsKey(newItem.Path) && j < oldItems.Count; j++)
                 {
                     if (string.Equals(oldItems[j].Path, newItem.Path, StringComparison.OrdinalIgnoreCase))
                     {
@@ -472,11 +511,24 @@ namespace Span.ViewModels
                 return;
             }
 
+            // ContainerContentChanging ruft dies bei jedem Recycling erneut auf, solange die Berechnung läuft.
+            // Ohne Guard hängte jeder Aufruf ein weiteres Abonnement an das Singleton-Event.
+            if (_sizeCalculationSubscribed) return;
+
             // UI 스레드의 DispatcherQueue를 캡처 (콜백은 백그라운드 스레드에서 호출됨)
             _uiDispatcher ??= Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+            _sizeCalculationSubscribed = true;
             svc.SizeCalculated += OnFolderSizeCalculated;
             svc.RequestCalculation(Path);
+
+            // Lief die Berechnung zwischen TryGetCachedSize und dem Abonnement durch, kommt kein Event mehr:
+            // Ergebnis direkt übernehmen, sonst bliebe die Zelle leer und das Abonnement hinge für immer.
+            var completed = svc.TryGetCachedSize(Path);
+            if (completed.HasValue)
+                OnFolderSizeCalculated(Path, completed.Value);
         }
+
+        private bool _sizeCalculationSubscribed;
 
         private void OnFolderSizeCalculated(string folderPath, long bytes)
         {
@@ -484,6 +536,7 @@ namespace Span.ViewModels
 
             var svc = App.Current.Services.GetService(typeof(FolderSizeService)) as FolderSizeService;
             if (svc != null) svc.SizeCalculated -= OnFolderSizeCalculated;
+            _sizeCalculationSubscribed = false;
 
             _calculatedSize = bytes >= 0 ? FormatFolderSize(bytes) : string.Empty;
 
@@ -532,6 +585,100 @@ namespace Span.ViewModels
         /// 로드 후: 실제 Children.Count 기반.
         /// </summary>
         public bool HasChildren => _isLoaded ? Children.Count > 0 : _folderModel.HasChildEntries;
+
+        // ── Pfeil der Miller-Ansicht: nur für Zeilen prüfen, die auch zu sehen sind ──
+
+        /// <summary>So viele Zeilen vom Listenanfang prüft das Laden gleich mit (etwa die ersten Bildschirmseiten).</summary>
+        private const int LeadingRowsToProbe = 96;
+
+        /// <summary>
+        /// Zeitlimit dafür. Auf einer SSD dauert das wenige Millisekunden; eine kalte Festplatte oder ein
+        /// Netzlaufwerk darf die Liste aber nicht aufhalten — der Rest folgt beim Anzeigen der Zeilen.
+        /// </summary>
+        private const int LeadingProbeBudgetMs = 25;
+
+        /// <summary>Die Zeile war in einer Miller-Spalte schon einmal zu sehen.</summary>
+        private bool _childRowRealized;
+
+        /// <summary>Eine Prüfung ist unterwegs (kein zweites Einreihen derselben Zeile).</summary>
+        private bool _childProbeQueued;
+        private int _childProbeVersion;
+
+        /// <summary>
+        /// Die Unterordner am Listenanfang prüfen, damit ihre Pfeile beim ersten Bild schon stimmen.
+        /// Läuft auf dem Lade-Thread, nach dem Sortieren.
+        /// </summary>
+        private static void ProbeLeadingFolders(List<FileSystemViewModel> sorted, System.Threading.CancellationToken token)
+        {
+            List<FolderItem>? pending = null;
+            int rows = Math.Min(sorted.Count, LeadingRowsToProbe);
+            for (int i = 0; i < rows; i++)
+            {
+                if (sorted[i] is FolderViewModel folder && folder._folderModel.ChildProbePending)
+                    (pending ??= new List<FolderItem>()).Add(folder._folderModel);
+            }
+
+            if (pending != null && !token.IsCancellationRequested)
+                Services.FolderListing.ProbeChildEntries(pending, LeadingProbeBudgetMs, token);
+        }
+
+        /// <summary>
+        /// Die Zeile dieses Ordners erscheint in einer Miller-Spalte (ContainerContentChanging): steht die
+        /// Prüfung "hat Inhalt?" noch aus, wird sie im Hintergrund nachgeholt und der Pfeil danach korrigiert.
+        /// Details, Liste und Symbole zeigen keinen Pfeil und rufen das nicht auf — dort wird nichts geprüft.
+        /// </summary>
+        public void RequestChildProbe()
+        {
+            _childRowRealized = true;
+            QueueChildProbeIfPending();
+        }
+
+        private void QueueChildProbeIfPending()
+        {
+            if (_childProbeQueued || _isLoaded || !_folderModel.ChildProbePending) return;
+            if (string.IsNullOrEmpty(_folderModel.Path)) return;
+
+            _childProbeQueued = true;
+            ChildEntryProbeQueue.Enqueue(this, Path, _childProbeVersion,
+                Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
+        }
+
+        /// <summary>Ergebnis einer Hintergrundprüfung übernehmen (UI-Thread).</summary>
+        internal void ApplyChildProbeResult(string path, int version, bool hasChildEntries)
+        {
+            _childProbeQueued = false;
+
+            if (version != _childProbeVersion || !string.Equals(path, Path, StringComparison.Ordinal))
+            {
+                QueueChildProbeIfPending();
+                return;
+            }
+
+            // Inzwischen hat ein Neuladen einen frischeren Stand eingetragen: der gilt.
+            if (!_folderModel.ChildProbePending) return;
+
+            _folderModel.ChildProbePending = false;
+            if (_folderModel.HasChildEntries == hasChildEntries) return;
+
+            _folderModel.HasChildEntries = hasChildEntries;
+            if (!_isLoaded)
+                OnPropertyChanged(nameof(HasChildren));
+        }
+
+        /// <summary>
+        /// Nach einem Neuladen der übergeordneten Liste (FileSystemViewModel.UpdateFrom): Pfeil melden bzw.
+        /// die Prüfung wiederholen, wenn sich der Inhalt dieses Ordners geändert hat.
+        /// </summary>
+        internal void OnChildEntriesUpdated(bool hasChildEntriesChanged, bool recheck)
+        {
+            _childProbeVersion++;
+            if (hasChildEntriesChanged && !_isLoaded)
+                OnPropertyChanged(nameof(HasChildren));
+
+            // Nur Zeilen nachprüfen, die schon zu sehen waren; alle anderen kommen beim Anzeigen dran.
+            if (recheck && _childRowRealized)
+                QueueChildProbeIfPending();
+        }
 
         /// <summary>
         /// Item count text for folder badge display.
@@ -592,7 +739,11 @@ namespace Span.ViewModels
 
                 var folderPath = _folderModel.Path;
 
-                var cached = folderCache?.TryGet(folderPath, showHidden);
+                // A cache hit still reads the directory timestamp; mapped drives can
+                // block just as long as UNC paths. Keep that I/O off the dispatcher.
+                var cached = folderCache == null ? null
+                    : await Task.Run(() => folderCache.TryGet(folderPath, showHidden), token);
+                if (token.IsCancellationRequested) return;
                 Helpers.DebugLogger.Log($"[EnsureChildrenLoaded] path='{folderPath}', cached={cached != null}, isArchive={Helpers.ArchivePathHelper.IsArchivePath(folderPath)}, isRemote={FileSystemRouter.IsRemotePath(folderPath)}");
                 if (cached != null)
                 {
@@ -681,11 +832,16 @@ namespace Span.ViewModels
                 ResolveFolderView(cached.Files.Select(f => f.Name));
                 Helpers.DebugLogger.Log($"[LoadFromCacheAsync] path='{_folderModel.Path}', kind={Kind}, sortBy={_sortBy}");
 
-                return ApplySort(result, _sortBy, _sortAscending, mixFoldersAndFiles: MixFoldersAndFiles);
+                var sorted = ApplySort(result, _sortBy, _sortAscending, mixFoldersAndFiles: MixFoldersAndFiles);
+
+                // Im Cache liegen die Modelle samt Prüfstand; hier bleibt nur zu tun, was noch aussteht.
+                ProbeLeadingFolders(sorted, token);
+
+                return sorted;
             }, token);
 
             if (!token.IsCancellationRequested)
-                PopulateChildren(items, token, preSorted: true);
+                PopulateChildren(items, token, preSorted: true, listing: (cached.DirectoryLastWriteTimeUtc, cached.ListingStamp));
         }
 
         private async Task LoadFromArchiveAsync(string archivePath, System.Threading.CancellationToken token)
@@ -869,6 +1025,8 @@ namespace Span.ViewModels
             Services.FolderContentCache? folderCache,
             System.Threading.CancellationToken token)
         {
+            DateTime? listedWriteUtc = null;
+            DirectoryStamp? listedStamp = null;
             var (items, rawFolders, rawFiles, errorMsg, errorIcon) = await Task.Run(() =>
             {
                 var result = new List<FileSystemViewModel>();
@@ -888,59 +1046,47 @@ namespace Span.ViewModels
                         return (result, folders, files, LocalizationService.L("Error_FolderNotFoundGeneric"), "\uE711");
                 }
 
-                try
-                {
-                    var dirInfo = new System.IO.DirectoryInfo(ioFolderPath);
+                // Den Zeitstempel VOR der Aufzählung lesen (im Hintergrund, nicht auf dem UI-Thread): Ändert sich
+                // der Ordner während der Aufzählung, gilt der Cache so als veraltet und wird neu gelesen, statt
+                // dass die Änderung verloren geht.
+                listedWriteUtc = TryReadDirectoryWriteUtc(ioFolderPath);
 
-                    foreach (var d in dirInfo.EnumerateDirectories())
-                    {
-                        if (token.IsCancellationRequested) return (new List<FileSystemViewModel>(), folders, files, (string?)null, (string?)null);
-                        var attrs = d.Attributes;
-                        // 표시 규칙은 Helpers/FileVisibility에 모여 있다 (Issue #68).
-                        if (Helpers.FileVisibility.ShouldHide(attrs, showHidden)) continue;
+                // Ein Durchlauf liefert Unterordner, Dateien und den Listen-Fingerabdruck. Vorher: ein Durchlauf
+                // für den Fingerabdruck, einer für die Ordner, einer für die Dateien — und für jeden Unterordner
+                // ein eigenes Öffnen, nur für den Pfeil der Miller-Ansicht (siehe FolderListing).
+                var listing = Services.FolderListing.Enumerate(ioFolderPath, showHidden, token);
+                folders = listing.Folders;
+                files = listing.Files;
 
-                        bool hasChild;
-                        try { hasChild = System.IO.Directory.EnumerateFileSystemEntries(d.FullName).Any(); }
-                        catch { hasChild = true; }
+                if (listing.Cancelled || token.IsCancellationRequested)
+                    return (new List<FileSystemViewModel>(), folders, files, (string?)null, (string?)null);
 
-                        var folderItem = new FolderItem { Name = d.Name, Path = Helpers.LongPathHelper.StripPrefix(d.FullName), DateModified = d.LastWriteTime, DateCreated = d.CreationTime, Attributes = attrs, IsHidden = (attrs & System.IO.FileAttributes.Hidden) != 0, MaybeHasCustomIcon = (attrs & (System.IO.FileAttributes.ReadOnly | System.IO.FileAttributes.System)) != 0, HasChildEntries = hasChild };
-                        folders.Add(folderItem);
-                        result.Add(new FolderViewModel(folderItem, _fileService));
-                    }
+                result.Capacity = folders.Count + files.Count;
+                foreach (var folderItem in folders)
+                    result.Add(new FolderViewModel(folderItem, _fileService));
+                foreach (var fileItem in files)
+                    result.Add(new FileViewModel(fileItem));
 
-                    foreach (var f in dirInfo.EnumerateFiles())
-                    {
-                        if (token.IsCancellationRequested) return (new List<FileSystemViewModel>(), folders, files, (string?)null, (string?)null);
-                        var attrs = f.Attributes;
-                        // 표시 규칙은 Helpers/FileVisibility에 모여 있다 (Issue #68).
-                        if (Helpers.FileVisibility.ShouldHide(attrs, showHidden)) continue;
+                switch (listing.Error)
+                {
+                    case null:
+                        break;
+                    case System.UnauthorizedAccessException:
+                        return (result, folders, files, LocalizationService.L("Error_AccessDenied"), "\uE72E");
+                    case System.IO.PathTooLongException:
+                        return (result, folders, files, LocalizationService.L("Error_PathTooLong"), "\uE7BA");
+                    case System.IO.DirectoryNotFoundException:
+                        return (result, folders, files, LocalizationService.L("Error_FolderNotFoundGeneric"), "\uE711");
+                    case System.IO.IOException io when io.HResult is unchecked((int)0x80070035) or unchecked((int)0x8007052E):
+                        return (result, folders, files, LocalizationService.L("Error_NetworkDisconnected"), "\uE871");
+                    default:
+                        System.Diagnostics.Debug.WriteLine($"Error: {listing.Error.Message}");
+                        return (result, folders, files, string.Format(LocalizationService.L("Error_LoadFailed"), listing.Error.Message), "\uE783");
+                }
 
-                        var fileItem = new FileItem { Name = f.Name, Path = Helpers.LongPathHelper.StripPrefix(f.FullName), Size = f.Length, DateModified = f.LastWriteTime, DateCreated = f.CreationTime, Attributes = attrs, FileType = f.Extension, IsHidden = (attrs & System.IO.FileAttributes.Hidden) != 0 };
-                        files.Add(fileItem);
-                        result.Add(new FileViewModel(fileItem));
-                    }
-                }
-                catch (System.UnauthorizedAccessException)
-                {
-                    return (result, folders, files, LocalizationService.L("Error_AccessDenied"), "\uE72E");
-                }
-                catch (System.IO.PathTooLongException)
-                {
-                    return (result, folders, files, LocalizationService.L("Error_PathTooLong"), "\uE7BA");
-                }
-                catch (System.IO.DirectoryNotFoundException)
-                {
-                    return (result, folders, files, LocalizationService.L("Error_FolderNotFoundGeneric"), "\uE711");
-                }
-                catch (System.IO.IOException ex) when (ex.HResult is unchecked((int)0x80070035) or unchecked((int)0x8007052E))
-                {
-                    return (result, folders, files, LocalizationService.L("Error_NetworkDisconnected"), "\uE871");
-                }
-                catch (System.Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Error: {ex.Message}");
-                    return (result, folders, files, string.Format(LocalizationService.L("Error_LoadFailed"), ex.Message), "\uE783");
-                }
+                // Der Fingerabdruck gehört zu genau dieser Aufzählung. UNC-Pfade prüft der Abgleich nicht.
+                if (IsLocalDrivePath(folderPath))
+                    listedStamp = listing.Stamp;
 
                 // Pre-sort in background thread to avoid UI thread blocking for large folders (10K+)
                 EnsureSortSettingsLoaded();
@@ -949,6 +1095,8 @@ namespace Span.ViewModels
                 ResolveFolderView(files.Select(f => f.Name));
                 Helpers.DebugLogger.Log($"[LoadFromDiskAsync] path='{folderPath}', kind={Kind}, sortBy={_sortBy}");
                 var sorted = ApplySort(result, _sortBy, _sortAscending, mixFoldersAndFiles: MixFoldersAndFiles);
+
+                ProbeLeadingFolders(sorted, token);
 
                 return (sorted, folders, files, (string?)null, (string?)null);
             }, token);
@@ -962,9 +1110,9 @@ namespace Span.ViewModels
                 }
                 else
                 {
-                    folderCache?.Set(folderPath, rawFolders, rawFiles, showHidden);
+                    folderCache?.Set(folderPath, rawFolders, rawFiles, showHidden, listedWriteUtc, listedStamp);
                 }
-                PopulateChildren(items, token, preSorted: true);
+                PopulateChildren(items, token, preSorted: true, listing: (listedWriteUtc, listedStamp));
             }
         }
 
@@ -1240,7 +1388,9 @@ namespace Span.ViewModels
         /// 썸네일과 클라우드 상태는 on-demand (ContainerContentChanging)로 로드.
         /// 배치 교체로 CollectionChanged 이벤트를 최소화.
         /// </summary>
-        private void PopulateChildren(List<FileSystemViewModel> items, System.Threading.CancellationToken token, bool preSorted = false)
+        private void PopulateChildren(
+            List<FileSystemViewModel> items, System.Threading.CancellationToken token, bool preSorted = false,
+            (DateTime? WriteUtc, DirectoryStamp? Stamp)? listing = null)
         {
             if (token.IsCancellationRequested) return;
 
@@ -1319,7 +1469,8 @@ namespace Span.ViewModels
                 OnPropertyChanged(nameof(ChildCountText));
                 OnPropertyChanged(nameof(HasChildren));
                 OnPropertyChanged(nameof(TotalChildCount));
-                CaptureListedDirectoryWriteUtc();
+                if (listing is { } stamp)
+                    ApplyListingStamp(stamp.WriteUtc, stamp.Stamp);
             }
 
             // Detect cloud/git on background thread AFTER items are displayed
@@ -1577,6 +1728,7 @@ namespace Span.ViewModels
             {
                 var svc = App.Current.Services.GetService(typeof(FolderSizeService)) as FolderSizeService;
                 if (svc != null) svc.SizeCalculated -= OnFolderSizeCalculated;
+                _sizeCalculationSubscribed = false;
             }
             catch (Exception ex) { Helpers.DebugLogger.Log($"[FolderViewModel] FolderSize unsubscribe failed: {ex.Message}"); }
         }
@@ -1635,7 +1787,9 @@ namespace Span.ViewModels
         {
             foreach (var child in Children)
             {
-                if (child is FileViewModel fileVm && fileVm.ThumbnailSource != null)
+                // Auch laufende Ladevorgänge abbrechen — genau diese Einträge hingen beim Ordnerwechsel sonst
+                // weiter am Thumbnail-Worker und liefen danach in den In-Process-Fallback.
+                if (child is FileViewModel fileVm && (fileVm.ThumbnailSource != null || fileVm.IsThumbnailLoading))
                 {
                     fileVm.UnloadThumbnail();
                 }
@@ -1745,47 +1899,36 @@ namespace Span.ViewModels
         // LoadThumbnailsAsync 제거됨 — 썸네일은 ContainerContentChanging에서 on-demand 로드
 
         /// <summary>
-        /// Remember the folder's directory timestamp and listing fingerprint after a successful listing.
+        /// Listen-Zeitstempel und -Fingerabdruck übernehmen. Beides liefert der aufzählende Hintergrund-Thread
+        /// (bzw. der Ordner-Cache) mit — früher lief hier nach jedem Laden eine komplette zweite Aufzählung
+        /// auf dem UI-Thread. Ohne Fingerabdruck überspringt der Spalten-Abgleich diese Spalte.
         /// </summary>
-        private void CaptureListedDirectoryWriteUtc()
+        private void ApplyListingStamp(DateTime? directoryWriteUtc, DirectoryStamp? stamp)
         {
-            try
-            {
-                if (string.IsNullOrEmpty(Path) || FileSystemRouter.IsRemotePath(Path))
-                    return;
-                if (!(Path.Length >= 2 && Path[1] == ':'))
-                    return;
+            if (directoryWriteUtc is { } writeUtc)
+                ListedDirectoryWriteUtc = writeUtc;
 
-                var ioPath = Helpers.LongPathHelper.ForIo(Path);
-                ListedDirectoryWriteUtc = System.IO.Directory.GetLastWriteTimeUtc(ioPath);
-                var stamp = ComputeDirectoryStamp(ioPath, ReadShowHiddenFiles());
-                ListedEntryCount = stamp.Count;
-                ListedNameHash = stamp.NameHash;
-                ListedMaxWriteUtcTicks = stamp.MaxWriteUtcTicks;
+            if (stamp is { } s)
+            {
+                ListedEntryCount = s.Count;
+                ListedNameHash = s.NameHash;
+                ListedMaxWriteUtcTicks = s.MaxWriteUtcTicks;
                 HasListedStamp = true;
             }
-            catch
+            else
             {
-                // Missing/inaccessible folders are handled by the next reload.
+                HasListedStamp = false;
             }
         }
 
-        internal readonly struct DirectoryStamp
+        internal static DateTime? TryReadDirectoryWriteUtc(string ioPath)
         {
-            public int Count { get; init; }
-            public int NameHash { get; init; }
-            public long MaxWriteUtcTicks { get; init; }
-
-            public bool Equals(DirectoryStamp other)
-                => Count == other.Count && NameHash == other.NameHash && MaxWriteUtcTicks == other.MaxWriteUtcTicks;
+            try { return System.IO.Directory.GetLastWriteTimeUtc(ioPath); }
+            catch { return null; }
         }
 
-        internal DirectoryStamp CurrentListedStamp => new()
-        {
-            Count = ListedEntryCount,
-            NameHash = ListedNameHash,
-            MaxWriteUtcTicks = ListedMaxWriteUtcTicks
-        };
+
+        internal DirectoryStamp CurrentListedStamp => new(ListedEntryCount, ListedNameHash, ListedMaxWriteUtcTicks);
 
         internal static bool IsLocalDrivePath(string? path)
             => !string.IsNullOrEmpty(path)
@@ -1793,60 +1936,12 @@ namespace Span.ViewModels
                && path.Length >= 2
                && path[1] == ':';
 
+        /// <summary>
+        /// Fingerabdruck der Liste für den Spalten-Abgleich. Dieselbe Regel, mit der das Laden seinen
+        /// Fingerabdruck bildet (Services.FolderListing) — sonst gälte jede Spalte dauernd als geändert.
+        /// </summary>
         internal static DirectoryStamp ComputeDirectoryStamp(string ioPath, bool showHidden)
-        {
-            int count = 0;
-            int hash = 0;
-            long maxWrite = 0;
-
-            foreach (var full in System.IO.Directory.EnumerateFileSystemEntries(ioPath))
-            {
-                System.IO.FileAttributes attrs;
-                try
-                {
-                    attrs = System.IO.File.GetAttributes(full);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                if (!showHidden && (attrs & (System.IO.FileAttributes.Hidden | System.IO.FileAttributes.System)) != 0)
-                    continue;
-
-                count++;
-                var name = System.IO.Path.GetFileName(full);
-                hash ^= StringComparer.OrdinalIgnoreCase.GetHashCode(name);
-
-                long ticks;
-                try
-                {
-                    ticks = System.IO.File.GetLastWriteTimeUtc(full).Ticks;
-                }
-                catch
-                {
-                    ticks = 0;
-                }
-
-                if (ticks > maxWrite)
-                    maxWrite = ticks;
-            }
-
-            return new DirectoryStamp { Count = count, NameHash = hash, MaxWriteUtcTicks = maxWrite };
-        }
-
-        private static bool ReadShowHiddenFiles()
-        {
-            try
-            {
-                var settings = App.Current.Services.GetService(typeof(Services.SettingsService)) as Services.SettingsService;
-                return settings?.ShowHiddenFiles == true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
+            => Services.FolderListing.ComputeStamp(ioPath, showHidden);
 
         /// <summary>
         /// Update this folder row's modified time (Miller age badge) from disk

@@ -35,18 +35,34 @@ namespace Span.Helpers
             }
         }
 
-        /// <summary>Wählt die Elemente der Gruppe aus; die Auswahl-Synchronisierung der Ansicht übernimmt den Rest.</summary>
-        public static void SelectGroup(ListViewBase host, ItemGroup group)
+        /// <summary>
+        /// Wählt die Elemente der Gruppe aus. Mit <paramref name="setSyncing"/> wird die Auswahl-Synchronisierung der
+        /// Ansicht während der Schleife unterdrückt und danach einmal über <paramref name="afterSelect"/> nachgeholt —
+        /// sonst lief für jedes Element SelectionChanged → ViewModel-Sync → Statusleiste (n Elemente = n Durchläufe),
+        /// und SelectedItems.Contains machte das Ganze zusätzlich quadratisch.
+        /// </summary>
+        public static void SelectGroup(ListViewBase host, ItemGroup group, Action<bool>? setSyncing = null, Action? afterSelect = null)
         {
             if (group.IsCollapsed) return;
             bool ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
                 .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
-            if (!ctrl) host.SelectedItems.Clear();
-            foreach (var item in group)
+
+            setSyncing?.Invoke(true);
+            try
             {
-                if (!host.SelectedItems.Contains(item))
-                    host.SelectedItems.Add(item);
+                if (!ctrl) host.SelectedItems.Clear();
+                var alreadySelected = new HashSet<object>(host.SelectedItems, ReferenceEqualityComparer.Instance);
+                foreach (var item in group)
+                {
+                    if (alreadySelected.Add(item))
+                        host.SelectedItems.Add(item);
+                }
             }
+            finally
+            {
+                setSyncing?.Invoke(false);
+            }
+            afterSelect?.Invoke();
             host.Focus(FocusState.Programmatic);
         }
 

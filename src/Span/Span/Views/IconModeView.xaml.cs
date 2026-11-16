@@ -1,4 +1,4 @@
-﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Span.Helpers;
@@ -537,16 +537,17 @@ namespace Span.Views
             var folder = ViewModel?.CurrentFolder;
             if (folder?.SelectedChild == null || IconGridView == null) return;
 
-            int idx = folder.Children.IndexOf(folder.SelectedChild);
-            if (idx < 0) return;
-
-            var container = IconGridView.ContainerFromIndex(idx) as UIElement;
+            // ContainerFromItem statt ContainerFromIndex(Children.IndexOf): in der gruppierten Ansicht ist die
+            // ItemsSource eine CollectionViewSource, deren flacher Index nicht der Modellreihenfolge entspricht —
+            // F2 traf das Textfeld eines anderen Elements oder keines.
+            var selectedChild = folder.SelectedChild;
+            var container = IconGridView.ContainerFromItem(selectedChild) as UIElement;
             if (container == null)
             {
-                IconGridView.ScrollIntoView(folder.SelectedChild);
+                IconGridView.ScrollIntoView(selectedChild);
                 DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
                 {
-                    var retryContainer = IconGridView.ContainerFromIndex(idx) as UIElement;
+                    var retryContainer = IconGridView.ContainerFromItem(selectedChild) as UIElement;
                     if (retryContainer != null)
                     {
                         var tb = VisualTreeHelpers.FindChild<TextBox>(retryContainer as DependencyObject);
@@ -569,7 +570,7 @@ namespace Span.Views
 
             if (e.Key == Windows.System.VirtualKey.Enter)
             {
-                vm.CommitRename();
+                _ = vm.CommitRenameAsync();
                 _justFinishedRename = true;
                 _renameTargetPath = null;
                 e.Handled = true;
@@ -602,7 +603,7 @@ namespace Span.Views
                 return;
 
             if (vm.IsRenaming)
-                vm.CommitRename();
+                _ = vm.CommitRenameAsync();
             _justFinishedRename = true;
             _renameTargetPath = null;
         }
@@ -612,12 +613,10 @@ namespace Span.Views
             var folder = ViewModel?.CurrentFolder;
             if (folder?.SelectedChild == null || IconGridView == null) return;
 
-            int idx = folder.Children.IndexOf(folder.SelectedChild);
-            if (idx < 0) return;
-
+            var selectedChild = folder.SelectedChild;
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
             {
-                var container = IconGridView.ContainerFromIndex(idx) as UIElement;
+                var container = IconGridView.ContainerFromItem(selectedChild) as UIElement;
                 container?.Focus(FocusState.Keyboard);
             });
         }

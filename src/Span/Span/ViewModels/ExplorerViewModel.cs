@@ -280,9 +280,15 @@ namespace Span.ViewModels
         /// </summary>
         public async Task GoBack()
         {
-            if (_backStack.Count == 0) return;
-
-            var previousPath = _backStack.Pop();
+            // Verschwundene Einträge überspringen, den aktuellen Pfad aber nur EINMAL auf den Vorwärts-Stapel legen.
+            // Die frühere Rekursion legte ihn je übersprungenem Eintrag erneut ab — Vorwärts "navigierte" danach
+            // mehrfach auf den aktuellen Ordner und CanGoForward stimmte nicht.
+            var previousPath = await PopAvailableHistoryEntryAsync(back: true);
+            if (previousPath == null)
+            {
+                UpdateHistoryState();
+                return;
+            }
 
             // Push current path to forward stack
             if (!string.IsNullOrEmpty(CurrentPath))
@@ -296,20 +302,7 @@ namespace Span.ViewModels
             _isNavigatingHistory = true;
             try
             {
-                if (FileSystemRouter.IsRemotePath(previousPath)
-                    || Helpers.ArchivePathHelper.IsArchivePath(previousPath)
-                    || System.IO.Directory.Exists(previousPath))
-                {
-                    await NavigateToPath(previousPath);
-                }
-                else
-                {
-                    Helpers.DebugLogger.Log($"[GoBack] Path no longer exists: {previousPath}");
-                    // Try the next entry
-                    _isNavigatingHistory = false;
-                    await GoBack();
-                    return;
-                }
+                await NavigateToPath(previousPath);
             }
             finally
             {
@@ -320,13 +313,41 @@ namespace Span.ViewModels
         }
 
         /// <summary>
+        /// Nächsten noch vorhandenen Eintrag vom Zurück- bzw. Vorwärts-Stapel holen; nicht mehr existierende
+        /// werden verworfen. UNC-Pfade werden im Hintergrund geprüft (unerreichbarer Server = Netzwerk-Timeout).
+        /// </summary>
+        private async Task<string?> PopAvailableHistoryEntryAsync(bool back)
+        {
+            var stack = back ? _backStack : _forwardStack;
+            while (stack.Count > 0)
+            {
+                var candidate = stack.Pop();
+                if (await IsHistoryTargetAvailableAsync(candidate))
+                    return candidate;
+                Helpers.DebugLogger.Log($"[{(back ? "GoBack" : "GoForward")}] Path no longer exists: {candidate}");
+            }
+            return null;
+        }
+
+        private static async Task<bool> IsHistoryTargetAvailableAsync(string path)
+        {
+            if (FileSystemRouter.IsRemotePath(path) || Helpers.ArchivePathHelper.IsArchivePath(path))
+                return true;
+            // A drive letter can refer to an offline network share, too.
+            return await Task.Run(() => System.IO.Directory.Exists(path));
+        }
+
+        /// <summary>
         /// Navigate to the next path in the forward stack.
         /// </summary>
         public async Task GoForward()
         {
-            if (_forwardStack.Count == 0) return;
-
-            var nextPath = _forwardStack.Pop();
+            var nextPath = await PopAvailableHistoryEntryAsync(back: false);
+            if (nextPath == null)
+            {
+                UpdateHistoryState();
+                return;
+            }
 
             // Push current path to back stack
             if (!string.IsNullOrEmpty(CurrentPath))
@@ -340,20 +361,7 @@ namespace Span.ViewModels
             _isNavigatingHistory = true;
             try
             {
-                if (FileSystemRouter.IsRemotePath(nextPath)
-                    || Helpers.ArchivePathHelper.IsArchivePath(nextPath)
-                    || System.IO.Directory.Exists(nextPath))
-                {
-                    await NavigateToPath(nextPath);
-                }
-                else
-                {
-                    Helpers.DebugLogger.Log($"[GoForward] Path no longer exists: {nextPath}");
-                    // Try the next entry
-                    _isNavigatingHistory = false;
-                    await GoForward();
-                    return;
-                }
+                await NavigateToPath(nextPath);
             }
             finally
             {
@@ -425,7 +433,7 @@ namespace Span.ViewModels
             _isNavigatingHistory = true;
             try
             {
-                if (FileSystemRouter.IsRemotePath(targetPath) || System.IO.Directory.Exists(targetPath))
+                if (await IsHistoryTargetAvailableAsync(targetPath))
                 {
                     await NavigateToPath(targetPath);
                 }
@@ -473,7 +481,7 @@ namespace Span.ViewModels
             _isNavigatingHistory = true;
             try
             {
-                if (FileSystemRouter.IsRemotePath(targetPath) || System.IO.Directory.Exists(targetPath))
+                if (await IsHistoryTargetAvailableAsync(targetPath))
                 {
                     await NavigateToPath(targetPath);
                 }
@@ -612,8 +620,11 @@ namespace Span.ViewModels
         /// flag OFF 사용자에 대해서도 안전 (CancelAllInflightAsync는 _disabled fast path,
         /// PrewarmWorker는 settings 검사로 즉시 return).
         /// </summary>
+        private int _navigationVersion;
+
         private void CancelInflightAndPrewarm()
         {
+            _navigationVersion++;
             try
             {
                 var thumbClient = App.Current.Services.GetService(typeof(Services.Thumbnails.ThumbnailClientService))
@@ -702,6 +713,7 @@ namespace Span.ViewModels
 
             // 회귀-NavCancel: 격리 워커 진행 중 작업 무효화 (브레드크럼/주소창/뒤로/앞으로 진입점)
             CancelInflightAndPrewarm();
+            int navigationVersion = _navigationVersion;
 
             // \\?\ 접두사 제거 (.NET 8은 long path를 네이티브 지원)
             if (path.StartsWith(@"\\?\"))
@@ -722,7 +734,7 @@ namespace Span.ViewModels
             }
 
             // UNC 경로: Directory.Exists가 30초+ 블로킹하므로 비동기 처리
-            // 로컬 경로: 즉시 확인 (긴 경로는 비동기 처리)
+            // Drive-letter paths may also point at an unavailable mapped network drive.
             if (path.StartsWith(@"\\"))
             {
                 // Issue #67: \\server 서버 루트는 디렉터리가 아니라 Directory.Exists가 항상
@@ -732,6 +744,7 @@ namespace Span.ViewModels
                 if (!Helpers.UncPathHelper.IsServerRoot(path) && !Helpers.UncPathHelper.IsShellNamespaceRoot(path))
                 {
                     var exists = await Task.Run(() => System.IO.Directory.Exists(path));
+                    if (_isCleaningUp || navigationVersion != _navigationVersion) return;
                     if (!exists)
                     {
                         NavigationError?.Invoke(string.Format(_loc.Get("Error_NetworkPath") ?? "Cannot access network path: {0}", path));
@@ -741,9 +754,8 @@ namespace Span.ViewModels
             }
             else
             {
-                var exists = path.Length > 240
-                    ? await Task.Run(() => System.IO.Directory.Exists(path))
-                    : System.IO.Directory.Exists(path);
+                var exists = await Task.Run(() => System.IO.Directory.Exists(path));
+                if (_isCleaningUp || navigationVersion != _navigationVersion) return;
                 if (!exists)
                 {
                     NavigationError?.Invoke(string.Format(_loc.Get("Error_FolderNotFound") ?? "Cannot find folder: {0}", System.IO.Path.GetFileName(path)));
@@ -1129,9 +1141,6 @@ namespace Span.ViewModels
             var parentPath = System.IO.Path.GetDirectoryName(currentPath);
             if (string.IsNullOrEmpty(parentPath)) return;
 
-            // Check if parent directory exists
-            if (!System.IO.Directory.Exists(parentPath)) return;
-
             Helpers.DebugLogger.Log($"[NavigateUp] Navigating from '{currentPath}' to '{parentPath}'");
             // NavigateToPath will handle PushToHistory internally
             _ = NavigateToPath(parentPath);
@@ -1429,10 +1438,21 @@ namespace Span.ViewModels
         /// </summary>
         private async Task HandleLnkSelectionAsync(FileViewModel lnkFileVm, int nextIndex)
         {
-            var targetPath = Services.FileSystemService.ResolveShellLink(lnkFileVm.Path);
+            var parent = nextIndex > 0 && nextIndex <= Columns.Count ? Columns[nextIndex - 1] : null;
+            var linkPath = lnkFileVm.Path;
+            int navigationVersion = _navigationVersion;
+            var (targetPath, isDirectory) = await Task.Run(() =>
+            {
+                var target = Services.FileSystemService.ResolveShellLink(linkPath);
+                bool directory = !string.IsNullOrEmpty(target) && Directory.Exists(target);
+                return (directory || File.Exists(target) ? target : null, directory);
+            });
+            // A slow/offline target must not navigate after the selection or pane changed.
+            if (_isCleaningUp || navigationVersion != _navigationVersion || parent == null
+                || !Columns.Contains(parent) || !ReferenceEquals(parent.SelectedChild, lnkFileVm)) return;
             Helpers.DebugLogger.Log($"[HandleLnkSelection] lnk='{lnkFileVm.Name}', target='{targetPath ?? "null"}'");
 
-            if (string.IsNullOrEmpty(targetPath) || (!Directory.Exists(targetPath) && !File.Exists(targetPath)))
+            if (string.IsNullOrEmpty(targetPath))
             {
                 // 대상을 확인할 수 없으면 일반 파일처럼 미리보기 표시
                 RemoveColumnsFrom(nextIndex);
@@ -1444,7 +1464,7 @@ namespace Span.ViewModels
                 return;
             }
 
-            if (Directory.Exists(targetPath))
+            if (isDirectory)
             {
                 // 대상이 폴더 → 다음 칼럼에 폴더 내용 표시
                 var folderItem = new Models.FolderItem

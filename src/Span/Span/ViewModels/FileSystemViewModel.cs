@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -344,27 +344,68 @@ namespace Span.ViewModels
             _model.Path = source._model.Path;
 
             bool metadataChanged = false;
+            // Erstelldatum und Attribute stehen nur in den zusätzlichen Details-Spalten. Sie wurden beim
+            // Neuladen bisher gar nicht übernommen — die Spalten zeigten bis zum Ordnerwechsel den alten Stand.
+            bool extraColumnsChanged = false;
             if (_model is FileItem dstFile && source._model is FileItem srcFile)
             {
                 metadataChanged = dstFile.Size != srcFile.Size
                     || dstFile.DateModified != srcFile.DateModified
                     || dstFile.FileType != srcFile.FileType
                     || dstFile.IsHidden != srcFile.IsHidden;
+                extraColumnsChanged = dstFile.DateCreated != srcFile.DateCreated
+                    || dstFile.Attributes != srcFile.Attributes;
                 dstFile.Size = srcFile.Size;
                 dstFile.DateModified = srcFile.DateModified;
                 dstFile.FileType = srcFile.FileType;
                 dstFile.IsHidden = srcFile.IsHidden;
+                dstFile.DateCreated = srcFile.DateCreated;
+                dstFile.Attributes = srcFile.Attributes;
             }
             else if (_model is FolderItem dstFolder && source._model is FolderItem srcFolder)
             {
-                metadataChanged = dstFolder.DateModified != srcFolder.DateModified
+                bool contentChanged = pathChanged || dstFolder.DateModified != srcFolder.DateModified;
+                metadataChanged = contentChanged
                     || dstFolder.IsHidden != srcFolder.IsHidden
-                    || dstFolder.MaybeHasCustomIcon != srcFolder.MaybeHasCustomIcon
-                    || dstFolder.HasChildEntries != srcFolder.HasChildEntries;
+                    || dstFolder.MaybeHasCustomIcon != srcFolder.MaybeHasCustomIcon;
+                extraColumnsChanged = dstFolder.DateCreated != srcFolder.DateCreated
+                    || dstFolder.Attributes != srcFolder.Attributes;
                 dstFolder.DateModified = srcFolder.DateModified;
                 dstFolder.IsHidden = srcFolder.IsHidden;
                 dstFolder.MaybeHasCustomIcon = srcFolder.MaybeHasCustomIcon;
-                dstFolder.HasChildEntries = srcFolder.HasChildEntries;
+                dstFolder.DateCreated = srcFolder.DateCreated;
+                dstFolder.Attributes = srcFolder.Attributes;
+
+                // "Hat Inhalt" (Pfeil der Miller-Ansicht) ist kein Anlass mehr, das Ordnersymbol neu zu laden,
+                // und wird eigens gemeldet — vorher änderte sich der Wert ohne Benachrichtigung.
+                bool hasChildChanged = false;
+                bool recheck = false;
+                if (!srcFolder.ChildProbePending)
+                {
+                    // Das Neuladen hat diesen Ordner frisch geprüft (bzw. es gibt nichts zu prüfen).
+                    hasChildChanged = dstFolder.HasChildEntries != srcFolder.HasChildEntries;
+                    dstFolder.HasChildEntries = srcFolder.HasChildEntries;
+                    dstFolder.ChildProbePending = false;
+                }
+                else if (contentChanged)
+                {
+                    // Ungeprüft, aber der Ordner hat sich geändert (seine Änderungszeit bewegt sich, wenn
+                    // Einträge dazukommen oder verschwinden): bekannten Stand behalten und neu prüfen.
+                    dstFolder.ChildProbePending = true;
+                    recheck = true;
+                }
+                // sonst: unverändert — der bekannte Stand gilt weiter.
+
+                if ((hasChildChanged || recheck) && this is FolderViewModel folderRow)
+                    folderRow.OnChildEntriesUpdated(hasChildChanged, recheck);
+            }
+
+            if (extraColumnsChanged)
+            {
+                OnPropertyChanged(nameof(DateCreated));
+                OnPropertyChanged(nameof(DateCreatedValue));
+                OnPropertyChanged(nameof(AttributesValue));
+                OnPropertyChanged(nameof(AttributesText));
             }
 
             // 변경 없음 → 알림 생략 (대용량 폴더 리로드 시 불필요한 PropertyChanged 폭증 방지).
@@ -455,6 +496,16 @@ namespace Span.ViewModels
         /// Display name — XAML TextTrimming handles truncation based on column width.
         /// </summary>
         public virtual string TruncatedDisplayName => DisplayName;
+
+        /// <summary>
+        /// 화면 낭독기가 읽는 UIA 이름.
+        ///
+        /// ListViewItem의 Content는 이 뷰모델 객체 그 자체다(ItemTemplate이 만드는 TextBlock은
+        /// 시각 자식일 뿐이다). 자동화 피어는 AutomationProperties.Name이 없으면
+        /// Content.ToString()으로 떨어지므로, 이걸 재정의하지 않으면 낭독기가 파일명 대신
+        /// "Span.ViewModels.FileViewModel"을 읽는다. 지우지 말 것.
+        /// </summary>
+        public override string ToString() => DisplayName;
 
         public virtual string IconGlyph => _model.IconGlyph;
         private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush _whiteIconBrush = new(Microsoft.UI.Colors.White);
@@ -669,33 +720,39 @@ namespace Span.ViewModels
         /// </summary>
         partial void OnIsRenamingChanged(bool value)
         {
-            Helpers.DebugLogger.Log($"[Rename] IsRenaming changed to {value} for '{Name}' stack={Environment.StackTrace.Replace("\r\n", " | ").Replace("\n", " | ")}");
+            // Environment.StackTrace를 다시 넣지 말 것 — DebugLogger.Log는 Release에서도 그대로 돌고
+            // 인자가 먼저 평가되므로, 이름 변경 한 번마다 관리 스택을 통째로 걷고 수 KB를 로그에 쓴다.
+            Helpers.DebugLogger.Log($"[Rename] IsRenaming changed to {value} for '{Name}'");
         }
 
         public void BeginRename()
         {
+            if (_renameInProgress) return;
             // 폴더, 파일 모두 전체 이름 사용 (Windows Explorer 동작)
             EditableName = Name;
             IsRenaming = true;
         }
 
-        /// <summary>
-        /// 이름 변경 커밋 (Enter).
-        /// </summary>
-        public bool CommitRename()
+        private bool _renameInProgress;
+
+        /// <summary>Commit the rename without blocking the UI thread.</summary>
+        public async System.Threading.Tasks.Task<bool> CommitRenameAsync()
         {
-            IsRenaming = false;
+            // Enter also triggers LostFocus when the editor disappears. Submit only once.
+            if (_renameInProgress) return false;
+            _renameInProgress = true;
+            string currentPath = Path;
             string newName = EditableName.Trim();
-
-            // Windows Explorer 방식: 전체 이름(확장자 포함) 그대로 사용
-            if (string.IsNullOrEmpty(newName) || newName == Name)
-                return false;
-            if (Helpers.ArchivePathHelper.IsArchivePath(Path))
-                return false;
-            string fullNewName = newName;
-
             try
             {
+                IsRenaming = false;
+
+                // Windows Explorer 방식: 전체 이름(확장자 포함) 그대로 사용
+                if (string.IsNullOrEmpty(newName) || newName == Name)
+                    return false;
+                if (Helpers.ArchivePathHelper.IsArchivePath(Path))
+                    return false;
+                string fullNewName = newName;
                 if (Services.FileSystemRouter.IsRemotePath(Path))
                 {
                     // ── 원격 이름 변경 ──
@@ -707,17 +764,17 @@ namespace Span.ViewModels
                         return false;
                     }
 
-                    var remotePath = Services.FileSystemRouter.ExtractRemotePath(Path);
+                    var remotePath = Services.FileSystemRouter.ExtractRemotePath(currentPath);
                     var parentDir = remotePath.Contains('/')
                         ? remotePath[..remotePath.TrimEnd('/').LastIndexOf('/')]
                         : "/";
                     if (string.IsNullOrEmpty(parentDir)) parentDir = "/";
                     var newRemotePath = parentDir.TrimEnd('/') + "/" + fullNewName;
 
-                    provider.RenameAsync(remotePath, newRemotePath).GetAwaiter().GetResult();
+                    await provider.RenameAsync(remotePath, newRemotePath);
 
                     // URI prefix 보존하여 전체 경로 재구성
-                    var uriPrefix = Path[..(Path.Length - remotePath.Length)];
+                    var uriPrefix = currentPath[..(currentPath.Length - remotePath.Length)];
                     var newPath = uriPrefix + newRemotePath;
 
                     _model.Name = fullNewName;
@@ -733,18 +790,17 @@ namespace Span.ViewModels
                 else
                 {
                     // ── 로컬 이름 변경 (Task.Run으로 UI 프리즈 방지) ──
-                    string dir = System.IO.Path.GetDirectoryName(Path)!;
+                    string dir = System.IO.Path.GetDirectoryName(currentPath)!;
                     string newPath = System.IO.Path.Combine(dir, fullNewName);
-                    string currentPath = Path;
                     bool isFolder = this is FolderViewModel;
 
-                    System.Threading.Tasks.Task.Run(() =>
+                    await System.Threading.Tasks.Task.Run(() =>
                     {
                         if (isFolder)
                             System.IO.Directory.Move(currentPath, newPath);
                         else
                             System.IO.File.Move(currentPath, newPath);
-                    }).GetAwaiter().GetResult();
+                    });
                     Services.FileOperations.FileOperationHelpers.NotifyPathMoved(currentPath, newPath);
 
                     _model.Name = fullNewName;
@@ -763,6 +819,7 @@ namespace Span.ViewModels
                 System.Diagnostics.Debug.WriteLine($"Rename error: {ex.Message}");
                 return false;
             }
+            finally { _renameInProgress = false; }
         }
 
         /// <summary>

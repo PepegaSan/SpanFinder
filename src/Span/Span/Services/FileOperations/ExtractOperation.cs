@@ -182,6 +182,13 @@ public class ExtractOperation : IFileOperation, IPausableOperation
                                 }
                             }
 
+                            // Änderungsdatum aus dem Archiv übernehmen (wie Explorer/7-Zip und der native OtterZip-Pfad,
+                            // der PreserveTimestamps setzt). Vorher trug jede entpackte Datei den Entpackzeitpunkt.
+                            try { File.SetLastWriteTimeUtc(fullPath, entry.LastWriteTime.UtcDateTime); }
+                            catch (IOException) { }
+                            catch (UnauthorizedAccessException) { }
+                            catch (ArgumentOutOfRangeException) { }
+
                             // .NET ZipArchive의 읽기 경로는 CRC32를 검증하지 않는다 — 비트 썩음이나
                             // 다운로드 손상이 있는 ZIP을 예외 없이 "성공"으로 풀어버린다(실측 확인).
                             // 중앙 디렉터리의 CRC와 대조해 손상을 잡는다.

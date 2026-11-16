@@ -274,6 +274,11 @@ namespace Span.Services
                         // 큐 추가를 최우선 실행 (BFS 진행이 매칭보다 중요)
                         queue.Enqueue(sub.FullName);
 
+                        // Erst auf den Rohdaten prüfen, ViewModel nur für Treffer anlegen (der Konstruktor stößt
+                        // für manche Einträge Hintergrundarbeit an — bei einer Laufwerkssuche sonst für alles).
+                        if (!SearchFilter.Matches(query, sub.Name, sub.FullName, isFolder: true, size: 0, modified: sub.LastWriteTime))
+                            continue;
+
                         var folderItem = new FolderItem
                         {
                             Name = sub.Name,
@@ -285,13 +290,9 @@ namespace Span.Services
                         };
                         var folderVm = new FolderViewModel(folderItem, _fileService);
                         folderVm.MarkAsManuallyPopulated();
-
-                        if (SearchFilter.Matches(query, folderVm))
-                        {
-                            folderVm.LocationPath = GetRelativeParentPath(rootPath, sub.FullName);
-                            filesFound++;
-                            batch.Add(folderVm);
-                        }
+                        folderVm.LocationPath = GetRelativeParentPath(rootPath, sub.FullName);
+                        filesFound++;
+                        batch.Add(folderVm);
                     }
                     catch (Exception ex)
                     {
@@ -313,6 +314,11 @@ namespace Span.Services
 
                     try
                     {
+                        // Erst prüfen, dann (nur für Treffer) das ViewModel anlegen — FileViewModel startet für
+                        // .exe/.lnk/.msi/... im Konstruktor eine Shell-Icon-Extraktion.
+                        if (!SearchFilter.Matches(query, f.Name, f.FullName, isFolder: false, size: f.Length, modified: f.LastWriteTime))
+                            continue;
+
                         var fileItem = new FileItem
                         {
                             Name = f.Name,
@@ -325,13 +331,9 @@ namespace Span.Services
                             IsHidden = (f.Attributes & FileAttributes.Hidden) != 0
                         };
                         var fileVm = new FileViewModel(fileItem);
-
-                        if (SearchFilter.Matches(query, fileVm))
-                        {
-                            fileVm.LocationPath = GetRelativeParentPath(rootPath, f.FullName);
-                            filesFound++;
-                            batch.Add(fileVm);
-                        }
+                        fileVm.LocationPath = GetRelativeParentPath(rootPath, f.FullName);
+                        filesFound++;
+                        batch.Add(fileVm);
                     }
                     catch (Exception ex)
                     {

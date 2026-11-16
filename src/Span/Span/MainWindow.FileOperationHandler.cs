@@ -130,13 +130,8 @@ namespace Span
                 var column = columns[activeIndex];
                 var allItems = column.Children.ToList();
 
-                // Collect currently selected indices
-                var selectedIndices = new HashSet<int>();
-                foreach (var item in listView.SelectedItems)
-                {
-                    int idx = allItems.IndexOf(item as FileSystemViewModel);
-                    if (idx >= 0) selectedIndices.Add(idx);
-                }
+                var selectedItems = new HashSet<FileSystemViewModel>(
+                    listView.SelectedItems.OfType<FileSystemViewModel>());
 
                 // Clear and invert
                 _isSyncingSelection = true;
@@ -145,7 +140,7 @@ namespace Span
                     listView.SelectedItems.Clear();
                     for (int i = 0; i < allItems.Count; i++)
                     {
-                        if (!selectedIndices.Contains(i))
+                        if (!selectedItems.Contains(allItems[i]))
                         {
                             listView.SelectedItems.Add(allItems[i]);
                         }
@@ -335,9 +330,8 @@ namespace Span
             for (int i = columns.Count - 1; i >= 0; i--)
             {
                 var col = columns[i];
-                if (selectedItems.All(item =>
-                        col.Children.Any(c => ReferenceEquals(c, item)
-                            || string.Equals(c.Path, item.Path, StringComparison.OrdinalIgnoreCase))))
+                var paths = new HashSet<string>(col.Children.Select(c => c.Path), StringComparer.OrdinalIgnoreCase);
+                if (selectedItems.All(item => paths.Contains(item.Path)))
                     return i;
             }
 
@@ -1619,7 +1613,7 @@ namespace Span
 
             if (e.Key == Windows.System.VirtualKey.Enter)
             {
-                vm.CommitRename();
+                _ = vm.CommitRenameAsync();
                 _justFinishedRename = true; // OnMillerKeyDown이 이 Enter를 파일 실행으로 처리하지 않도록
                 _renameTargetPath = null; // Reset F2 cycle state
                 e.Handled = true;
@@ -1656,7 +1650,7 @@ namespace Span
             // Enter 없이 다른 곳 클릭해도 변경사항 저장
             if (vm.IsRenaming)
             {
-                vm.CommitRename();
+                _ = vm.CommitRenameAsync();
             }
             _justFinishedRename = true;
             _renameTargetPath = null; // Reset F2 cycle state
@@ -1751,7 +1745,7 @@ namespace Span
             {
                 if (col.SelectedChild?.IsRenaming == true)
                 {
-                    col.SelectedChild.CommitRename();
+                    _ = col.SelectedChild.CommitRenameAsync();
                     committed = true;
                 }
             }

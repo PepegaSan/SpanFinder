@@ -11,7 +11,7 @@ namespace Span.Models
     {
         /// <summary>잠금 뱃지 Visibility (x:Bind용)</summary>
         public Visibility AuthBadgeVisibility =>
-            NeedsAuth ? Visibility.Visible : Visibility.Collapsed;
+            NeedsAuth || IsLocked ? Visibility.Visible : Visibility.Collapsed;
 
         /// <summary>"X frei von Y" in der App-Sprache (SizeDescription ist englisch und bleibt für Tests WinUI-frei).</summary>
         public string LocalizedSizeDescription => TotalSize <= 0

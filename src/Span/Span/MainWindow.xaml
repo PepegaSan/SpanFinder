@@ -595,7 +595,7 @@
                         <StackPanel x:Name="SidebarLocalDrivesSection">
                         <Rectangle Height="1" Fill="{ThemeResource SpanBorderSubtleBrush}" Margin="20,10"/>
                         <Grid Height="24" Padding="12,0" Margin="8,1" CornerRadius="6" Background="Transparent"
-                              Tapped="OnSidebarSectionHeaderTapped" Tag="Local"
+                              Tapped="OnSidebarSectionHeaderTapped" RightTapped="OnSidebarSectionHeaderRightTapped" Tag="Local"
                               PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited" PointerPressed="OnSidebarItemPointerPressed" PointerReleased="OnSidebarItemPointerReleased">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
@@ -626,10 +626,23 @@
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="{x:Bind IconGlyph}"
-                                                   FontFamily="{StaticResource RemixIcons}" FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}"
-                                                   Foreground="{ThemeResource SpanTextSecondaryBrush}"
-                                                   VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                        <!-- 아이콘 상자는 아이콘 글꼴 크기(16~21)를 따른다. 16 고정이면 아이콘 크기 설정을
+                                             올렸을 때 상자보다 아이콘이 커진다 (기본 단계에서는 16이라 이전과 같다). -->
+                                        <Grid Grid.Column="0"
+                                              Width="{Binding IconFontSize, Source={StaticResource FontScale}}"
+                                              Height="{Binding IconFontSize, Source={StaticResource FontScale}}"
+                                              VerticalAlignment="Center" Margin="0,0,12,0">
+                                            <TextBlock Text="{x:Bind IconGlyph}"
+                                                       FontFamily="{StaticResource RemixIcons}" FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}"
+                                                       Foreground="{ThemeResource SpanTextSecondaryBrush}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <!-- 잠금 뱃지: BitLocker 잠김 -->
+                                            <FontIcon Glyph="&#xE72E;" FontSize="7"
+                                                      Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                                      HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                      Margin="0,0,-4,-4"
+                                                      Visibility="{x:Bind AuthBadgeVisibility}"/>
+                                        </Grid>
                                         <!-- Name + Belegungsbalken (OneCommander-Stil; rot ab 90 % wie im Explorer) -->
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                                             <TextBlock Text="{x:Bind Name}" FontSize="{Binding ItemFontSize, Source={StaticResource FontScale}}"
@@ -681,6 +694,11 @@
                                                        FontSize="{Binding IconFontSize, Source={StaticResource FontScale}}"
                                                        Foreground="{Binding Content.IconBrush}"
                                                        Visibility="{Binding Content.GlyphVisibility, Mode=OneWay, FallbackValue=Visible}"/>
+                                            <FontIcon Glyph="&#xE72E;" FontSize="7"
+                                                      Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                                      HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                      Margin="0,0,-4,-4"
+                                                      Visibility="{Binding Content.AuthBadgeVisibility, Mode=OneWay, FallbackValue=Collapsed}"/>
                                         </Grid>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                                             <TextBlock Text="{Binding Content.Name}"
@@ -703,7 +721,7 @@
                         </StackPanel>
 
                         <!-- ═══════ Section 4: 클라우드 (CloudDrives 있을 때만) ═══════ -->
-                        <StackPanel x:Name="SidebarCloudSection" Visibility="{x:Bind ViewModel.HasCloudDrives, Mode=OneWay}">
+                        <StackPanel x:Name="SidebarCloudSection" Visibility="Collapsed">
                             <Rectangle Height="1" Fill="{ThemeResource SpanBorderSubtleBrush}" Margin="20,10"/>
                             <Grid Height="24" Padding="12,0" Margin="8,1" CornerRadius="6" Background="Transparent"
                                   Tapped="OnSidebarSectionHeaderTapped" Tag="Cloud"
@@ -758,10 +776,10 @@
                         </StackPanel>
 
                         <!-- ═══════ Section 5: 네트워크 (NetworkAndRemoteDrives 있을 때만) ═══════ -->
-                        <StackPanel x:Name="SidebarNetworkSection" Visibility="{x:Bind ViewModel.HasNetworkDrives, Mode=OneWay}">
+                        <StackPanel x:Name="SidebarNetworkSection" Visibility="Collapsed">
                             <Rectangle Height="1" Fill="{ThemeResource SpanBorderSubtleBrush}" Margin="20,10"/>
                             <Grid Height="24" Padding="12,0" Margin="8,1" CornerRadius="6" Background="Transparent"
-                                  Tapped="OnSidebarSectionHeaderTapped" Tag="Network"
+                                  Tapped="OnSidebarSectionHeaderTapped" RightTapped="OnSidebarSectionHeaderRightTapped" Tag="Network"
                                   PointerEntered="OnSidebarItemPointerEntered" PointerExited="OnSidebarItemPointerExited" PointerPressed="OnSidebarItemPointerPressed" PointerReleased="OnSidebarItemPointerReleased">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>

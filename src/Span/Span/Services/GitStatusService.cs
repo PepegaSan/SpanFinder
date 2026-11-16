@@ -541,14 +541,30 @@ namespace Span.Services
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 cts.CancelAfter(CommandTimeoutMs);
 
-                var stdout = await process.StandardOutput.ReadToEndAsync(cts.Token);
-                await process.WaitForExitAsync(cts.Token);
+                Task<string>? stderrTask = null;
+                try
+                {
+                    // stderr parallel leeren: ein voller Pipe-Puffer (~4 KB) ließ git blockieren, bis das Timeout zuschlug.
+                    stderrTask = process.StandardError.ReadToEndAsync(cts.Token);
+                    var stdout = await process.StandardOutput.ReadToEndAsync(cts.Token);
+                    await process.WaitForExitAsync(cts.Token);
+                    string stderr;
+                    try { stderr = await stderrTask; } catch { stderr = ""; }
 
-                // stdout 크기 제한
-                if (stdout.Length > MaxOutputBytes)
-                    stdout = stdout[..MaxOutputBytes];
+                    // stdout 크기 제한
+                    if (stdout.Length > MaxOutputBytes)
+                        stdout = stdout[..MaxOutputBytes];
 
-                return new ProcessResult(process.ExitCode, stdout, "");
+                    return new ProcessResult(process.ExitCode, stdout, stderr);
+                }
+                finally
+                {
+                    // Bei Abbruch (Pfadwechsel) oder Timeout lief git sonst zu Ende weiter — bei schneller Navigation
+                    // in großen Repos sammelten sich mehrere git-status-Prozesse an.
+                    try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
+                    if (stderrTask != null)
+                        _ = stderrTask.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+                }
             }
             catch (OperationCanceledException)
             {
@@ -577,20 +593,29 @@ namespace Span.Services
 
             process.Start();
 
-            // Read stdout and stderr concurrently to avoid deadlock
-            // (if either buffer fills, the process blocks and ReadToEnd never returns)
-            var stderrTask = Task.Run(() => process.StandardError.ReadToEnd());
-            var stdout = process.StandardOutput.ReadToEnd();
-            process.WaitForExit(timeoutMs);
+            // Beide Ausgaben asynchron lesen und erst dann mit Timeout warten. Vorher stand ReadToEnd() VOR
+            // WaitForExit(timeout) und blockierte unbegrenzt, solange der Kindprozess stdout offen hielt — das
+            // Timeout griff nie (z. B. "where git" mit einem toten UNC-Eintrag im PATH beim Start).
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
 
-            if (!process.HasExited)
+            if (!process.WaitForExit(timeoutMs))
             {
                 try { process.Kill(true); } catch { }
                 return new ProcessResult(-1, "", "timeout");
             }
 
-            var stderr = stderrTask.GetAwaiter().GetResult();
-            return new ProcessResult(process.ExitCode, stdout, stderr);
+            // Nach dem Prozessende sind die Pipes geschlossen; die Leser enden sofort.
+            try
+            {
+                if (!Task.WaitAll(new Task[] { stdoutTask, stderrTask }, 2000))
+                    return new ProcessResult(process.ExitCode, "", "timeout");
+                return new ProcessResult(process.ExitCode, stdoutTask.Result, stderrTask.Result);
+            }
+            catch (AggregateException ex)
+            {
+                return new ProcessResult(process.ExitCode, "", ex.InnerException?.Message ?? ex.Message);
+            }
         }
 
         private record ProcessResult(int ExitCode, string StdOut, string StdErr);

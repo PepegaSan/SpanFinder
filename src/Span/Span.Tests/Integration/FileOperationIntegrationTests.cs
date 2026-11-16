@@ -174,6 +174,79 @@ public class CopyFileOperationTests
     }
 
     [TestMethod]
+    public async Task CopyWithConflict_Replace_FolderIsMergedNotDeleted()
+    {
+        // Regression: "Ersetzen" löschte den Zielordner komplett (Directory.Delete recursive) und kopierte dann —
+        // alle nicht betroffenen Dateien im Zielordner waren weg, ohne Papierkorb. Der Explorer führt zusammen.
+        var srcFolder = Path.Combine(_sourceDir, "Photos");
+        Directory.CreateDirectory(srcFolder);
+        File.WriteAllText(Path.Combine(srcFolder, "same.txt"), "new");
+        File.WriteAllText(Path.Combine(srcFolder, "added.txt"), "added");
+
+        var destFolder = Path.Combine(_destDir, "Photos");
+        Directory.CreateDirectory(destFolder);
+        File.WriteAllText(Path.Combine(destFolder, "same.txt"), "old");
+        File.WriteAllText(Path.Combine(destFolder, "keep.txt"), "keep");
+
+        var op = new CopyFileOperation(new List<string> { srcFolder }, _destDir);
+        op.SetConflictResolution(ConflictResolution.Replace, applyToAll: true);
+        var result = await op.ExecuteAsync();
+
+        Assert.IsTrue(result.Success, result.ErrorMessage);
+        Assert.AreEqual("keep", File.ReadAllText(Path.Combine(destFolder, "keep.txt")), "Nicht betroffene Dateien müssen erhalten bleiben");
+        Assert.AreEqual("new", File.ReadAllText(Path.Combine(destFolder, "same.txt")), "Gleichnamige Datei wird ersetzt");
+        Assert.AreEqual("added", File.ReadAllText(Path.Combine(destFolder, "added.txt")));
+
+        var undo = await op.UndoAsync();
+        Assert.IsTrue(undo.Success, undo.ErrorMessage);
+        Assert.IsTrue(File.Exists(Path.Combine(destFolder, "keep.txt")), "Undo darf vorhandene Dateien nicht löschen");
+        Assert.IsFalse(File.Exists(Path.Combine(destFolder, "added.txt")), "Undo entfernt die hinzugekommene Datei");
+        Assert.IsTrue(File.Exists(Path.Combine(destFolder, "same.txt")), "Die ersetzte Datei bleibt (Original im Papierkorb)");
+    }
+
+    [TestMethod]
+    public async Task CopyMultiple_SameNameFromDifferentFolders_KeepsBoth()
+    {
+        var a = Path.Combine(_sourceDir, "a");
+        var b = Path.Combine(_sourceDir, "b");
+        Directory.CreateDirectory(a);
+        Directory.CreateDirectory(b);
+        File.WriteAllText(Path.Combine(a, "x.txt"), "from a");
+        File.WriteAllText(Path.Combine(b, "x.txt"), "from b");
+
+        var op = new CopyFileOperation(new List<string> { Path.Combine(a, "x.txt"), Path.Combine(b, "x.txt") }, _destDir);
+        var result = await op.ExecuteAsync();
+
+        Assert.IsTrue(result.Success, result.ErrorMessage);
+        Assert.AreEqual("from a", File.ReadAllText(Path.Combine(_destDir, "x.txt")));
+        Assert.AreEqual("from b", File.ReadAllText(Path.Combine(_destDir, "x (1).txt")), "Zweite gleichnamige Quelle bekommt einen eindeutigen Namen statt die erste zu überschreiben");
+    }
+
+    [TestMethod]
+    public async Task CopyFile_KeepsReadOnlyAttribute()
+    {
+        // Die Stream-Kopie verlor Attribute (nur für Dateien über 1 MB — kleine liefen über File.Copy); die
+        // Shell-Engine kopiert sie wie der Explorer immer mit.
+        var srcFile = Path.Combine(_sourceDir, "ro.bin");
+        File.WriteAllBytes(srcFile, new byte[FileOperationHelpers.DefaultBufferSize + 1]);
+        File.SetAttributes(srcFile, FileAttributes.ReadOnly);
+        var destFile = Path.Combine(_destDir, "ro.bin");
+        try
+        {
+            var op = new CopyFileOperation(new List<string> { srcFile }, _destDir);
+            var result = await op.ExecuteAsync();
+
+            Assert.IsTrue(result.Success, result.ErrorMessage);
+            Assert.IsTrue((File.GetAttributes(destFile) & FileAttributes.ReadOnly) != 0, "Schreibschutz muss mitkopiert werden");
+        }
+        finally
+        {
+            File.SetAttributes(srcFile, FileAttributes.Normal);
+            if (File.Exists(destFile)) File.SetAttributes(destFile, FileAttributes.Normal);
+        }
+    }
+
+    [TestMethod]
     public async Task Cancellation_ThrowsOrReportsCancel()
     {
         var srcFile = Path.Combine(_sourceDir, "cancel.txt");
@@ -318,6 +391,47 @@ public class MoveFileOperationTests
         var movedFile = Path.Combine(_destDir, "conflict (1).txt");
         Assert.IsTrue(File.Exists(movedFile), $"Expected {movedFile} to exist");
         Assert.AreEqual("new version", File.ReadAllText(movedFile));
+    }
+
+    [TestMethod]
+    public async Task MoveWithConflict_Replace_FolderIsMerged_AndUndoMovesBackOnlyMovedFiles()
+    {
+        var srcFolder = Path.Combine(_sourceDir, "Docs");
+        Directory.CreateDirectory(srcFolder);
+        File.WriteAllText(Path.Combine(srcFolder, "moved.txt"), "moved");
+        var destFolder = Path.Combine(_destDir, "Docs");
+        Directory.CreateDirectory(destFolder);
+        File.WriteAllText(Path.Combine(destFolder, "keep.txt"), "keep");
+
+        var op = new MoveFileOperation(new List<string> { srcFolder }, _destDir);
+        op.SetConflictResolution(ConflictResolution.Replace, applyToAll: true);
+        var result = await op.ExecuteAsync();
+
+        Assert.IsTrue(result.Success, result.ErrorMessage);
+        Assert.AreEqual("keep", File.ReadAllText(Path.Combine(destFolder, "keep.txt")), "Vorhandene Dateien bleiben beim Zusammenführen");
+        Assert.AreEqual("moved", File.ReadAllText(Path.Combine(destFolder, "moved.txt")));
+        Assert.IsFalse(Directory.Exists(srcFolder), "Der leere Quellordner bleibt nach dem Zusammenführen nicht stehen");
+
+        var undo = await op.UndoAsync();
+        Assert.IsTrue(undo.Success, undo.ErrorMessage);
+        Assert.AreEqual("moved", File.ReadAllText(Path.Combine(srcFolder, "moved.txt")), "Undo bringt nur die verschobene Datei zurück");
+        Assert.IsTrue(File.Exists(Path.Combine(destFolder, "keep.txt")), "Undo lässt vorhandene Dateien am Ziel");
+        Assert.IsFalse(File.Exists(Path.Combine(destFolder, "moved.txt")));
+    }
+
+    [TestMethod]
+    public async Task Move_SameFolder_IsNoOp()
+    {
+        // Regression: Ausschneiden + Einfügen in denselben Ordner benannte die Datei in "name (1)" um.
+        var srcFile = Path.Combine(_sourceDir, "stay.txt");
+        File.WriteAllText(srcFile, "stay");
+
+        var op = new MoveFileOperation(new List<string> { srcFile }, _sourceDir);
+        var result = await op.ExecuteAsync();
+
+        Assert.IsTrue(result.Success, result.ErrorMessage);
+        Assert.IsTrue(File.Exists(srcFile));
+        Assert.AreEqual(1, Directory.GetFiles(_sourceDir).Length);
     }
 
     [TestMethod]

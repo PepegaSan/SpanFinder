@@ -194,10 +194,9 @@
             <!-- CSV Table Preview -->
             <Border Visibility="{Binding IsCsvVisible, Converter={StaticResource VisConv}}"
                     Margin="0">
-                <ScrollViewer VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Auto">
-                    <ItemsRepeater x:Name="CsvTableRepeater"/>
-                </ScrollViewer>
+                <ScrollViewer x:Name="CsvTableScrollViewer"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Auto"/>
             </Border>
         </Grid>
 

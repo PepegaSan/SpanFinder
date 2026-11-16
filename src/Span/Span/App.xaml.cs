@@ -273,6 +273,12 @@ namespace Span
                 if (_windows.Count == 0)
                 {
                     Helpers.DebugLogger.Log("[App] Last window closed — force-killing process to avoid WinUI teardown hang");
+
+                    // Verzögerte Speicherungen vor dem harten Kill schreiben: FolderViewStore sammelt Sortier-/
+                    // Gruppierungsänderungen 1 s lang — sein Timer kam gegen Process.Kill nie an.
+                    try { global::Span.Services.FolderViewStore.Default.Flush(); }
+                    catch (Exception ex) { Helpers.DebugLogger.Log($"[App] FolderViewStore flush failed: {ex.Message}"); }
+
                     Helpers.DebugLogger.Shutdown();
 
                     // Dispose tray icon BEFORE Process.Kill so the notification area
@@ -393,6 +399,19 @@ namespace Span
                 }
                 catch { }
             }
+
+            // Ohne registriertes Fenster gibt es nichts, was die Ausnahme "überleben" könnte: Der Prozess bliebe
+            // unsichtbar am Leben, hielte den Single-Instance-Schlüssel und schluckte alle Explorer-Aktivierungen
+            // (OnLaunched wirft absichtlich weiter, landet aber hier und wurde bisher als behandelt markiert).
+            bool hasWindow;
+            lock (_windowLock) { hasWindow = _windows.Count > 0; }
+            if (!hasWindow)
+            {
+                Helpers.DebugLogger.Log("[CRASH] No window registered — exiting instead of lingering as an invisible process");
+                Helpers.DebugLogger.Shutdown();
+                Environment.Exit(1);
+            }
+
             e.Handled = true;
         }
 
@@ -534,6 +553,15 @@ namespace Span
                 var savedLang = settings.Language;
                 // Always apply — "system" resolves to OS locale, others force specific language
                 loc.Language = savedLang;
+
+                // git-Erkennung ("where git" + "git --version", zwei Kindprozesse) im Hintergrund vorziehen: die
+                // ViewModels fragen IsAvailable im MainWindow-Konstruktor ab — bis dahin lief die Erkennung
+                // synchron auf dem UI-Thread, vor dem ersten Fenster (100–400 ms, mehr mit Virenscanner).
+                _ = System.Threading.Tasks.Task.Run(() =>
+                {
+                    try { _ = Services.GetService<global::Span.Services.GitStatusService>()?.IsAvailable; }
+                    catch (Exception ex) { Helpers.DebugLogger.Log($"[App] git warm-up failed: {ex.Message}"); }
+                });
 
                 // Farb-Tags (Namen/Farben) aus den Einstellungen; Änderungen werden gleich gespeichert
                 var colorTags = new global::Span.Services.ColorTagCatalog(settings.ColorTagsJson, global::Span.Services.LocalizationService.L);

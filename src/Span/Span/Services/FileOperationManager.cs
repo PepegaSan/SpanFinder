@@ -125,23 +125,38 @@ public class FileOperationManager
         {
             try
             {
+                // Fortschrittsmeldungen zusammenfassen: jede Meldung ging bisher als eigener Dispatcher-Auftrag an den
+                // UI-Thread (Progress<T> → ThreadPool → TryEnqueue). Bei 50.000 kleinen Dateien standen 50.000 Aufträge
+                // an, die UI hinkte hinterher und zeigte springende Prozentwerte. Jetzt: nur die jüngste Meldung,
+                // höchstens ein offener Dispatcher-Auftrag.
+                FileOperationProgress? latestProgress = null;
+                int uiUpdateQueued = 0;
                 var progress = new Progress<FileOperationProgress>(p =>
                 {
+                    Volatile.Write(ref latestProgress, p);
+                    if (Interlocked.CompareExchange(ref uiUpdateQueued, 1, 0) != 0) return;
+
                     // Marshal progress updates to UI thread
-                    dispatcherQueue.TryEnqueue(() =>
+                    bool queued = dispatcherQueue.TryEnqueue(() =>
                     {
+                        Interlocked.Exchange(ref uiUpdateQueued, 0);
+                        var snapshot = Volatile.Read(ref latestProgress);
+                        if (snapshot == null) return;
+
                         // Issue #61: 최종 100% 보고 등 파일명 없는 진행 보고가 표시 중인
                         // 파일명을 빈 값으로 덮어쓰지 않도록 한다 (완료 직전 공백 깜빡임 방지)
-                        if (!string.IsNullOrEmpty(p.CurrentFile))
-                            entry.CurrentFile = p.CurrentFile;
-                        entry.Percentage = p.Percentage;
-                        entry.CurrentFileIndex = p.CurrentFileIndex;
-                        entry.TotalFileCount = p.TotalFileCount;
-                        entry.SpeedBytesPerSecond = p.SpeedBytesPerSecond;
-                        entry.EstimatedTimeRemaining = p.EstimatedTimeRemaining;
-                        entry.ProcessedBytes = p.ProcessedBytes;
-                        entry.TotalBytes = p.TotalBytes;
+                        if (!string.IsNullOrEmpty(snapshot.CurrentFile))
+                            entry.CurrentFile = snapshot.CurrentFile;
+                        entry.Percentage = snapshot.Percentage;
+                        entry.CurrentFileIndex = snapshot.CurrentFileIndex;
+                        entry.TotalFileCount = snapshot.TotalFileCount;
+                        entry.SpeedBytesPerSecond = snapshot.SpeedBytesPerSecond;
+                        entry.EstimatedTimeRemaining = snapshot.EstimatedTimeRemaining;
+                        entry.ProcessedBytes = snapshot.ProcessedBytes;
+                        entry.TotalBytes = snapshot.TotalBytes;
                     });
+                    if (!queued)
+                        Interlocked.Exchange(ref uiUpdateQueued, 0);
                 });
 
                 var result = await operation.ExecuteAsync(progress, cts.Token);
@@ -242,7 +257,10 @@ public class FileOperationManager
         var entry = FindOperation(operationId);
         if (entry != null && entry.Status == OperationStatus.Running)
         {
-            entry.PauseEvent.Reset(); // Block the worker thread
+            // Das Event wird im finally von ExecuteAsync entsorgt, der Statuswechsel auf Completed ist aber nur
+            // eingereiht — ein Klick in diesem Fenster traf ein entsorgtes Event (ObjectDisposedException auf dem UI-Thread).
+            try { entry.PauseEvent.Reset(); } // Block the worker thread
+            catch (ObjectDisposedException) { return; }
             entry.Status = OperationStatus.Paused;
         }
     }
@@ -255,7 +273,8 @@ public class FileOperationManager
         var entry = FindOperation(operationId);
         if (entry != null && entry.Status == OperationStatus.Paused)
         {
-            entry.PauseEvent.Set(); // Unblock the worker thread
+            try { entry.PauseEvent.Set(); } // Unblock the worker thread
+            catch (ObjectDisposedException) { return; }
             entry.Status = OperationStatus.Running;
         }
     }
@@ -271,7 +290,7 @@ public class FileOperationManager
             // If paused, unblock first so the cancellation can be observed
             if (entry.Status == OperationStatus.Paused)
             {
-                entry.PauseEvent.Set();
+                try { entry.PauseEvent.Set(); } catch (ObjectDisposedException) { }
             }
             entry.CancellationTokenSource.Cancel();
             entry.Status = OperationStatus.Cancelling;

@@ -100,15 +100,82 @@ namespace Span.Helpers
             return true;
         }
 
+        /// <summary>
+        /// Prüfung auf den Rohdaten eines Eintrags, ohne ViewModel. Die rekursive Suche legte bisher für JEDEN
+        /// durchlaufenen Eintrag ein ViewModel an — dessen Konstruktor für .exe/.lnk/.msi sogar eine Shell-Icon-
+        /// Extraktion anstößt (Laufwerkssuche: tausende Extraktionen für Dateien, die gar nicht passen).
+        /// Jetzt entsteht ein ViewModel nur noch für Treffer. Semantik identisch zu <see cref="Matches(SearchQuery, FileSystemViewModel)"/>.
+        /// </summary>
+        public static bool Matches(SearchQuery query, string name, string path, bool isFolder, long size, DateTime modified)
+        {
+            name = FileItem.NfcNormalize(name); // wie FileItem/FolderItem.Name
+
+            if (!string.IsNullOrEmpty(query.NameFilter))
+            {
+                if (query.NameRegex != null)
+                {
+                    if (!query.NameRegex.IsMatch(name))
+                        return false;
+                }
+                else if (!name.Contains(query.NameFilter, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            if (query.KindFilter.HasValue)
+            {
+                if (isFolder) return false;
+                var ext = Path.GetExtension(name);
+                if (string.IsNullOrEmpty(ext)) return false;
+                if (!SearchQueryParser.GetExtensionsForKind(query.KindFilter.Value).Contains(ext))
+                    return false;
+            }
+
+            if (query.SizeFilter.HasValue)
+            {
+                if (isFolder) return false;
+                if (!Compare(query.SizeFilter.Value.Op, size, query.SizeFilter.Value.Bytes))
+                    return false;
+            }
+
+            if (query.DateFilter.HasValue)
+            {
+                if (modified == DateTime.MinValue) return false;
+                if (!CompareDates(query.DateFilter.Value.Op, modified, query.DateFilter.Value.Date))
+                    return false;
+            }
+
+            if (!string.IsNullOrEmpty(query.ExtensionFilter))
+            {
+                if (isFolder) return false;
+                if (!MatchesExtension(query.ExtensionFilter, Path.GetExtension(name)))
+                    return false;
+            }
+
+            if (!string.IsNullOrEmpty(query.TagFilter))
+            {
+                if (!Services.ColorTagCatalog.Current.Matches(query.TagFilter, TagOfPath(path)))
+                    return false;
+            }
+
+            return true;
+        }
+
         private static Services.ItemAnnotationService? s_annotations;
 
         private static string? TagOf(FileSystemViewModel item)
         {
             if (item.ColorTagInjected) return item.ColorTag;
+            return TagOfPath(item.Path);
+        }
+
+        private static string? TagOfPath(string path)
+        {
             try
             {
                 s_annotations ??= App.Current.Services.GetService(typeof(Services.ItemAnnotationService)) as Services.ItemAnnotationService;
-                return s_annotations?.GetColorTag(item.Path);
+                return s_annotations?.GetColorTag(path);
             }
             catch
             {
@@ -156,8 +223,11 @@ namespace Span.Helpers
             if (item is FolderViewModel)
                 return false;
 
-            var itemExt = Path.GetExtension(item.Name);
+            return MatchesExtension(extension, Path.GetExtension(item.Name));
+        }
 
+        private static bool MatchesExtension(string extension, string itemExt)
+        {
             // 다중 확장자: ext:jpg;png;gif → ".jpg;.png;.gif"
             if (extension.Contains(';'))
             {

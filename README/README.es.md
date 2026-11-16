@@ -19,13 +19,12 @@
 </p>
 
 <p align="center">
-  <a href="../README.md">English</a> | <a href="README.ko.md">한국어</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">中文(简体)</a> | <a href="README.zh-TW.md">中文(繁體)</a> | <a href="README.de.md">Deutsch</a> | Español | <a href="README.fr.md">Français</a> | <a href="README.pt.md">Português</a>
+  <sub>o instalar con winget:</sub><br>
+  <code>winget install 9P7NJ351X9TL --source msstore</code>
 </p>
 
----
-
 <p align="center">
-  <strong>v1.3.1 NUEVO</strong> — <strong>File Shelf</strong>: Estante de arrastrar y soltar estilo macOS <a href="https://www.yoink-app.com/">Yoink</a>. Guarda archivos mientras navegas y suéltalos donde los necesites. (Ctrl+Shift+S)
+  <a href="../README.md">English</a> | <a href="README.ko.md">한국어</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">中文(简体)</a> | <a href="README.zh-TW.md">中文(繁體)</a> | <a href="README.de.md">Deutsch</a> | Español | <a href="README.fr.md">Français</a> | <a href="README.pt.md">Português</a>
 </p>
 
 ---

@@ -58,6 +58,24 @@ namespace Span.ViewModels
         private bool _thumbnailLoading;
         private CancellationTokenSource? _thumbnailCts;
 
+        /// <summary>
+        /// Lade-Generation. Ein abgebrochener älterer Ladevorgang darf den Zustand einer neueren Generation nicht
+        /// anfassen: Vorher setzte seine Fortsetzung _thumbnailLoading = false, nachdem UnloadThumbnail +
+        /// LoadThumbnailAsync (Dateiwächter) schon eine neue Generation gestartet hatten — die neue brach dann an
+        /// ihrer eigenen Prüfung ab und das Bild blieb leer.
+        /// </summary>
+        private int _thumbnailGeneration;
+
+        private bool IsStale(int generation) => generation != _thumbnailGeneration;
+
+        private void EndLoad(int generation)
+        {
+            if (!IsStale(generation)) _thumbnailLoading = false;
+        }
+
+        /// <summary>Ein Thumbnail wird gerade geladen (UnloadAllThumbnails bricht auch laufende Ladevorgänge ab).</summary>
+        internal bool IsThumbnailLoading => _thumbnailLoading;
+
         public FileViewModel(FileItem model) : base(model)
         {
             // Issue #41: 실행형 파일(.exe/.lnk 등)은 shell-associated 아이콘 로드 요청.
@@ -176,6 +194,7 @@ namespace Span.ViewModels
             catch { return; }
 
             _thumbnailLoading = true;
+            int generation = ++_thumbnailGeneration;
 
             // 이전 로딩 취소 + 해제 후 새 CTS 생성 (타이머 누수 방지)
             var oldCts = _thumbnailCts;
@@ -193,20 +212,20 @@ namespace Span.ViewModels
             }
             catch (OperationCanceledException)
             {
-                _thumbnailLoading = false;
+                EndLoad(generation);
                 return;
             }
 
             // 동시 로딩 제한 (디스크 I/O 과부하 방지)
             // 세마포어 대기 전 취소 확인 → 이미 취소된 토큰으로 WaitAsync 시 예외 방지
-            if (cts.IsCancellationRequested) { _thumbnailLoading = false; return; }
+            if (cts.IsCancellationRequested) { EndLoad(generation); return; }
             try
             {
                 await _thumbnailThrottle.WaitAsync(cts.Token);
             }
             catch (OperationCanceledException)
             {
-                _thumbnailLoading = false;
+                EndLoad(generation);
                 return;
             }
 
@@ -215,7 +234,7 @@ namespace Span.ViewModels
             if (cts.IsCancellationRequested)
             {
                 _thumbnailThrottle.Release();
-                _thumbnailLoading = false;
+                EndLoad(generation);
                 return;
             }
             cts.CancelAfter(10000);
@@ -234,7 +253,7 @@ namespace Span.ViewModels
                 // 워커 격리 경로 시도 (UseIsolatedThumbnails=true 시).
                 // 워커가 PNG로 만들어 디스크 캐시 → BitmapImage(file://)로 단순 로딩.
                 // 워커 미동작/실패 시 false 반환 → 기존 인프로세스 경로로 폴백.
-                bool isolated = await TryLoadIsolatedAsync(filePath, decodePixelWidth, isCloudOnly, cts.Token);
+                bool isolated = await TryLoadIsolatedAsync(filePath, decodePixelWidth, isCloudOnly, generation, cts.Token);
                 if (isolated)
                     return;
 
@@ -242,7 +261,7 @@ namespace Span.ViewModels
                 // (videos can't be decoded via BitmapImage; cloud files must not trigger download)
                 if (IsVideoFile || isCloudOnly)
                 {
-                    await LoadShellThumbnailAsync(filePath, decodePixelWidth, isCloudOnly, cts.Token);
+                    await LoadShellThumbnailAsync(filePath, decodePixelWidth, isCloudOnly, generation, cts.Token);
                     return;
                 }
 
@@ -250,17 +269,23 @@ namespace Span.ViewModels
                 // 크래시 덤프 분석: SoftwareBitmapSource.SetBitmapAsync → AsyncCopyToSurfaceTask race → FailFast.
                 // BitmapImage.SetSourceAsync는 다른 라이프사이클로 이 크래시를 피함 (v1.3.10 이전 검증된 경로).
                 // GIF/비-GIF 구분 불필요 — BitmapImage는 GIF 애니메이션도 유지.
-                byte[]? fileBytes = await Task.Run(() =>
+                //
+                // Die Datei wird nicht mehr komplett als byte[] gelesen: bei Fotos von mehreren MB landete jeder
+                // Puffer auf dem Large Object Heap, und beim Scrollen durch einen Bilderordner folgte eine Gen2-GC
+                // der nächsten. Der FileStream geht direkt als WinRT-Stream an den Decoder, der liest, was er braucht.
+                // ReadWrite|Delete wie der Explorer: andere Programme dürfen die Datei währenddessen schreiben/umbenennen.
+                using var fileStream = await Task.Run(() =>
                 {
                     if (cts.IsCancellationRequested) return null;
                     var fi = new FileInfo(filePath);
                     if (fi.Length > 10 * 1024 * 1024) return null; // Skip files > 10MB
-                    return File.ReadAllBytes(filePath);
+                    return new FileStream(filePath, FileMode.Open, FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete, bufferSize: 65536);
                 });
-                if (fileBytes == null || !_thumbnailLoading || cts.IsCancellationRequested) return;
+                if (fileStream == null || IsStale(generation) || cts.IsCancellationRequested) return;
 
                 await Task.Yield();
-                if (!_thumbnailLoading || cts.IsCancellationRequested) return;
+                if (IsStale(generation) || cts.IsCancellationRequested) return;
 
                 var bitmap = new BitmapImage
                 {
@@ -272,10 +297,9 @@ namespace Span.ViewModels
                     Helpers.DebugLogger.Log($"[Thumbnail] In-process ImageFailed for {Name}: {args.ErrorMessage}");
                     _thumbnailLoaded = false;
                 };
-                using var memStream = new MemoryStream(fileBytes);
-                await bitmap.SetSourceAsync(memStream.AsRandomAccessStream()).AsTask(cts.Token);
+                await bitmap.SetSourceAsync(fileStream.AsRandomAccessStream()).AsTask(cts.Token);
 
-                if (!_thumbnailLoading || cts.IsCancellationRequested) return;
+                if (IsStale(generation) || cts.IsCancellationRequested) return;
                 ThumbnailSource = bitmap;
                 _thumbnailLoaded = true;
             }
@@ -304,7 +328,7 @@ namespace Span.ViewModels
             finally
             {
                 _thumbnailThrottle.Release();
-                _thumbnailLoading = false;
+                EndLoad(generation);
             }
         }
 
@@ -316,7 +340,7 @@ namespace Span.ViewModels
         /// feature flag(UseIsolatedThumbnails) OFF 시 즉시 false (호출 비용 거의 0).
         /// 워커 spawn 실패/응답 실패 시에도 false → 사용자 영향 없음.
         /// </summary>
-        private async Task<bool> TryLoadIsolatedAsync(string filePath, int decodePixelWidth, bool isCloudOnly, CancellationToken ct)
+        private async Task<bool> TryLoadIsolatedAsync(string filePath, int decodePixelWidth, bool isCloudOnly, int generation, CancellationToken ct)
         {
             try
             {
@@ -347,7 +371,7 @@ namespace Span.ViewModels
                     ct: ct).ConfigureAwait(true);
 
                 if (uri == null) return false;
-                if (!_thumbnailLoading || ct.IsCancellationRequested) return true;  // true 반환해도 OK — 폴백 안 함
+                if (IsStale(generation) || ct.IsCancellationRequested) return true;  // true 반환해도 OK — 폴백 안 함
 
                 // v1.4.6: 이슈 #23 근본 수정 — SoftwareBitmapSource 경로 완전 원복.
                 // 크래시 덤프 분석 결과 AsyncImageFactory::WorkCallback → AsyncCopyToSurfaceTask::CopyOperation
@@ -366,7 +390,7 @@ namespace Span.ViewModels
 
                 bitmap.UriSource = uri;
 
-                if (!_thumbnailLoading || ct.IsCancellationRequested) return true;
+                if (IsStale(generation) || ct.IsCancellationRequested) return true;
 
                 ThumbnailSource = bitmap;
                 _thumbnailLoaded = true;
@@ -385,7 +409,7 @@ namespace Span.ViewModels
         /// 동영상: Shell이 프레임 캡처 썸네일 생성.
         /// 클라우드 전용: ReturnOnlyIfCached로 다운로드 방지, 캐시 없으면 스킵.
         /// </summary>
-        private async Task LoadShellThumbnailAsync(string filePath, int decodePixelWidth, bool cacheOnly, CancellationToken ct)
+        private async Task LoadShellThumbnailAsync(string filePath, int decodePixelWidth, bool cacheOnly, int generation, CancellationToken ct)
         {
             try
             {
@@ -406,11 +430,11 @@ namespace Span.ViewModels
                 if (thumbnail != null && thumbnail.Type == ThumbnailType.Image)
                 {
                     // Guard: column may have been removed during async I/O
-                    if (!_thumbnailLoading) return;
+                    if (IsStale(generation)) return;
 
                     // UI 스레드 양보
                     await Task.Yield();
-                    if (!_thumbnailLoading || ct.IsCancellationRequested) return;
+                    if (IsStale(generation) || ct.IsCancellationRequested) return;
 
                     // v1.4.6: 이슈 #23 근본 수정 — SoftwareBitmapSource 경로 완전 원복.
                     // AsyncCopyToSurfaceTask 크래시 회피. BitmapImage.SetSourceAsync는 다른 라이프사이클.
@@ -435,7 +459,7 @@ namespace Span.ViewModels
                     Helpers.DebugLogger.Log($"[Thumbnail] Shell SetSourceAsync OK: {Name}");
 
                     // 비동기 디코드 후 취소 여부 재확인
-                    if (!_thumbnailLoading || ct.IsCancellationRequested) return;
+                    if (IsStale(generation) || ct.IsCancellationRequested) return;
 
                     ThumbnailSource = bitmap;
                     _thumbnailLoaded = true;
@@ -458,6 +482,7 @@ namespace Span.ViewModels
             _thumbnailCts = null;
             oldCts?.Cancel();
             oldCts?.Dispose();
+            _thumbnailGeneration++; // laufende Fortsetzungen gelten ab jetzt als veraltet
             _thumbnailLoading = false;
             _thumbnailLoaded = false;
             var old = ThumbnailSource;

@@ -907,6 +907,10 @@ namespace Span.ViewModels
             {
                 if (!string.Equals(current[i].Path, updated[i].Path, StringComparison.OrdinalIgnoreCase))
                     return false;
+                // Issue #79: 잠금 해제는 경로를 바꾸지 않는다. 잠금 상태도 비교해야 새 목록으로
+                // 교체되어 사이드바의 자물쇠와 IsLocked가 갱신된다(경로만 보면 기존 항목이 남는다).
+                if (current[i].IsLocked != updated[i].IsLocked)
+                    return false;
             }
             return true;
         }
@@ -1031,6 +1035,7 @@ namespace Span.ViewModels
                             AvailableFreeSpace = d.AvailableFreeSpace,
                             DriveFormat = d.DriveFormat ?? "",
                             DriveType = d.DriveType ?? "",
+                            IsLocked = d.IsLocked,
                             IconGlyph = Services.IconService.Current?.DriveGlyph ?? "\uEDFA"
                         }).ToList();
                     }
@@ -1065,6 +1070,7 @@ namespace Span.ViewModels
                     AvailableFreeSpace = d.AvailableFreeSpace,
                     DriveFormat = d.DriveFormat,
                     DriveType = d.DriveType,
+                    IsLocked = d.IsLocked,
                     IconGlyph = d.IconGlyph
                 }).ToList();
 
@@ -1091,6 +1097,7 @@ namespace Span.ViewModels
             public long AvailableFreeSpace { get; init; }
             public string? DriveFormat { get; init; }
             public string? DriveType { get; init; }
+            public bool IsLocked { get; init; }
             public string? IconGlyph { get; init; }
         }
 

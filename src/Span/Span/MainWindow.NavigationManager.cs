@@ -965,7 +965,10 @@ namespace Span
 
                 // 실제 폴더 매핑 → 즐겨찾기 클릭처럼 해당 폴더를 루트로 열기
                 var resolvedPath = ResolveShellPath(path);
-                if (resolvedPath != null && System.IO.Directory.Exists(resolvedPath))
+                bool shellFolderExists = resolvedPath != null
+                    && await System.Threading.Tasks.Task.Run(() => System.IO.Directory.Exists(resolvedPath));
+                if (_isClosed) return;
+                if (shellFolderExists && resolvedPath != null)
                 {
                     if (ViewModel.CurrentViewMode == Models.ViewMode.Home
                         || ViewModel.CurrentViewMode == Models.ViewMode.RecycleBin)
@@ -1106,22 +1109,34 @@ namespace Span
                 return;
             }
 
-            bool dirExists = isUnc
-                ? await System.Threading.Tasks.Task.Run(() => System.IO.Directory.Exists(path))
-                : System.IO.Directory.Exists(path);
+            // Drive letters and shell folders can also resolve to network locations.
+            // Keep both existence checks off the UI thread, regardless of the path spelling.
+            var (dirExists, fileExists) = await System.Threading.Tasks.Task.Run(() =>
+            {
+                bool directory = System.IO.Directory.Exists(path);
+                return (directory, !directory && System.IO.File.Exists(path));
+            });
             if (_isClosed) return;
 
             if (dirExists)
             {
+                // Eingabe normalisieren: "C:\Users\" (Autovervollständigung lässt den Backslash stehen) oder Leerzeichen
+                // am Ende erzeugten sonst einen eigenen Verlaufseintrag, einen falschen Tab-Titel und wanderten per
+                // Path.Combine in alle Kindpfade. Laufwerkswurzeln behalten ihren Backslash.
+                string normalizedPath;
+                try { normalizedPath = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(path)); }
+                catch { normalizedPath = path; }
+
                 // 주소바 입력은 해당 폴더를 루트로 열기 (shell: / 로컬라이즈 이름과 동일 패턴)
+                var leafName = System.IO.Path.GetFileName(normalizedPath);
                 var dirFolder = new Models.FolderItem
                 {
-                    Name = System.IO.Path.GetFileName(path.TrimEnd('\\', '/')) ?? path,
-                    Path = path
+                    Name = string.IsNullOrEmpty(leafName) ? normalizedPath : leafName,
+                    Path = normalizedPath
                 };
                 _ = explorer.NavigateTo(dirFolder);
             }
-            else if (System.IO.File.Exists(path))
+            else if (fileExists)
             {
                 // 압축 파일이면 아카이브로 진입
                 if (Helpers.ArchivePathHelper.IsBrowsableArchive(path))

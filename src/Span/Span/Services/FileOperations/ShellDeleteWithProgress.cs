@@ -31,9 +31,14 @@ internal static class ShellDeleteWithProgress
     private const int E_ABORT = unchecked((int)0x80004004);
     private const int COPYENGINE_E_USER_CANCELLED = unchecked((int)0x80270000);
 
-    /// <summary>삭제 결과 — 성공 시 Error=null. MissingPaths는 셸이 찾지 못한 경로들.</summary>
+    /// <summary>
+    /// 삭제 결과 — 성공 시 Error=null. MissingPaths는 셸이 찾지 못한 경로들.
+    /// FailedItems: Elemente, deren Löschen die Shell mit einem Fehlercode gemeldet hat (gesperrt, kein Zugriff).
+    /// Vorher wurde hrDelete verworfen, und ein noch vorhandenes Element galt als erfolgreich gelöscht.
+    /// </summary>
     internal sealed record DeleteOutcome(
-        string? Error, bool Cancelled, List<string> DeletedPaths, List<string> MissingPaths);
+        string? Error, bool Cancelled, List<string> DeletedPaths, List<string> MissingPaths,
+        List<(string Path, int HResult)> FailedItems);
 
     /// <summary>
     /// 지정 경로들을 삭제한다(휴지통 또는 영구). 진행률/취소 지원.
@@ -48,7 +53,7 @@ internal static class ShellDeleteWithProgress
         Action<int, string>? onProgress,
         CancellationToken ct)
     {
-        DeleteOutcome outcome = new(null, false, new List<string>(), new List<string>());
+        DeleteOutcome outcome = new(null, false, new List<string>(), new List<string>(), new List<(string, int)>());
 
         // 셸 COM은 STA 전용 — 전용 스레드에서 실행하고 완료까지 대기
         var thread = new Thread(() => outcome = ExecuteCore(paths, permanent, onProgress, ct));
@@ -68,6 +73,7 @@ internal static class ShellDeleteWithProgress
     {
         var deleted = new List<string>();
         var missing = new List<string>();
+        var failed = new List<(string Path, int HResult)>();
         IFileOperation? op = null;
         uint cookie = 0;
         ProgressSink? sink = null;
@@ -83,7 +89,7 @@ internal static class ShellDeleteWithProgress
             if (!permanent) flags |= FOF_ALLOWUNDO | FOFX_RECYCLEONDELETE;
             op.SetOperationFlags(flags);
 
-            sink = new ProgressSink(ct, onProgress, deleted);
+            sink = new ProgressSink(ct, onProgress, deleted, failed);
             op.Advise(sink, out cookie);
 
             int queued = 0;
@@ -105,25 +111,28 @@ internal static class ShellDeleteWithProgress
             }
 
             if (ct.IsCancellationRequested)
-                return new DeleteOutcome(null, true, deleted, missing);
+                return new DeleteOutcome(null, true, deleted, missing, failed);
 
             if (queued > 0)
             {
                 op.PerformOperations();
                 op.GetAnyOperationsAborted(out bool aborted);
-                bool cancelled = aborted || ct.IsCancellationRequested || sink.Cancelled;
-                return new DeleteOutcome(null, cancelled, deleted, missing);
+                // "aborted" meldet die Shell auch bei Elementfehlern (NOERRORUI). Abgebrochen ist die Operation nur,
+                // wenn der Benutzer abgebrochen hat — sonst stünden fehlgeschlagene Elemente als "abgebrochen" da.
+                bool cancelled = ct.IsCancellationRequested || sink.Cancelled || (aborted && failed.Count == 0);
+                return new DeleteOutcome(null, cancelled, deleted, missing, failed);
             }
 
-            return new DeleteOutcome(null, false, deleted, missing);
+            return new DeleteOutcome(null, false, deleted, missing, failed);
         }
         catch (COMException ex) when (ex.HResult == E_ABORT || ex.HResult == COPYENGINE_E_USER_CANCELLED)
         {
-            return new DeleteOutcome(null, true, deleted, missing);
+            return new DeleteOutcome(null, true, deleted, missing, failed);
         }
         catch (Exception ex)
         {
-            return new DeleteOutcome(ex.Message, ct.IsCancellationRequested, deleted, missing);
+            // Mit Elementfehlern ist der HRESULT von PerformOperations nur deren Echo — nicht doppelt melden.
+            return new DeleteOutcome(failed.Count > 0 ? null : ex.Message, ct.IsCancellationRequested, deleted, missing, failed);
         }
         finally
         {
@@ -132,7 +141,7 @@ internal static class ShellDeleteWithProgress
         }
     }
 
-    private static object CoCreateInstanceWrapper(Guid clsid, Guid iid)
+    internal static object CoCreateInstanceWrapper(Guid clsid, Guid iid)
     {
         // CoCreateInstance로 직접 IFileOperation을 요청 — Activator + 캐스팅 경로는
         // RCW가 IUnknown으로 만들어져 QueryInterface가 실패하는 경우가 있다.
@@ -151,7 +160,7 @@ internal static class ShellDeleteWithProgress
         ref Guid riid,
         [MarshalAs(UnmanagedType.Interface)] out object ppv);
 
-    private static IShellItem? CreateShellItem(string path)
+    internal static IShellItem? CreateShellItem(string path)
     {
         try
         {
@@ -178,6 +187,8 @@ internal static class ShellDeleteWithProgress
         private readonly CancellationToken _ct;
         private readonly Action<int, string>? _onProgress;
         private readonly List<string> _deleted;
+        private readonly List<(string Path, int HResult)> _failed;
+        private const int MaxRecordedFailures = 50;
         private int _lastPercent = -1;
 
         // 진행 보고 스로틀 — 셸은 항목마다 콜백하므로 그대로 보고하면 항목 수만큼
@@ -196,11 +207,13 @@ internal static class ShellDeleteWithProgress
 
         internal bool Cancelled { get; private set; }
 
-        internal ProgressSink(CancellationToken ct, Action<int, string>? onProgress, List<string> deleted)
+        internal ProgressSink(CancellationToken ct, Action<int, string>? onProgress, List<string> deleted,
+            List<(string Path, int HResult)> failed)
         {
             _ct = ct;
             _onProgress = onProgress;
             _deleted = deleted;
+            _failed = failed;
         }
 
         private int AbortIfCancelled()
@@ -247,8 +260,29 @@ internal static class ShellDeleteWithProgress
         {
             // 삭제된 경로 목록은 호출부가 실제 파일 존재 여부로 판정하므로 여기서
             // 항목마다 COM 이름 조회를 하지 않는다 (수천 개 항목에서 순수 오버헤드).
+            // Nur Fehler werden mit Pfad festgehalten (selten) — der Aufrufer meldet sie je Element.
+            if (hrDelete < 0 && psiItem != null && _failed.Count < MaxRecordedFailures)
+            {
+                try
+                {
+                    psiItem.GetDisplayName(SIGDN_FILESYSPATH, out IntPtr pathPtr);
+                    if (pathPtr != IntPtr.Zero)
+                    {
+                        string? path = Marshal.PtrToStringUni(pathPtr);
+                        Marshal.FreeCoTaskMem(pathPtr);
+                        if (!string.IsNullOrEmpty(path))
+                            _failed.Add((path!, hrDelete));
+                    }
+                }
+                catch { /* Buchführung darf die Engine nicht stören */ }
+            }
             return 0;
         }
+
+        public int PreNewItem(uint dwFlags, IShellItem psiDestinationFolder, string pszNewName) => 0;
+
+        public int PostNewItem(uint dwFlags, IShellItem psiDestinationFolder, string pszNewName, string pszTemplateName,
+            uint dwFileAttributes, int hrNew, IShellItem psiNewItem) => 0;
 
         public int UpdateProgress(uint iWorkTotal, uint iWorkSoFar)
         {
@@ -327,6 +361,11 @@ internal static class ShellDeleteWithProgress
         [PreserveSig] int PostCopyItem(uint dwFlags, IShellItem psiItem, IShellItem psiDestinationFolder, [MarshalAs(UnmanagedType.LPWStr)] string pszNewName, int hrCopy, IShellItem psiNewlyCreated);
         [PreserveSig] int PreDeleteItem(uint dwFlags, IShellItem psiItem);
         [PreserveSig] int PostDeleteItem(uint dwFlags, IShellItem psiItem, int hrDelete, IShellItem psiNewlyCreated);
+        // Vtable-Reihenfolge laut ShObjIdl_core.h: ... PostDeleteItem, PreNewItem, PostNewItem, UpdateProgress, ...
+        // Ohne diese beiden Slots landete der UpdateProgress-Aufruf der Shell auf PauseTimer (Fortschritt blieb bei 0 %),
+        // und PauseTimer/ResumeTimer zeigten hinter das Ende der Vtable.
+        [PreserveSig] int PreNewItem(uint dwFlags, IShellItem psiDestinationFolder, [MarshalAs(UnmanagedType.LPWStr)] string pszNewName);
+        [PreserveSig] int PostNewItem(uint dwFlags, IShellItem psiDestinationFolder, [MarshalAs(UnmanagedType.LPWStr)] string pszNewName, [MarshalAs(UnmanagedType.LPWStr)] string pszTemplateName, uint dwFileAttributes, int hrNew, IShellItem psiNewItem);
         [PreserveSig] int UpdateProgress(uint iWorkTotal, uint iWorkSoFar);
         [PreserveSig] int ResetTimer();
         [PreserveSig] int PauseTimer();

@@ -540,6 +540,8 @@ namespace Span.Services
         /// </summary>
         private static async Task<ImageSource?> CreateBitmapSourceAsync(byte[] pixels, int w, int h)
         {
+            // Keep the backing bitmap alive through SoftwareBitmapSource. Closing it here
+            // can make a later XAML render fail with RO_E_CLOSED (native fail-fast).
             var softwareBitmap = new Windows.Graphics.Imaging.SoftwareBitmap(
                 Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
                 w, h,

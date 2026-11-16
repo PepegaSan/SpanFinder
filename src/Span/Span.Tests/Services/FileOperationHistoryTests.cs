@@ -223,6 +223,37 @@ public class FileOperationHistoryTests
     }
 
     [TestMethod]
+    public async Task MaxHistorySize_UndoStartsWithMostRecentOperation()
+    {
+        // Regression: beim Kürzen des Stapels wurde die Reihenfolge umgedreht — Ctrl+Z machte danach die
+        // ÄLTESTE verbliebene Operation rückgängig statt der letzten.
+        _history.MaxHistorySize = 3;
+
+        var ops = new List<Mock<IFileOperation>>();
+        for (int i = 0; i < 5; i++)
+        {
+            var op = CreateSuccessOp($"op{i}");
+            ops.Add(op);
+            await _history.ExecuteAsync(op.Object);
+        }
+
+        await _history.UndoAsync();
+        ops[4].Verify(o => o.UndoAsync(It.IsAny<CancellationToken>()), Times.Once(),
+            "Die jüngste Operation muss zuerst rückgängig gemacht werden");
+        ops[2].Verify(o => o.UndoAsync(It.IsAny<CancellationToken>()), Times.Never());
+
+        await _history.UndoAsync();
+        ops[3].Verify(o => o.UndoAsync(It.IsAny<CancellationToken>()), Times.Once());
+
+        await _history.UndoAsync();
+        ops[2].Verify(o => o.UndoAsync(It.IsAny<CancellationToken>()), Times.Once());
+
+        Assert.IsFalse(_history.CanUndo, "Nur MaxHistorySize Operationen dürfen rückgängig gemacht werden können");
+        ops[0].Verify(o => o.UndoAsync(It.IsAny<CancellationToken>()), Times.Never());
+        ops[1].Verify(o => o.UndoAsync(It.IsAny<CancellationToken>()), Times.Never());
+    }
+
+    [TestMethod]
     public void MaxHistorySize_SetToZero_ClampsToOne()
     {
         _history.MaxHistorySize = 0;

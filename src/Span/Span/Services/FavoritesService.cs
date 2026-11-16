@@ -549,16 +549,30 @@ namespace Span.Services
             return new FavoritesLayout();
         }
 
+        private static bool s_localSettingsUnavailable;
+
         public void Save(FavoritesLayout layout)
         {
             var json = JsonSerializer.Serialize(layout);
-            try { Windows.Storage.ApplicationData.Current.LocalSettings.Values[SettingsKey] = json; }
-            catch (Exception ex) { Helpers.DebugLogger.Log($"[FavoritesLayout] LocalSettings save failed: {ex.Message}"); }
+            // Unpackaged gibt es keine LocalSettings — der Versuch warf (und loggte) bisher bei jedem Speichern.
+            // Nach dem ersten Fehlschlag nur noch die Datei schreiben.
+            if (!s_localSettingsUnavailable)
+            {
+                try { Windows.Storage.ApplicationData.Current.LocalSettings.Values[SettingsKey] = json; }
+                catch (Exception ex)
+                {
+                    s_localSettingsUnavailable = true;
+                    Helpers.DebugLogger.Log($"[FavoritesLayout] LocalSettings save failed (unpackaged?) — file only from now on: {ex.Message}");
+                }
+            }
             try
             {
                 var dir = Path.GetDirectoryName(_fallbackPath);
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                File.WriteAllText(_fallbackPath, json);
+                // Erst .tmp, dann atomar ersetzen — ein abgebrochener Schreibvorgang kostete sonst das Gruppen-Layout.
+                var tmp = _fallbackPath + ".tmp";
+                File.WriteAllText(tmp, json);
+                File.Move(tmp, _fallbackPath, overwrite: true);
             }
             catch (Exception ex) { Helpers.DebugLogger.Log($"[FavoritesLayout] File save failed: {ex.Message}"); }
         }

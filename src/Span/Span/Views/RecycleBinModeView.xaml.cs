@@ -369,9 +369,20 @@ public sealed partial class RecycleBinModeView : UserControl
             _ => _allItems.OrderByDescending(x => x.DateDeleted)
         };
 
+        ReplaceDisplayItems(sorted);
+    }
+
+    /// <summary>
+    /// Liste in einem Zug ersetzen: Während des Umbaus von der ListView lösen, sonst löst Clear + Add je Element
+    /// eine eigene Aktualisierung aus (tausende Papierkorb-Einträge → tausende Layout-Durchläufe pro Suchtastendruck).
+    /// </summary>
+    private void ReplaceDisplayItems(IEnumerable<RecycleBinItem> items)
+    {
+        RecycleBinListView.ItemsSource = null;
         _displayItems.Clear();
-        foreach (var item in sorted)
+        foreach (var item in items)
             _displayItems.Add(item);
+        RecycleBinListView.ItemsSource = _displayItems;
     }
 
     /// <summary>
@@ -380,7 +391,6 @@ public sealed partial class RecycleBinModeView : UserControl
     /// </summary>
     public void FilterItems(string? query)
     {
-        _displayItems.Clear();
         List<RecycleBinItem> source;
 
         if (string.IsNullOrWhiteSpace(query))
@@ -421,8 +431,7 @@ public sealed partial class RecycleBinModeView : UserControl
             }
         }
 
-        foreach (var item in source)
-            _displayItems.Add(item);
+        ReplaceDisplayItems(source);
 
         StatusChanged?.Invoke(this, (source.Count, 0, source.Sum(i => i.Size), 0));
     }

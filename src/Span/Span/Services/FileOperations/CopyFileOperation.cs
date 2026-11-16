@@ -7,6 +7,10 @@ namespace Span.Services.FileOperations;
 /// <summary>
 /// Represents a file or directory copy operation with progress reporting and pause support.
 /// Supports local ↔ remote (FTP/SFTP) transfers via FileSystemRouter stream-based copying.
+///
+/// Lokal → lokal läuft über die Shell-Kopier-Engine (<see cref="ShellTransferWithProgress"/>, wie der Explorer):
+/// "Ersetzen" führt Ordner zusammen statt den Zielordner zu löschen, Attribute und Zeitstempel bleiben erhalten,
+/// überschriebene Dateien landen im Papierkorb. Die eigene Stream-Kopie bleibt für Remote-Pfade und als Fallback.
 /// </summary>
 public class CopyFileOperation : IFileOperation, IPausableOperation
 {
@@ -18,6 +22,20 @@ public class CopyFileOperation : IFileOperation, IPausableOperation
     private ConflictResolution _conflictResolution = ConflictResolution.Prompt;
     private bool _applyToAll = false;
     private ManualResetEventSlim? _pauseEvent;
+
+    // Shell-Engine-Pfad: Buchführung für das Rückgängigmachen zusammengeführter Ordner. Dort darf Undo nur die
+    // tatsächlich hinzugekommenen Elemente entfernen — nicht den ganzen Zielordner wie bei einer frischen Kopie.
+    private readonly HashSet<string> _mergedDestinations = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _mergeUndoUnsafe = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _preExistingUnderMerged = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<string> _nestedCreatedPaths = new();
+    private const int MergeSnapshotLimit = 100_000;
+
+    /// <summary>Für die Sitzung auf die eigene Kopierschleife zurückfallen, wenn IFileOperation nicht erzeugbar ist.</summary>
+    private static volatile bool s_shellEngineUnavailable;
+
+    private sealed record ShellPlanEntry(int Index, string SourcePath, string DestinationPath, string? NewName, bool MergeIntoExisting);
+    private enum ShellRun { Unavailable, Completed, Cancelled }
 
     public CopyFileOperation(List<string> sourcePaths, string destinationDirectory)
         : this(sourcePaths, destinationDirectory, null)
@@ -77,8 +95,34 @@ public class CopyFileOperation : IFileOperation, IPausableOperation
                 totalBytes += itemSizes[idx];
             }
 
+            // ── Lokal → lokal über die Shell-Kopier-Engine (Explorer-Verhalten: Ordner zusammenführen, Attribute
+            //    erhalten, Papierkorb für Überschriebenes). Remote-Elemente und der Fall "Engine nicht verfügbar"
+            //    laufen weiter durch die Schleife darunter.
+            var handledByShell = new HashSet<int>();
+            if (!FileSystemRouter.IsRemotePath(_destinationDirectory) && !s_shellEngineUnavailable
+                && Directory.Exists(_destinationDirectory))
+            {
+                var plan = PlanShellBatch(errors, handledByShell);
+                if (plan.Count > 0)
+                {
+                    var run = await RunShellCopyAsync(plan, result, errors, progress, totalBytes, startTime, cancellationToken);
+                    if (run == ShellRun.Unavailable)
+                    {
+                        foreach (var entry in plan) handledByShell.Remove(entry.Index); // alte Schleife übernimmt
+                    }
+                    else if (run == ShellRun.Cancelled || cancellationToken.IsCancellationRequested)
+                    {
+                        result.Success = false;
+                        result.ErrorMessage = L("Op_Cancelled_Copy");
+                        return result;
+                    }
+                }
+            }
+
             for (int i = 0; i < _sourcePaths.Count; i++)
             {
+                if (handledByShell.Contains(i)) continue;
+
                 WaitIfPaused(cancellationToken);
                 if (cancellationToken.IsCancellationRequested) break;
 
@@ -91,6 +135,8 @@ public class CopyFileOperation : IFileOperation, IPausableOperation
 
                 try
                 {
+                    if (srcIsRemote && destIsRemote && FileOperationHelpers.IsSameRemotePath(sourcePath, destPath))
+                        throw new IOException("Source and destination are the same remote path.");
                     if (srcIsRemote || destIsRemote)
                     {
                         // ── Remote copy path ──
@@ -114,8 +160,9 @@ public class CopyFileOperation : IFileOperation, IPausableOperation
                                     case ConflictResolution.Skip:
                                         continue;
                                     case ConflictResolution.Replace:
-                                        if (File.Exists(destPath)) File.Delete(destPath);
-                                        else if (Directory.Exists(destPath)) Directory.Delete(destPath, recursive: true);
+                                        // Dateien ersetzt die Kopie selbst; Ordner werden zusammengeführt statt wie früher
+                                        // komplett gelöscht (alle nicht betroffenen Dateien im Zielordner waren weg).
+                                        if (Directory.Exists(destPath)) RememberPreExisting(destPath);
                                         break;
                                     case ConflictResolution.KeepBoth:
                                         destPath = FileOperationHelpers.GetUniqueFileName(destPath);
@@ -145,6 +192,8 @@ public class CopyFileOperation : IFileOperation, IPausableOperation
 
                         if (srcIsDir)
                         {
+                            if (srcIsRemote && destIsRemote && FileOperationHelpers.IsRemoteDescendantPath(sourcePath, destPath))
+                                throw new IOException("Cannot copy a remote folder into itself.");
                             await CopyDirectoryViaStreamAsync(
                                 sourcePath, destPath, srcIsRemote, destIsRemote,
                                 new Progress<long>(bytes =>
@@ -185,8 +234,9 @@ public class CopyFileOperation : IFileOperation, IPausableOperation
                                     case ConflictResolution.Skip:
                                         continue;
                                     case ConflictResolution.Replace:
-                                        if (File.Exists(destPath)) File.Delete(destPath);
-                                        else if (Directory.Exists(destPath)) Directory.Delete(destPath, recursive: true);
+                                        // Dateien ersetzt die Kopie selbst; Ordner werden zusammengeführt statt wie früher
+                                        // komplett gelöscht (alle nicht betroffenen Dateien im Zielordner waren weg).
+                                        if (Directory.Exists(destPath)) RememberPreExisting(destPath);
                                         break;
                                     case ConflictResolution.KeepBoth:
                                         destPath = FileOperationHelpers.GetUniqueFileName(destPath);
@@ -231,12 +281,8 @@ public class CopyFileOperation : IFileOperation, IPausableOperation
                                 }),
                                 cancellationToken);
 
-                            // 취소 시 부분 복사 디렉토리 정리 — _copiedPaths에 미추가로 Undo 일관성 보장
-                            if (cancellationToken.IsCancellationRequested)
-                            {
-                                try { if (Directory.Exists(destPath)) Directory.Delete(destPath, recursive: true); } catch { }
-                                break;
-                            }
+                            // The destination may contain pre-existing files from a merge.
+                            cancellationToken.ThrowIfCancellationRequested();
 
                             processedBytes += dirSize;
                         }
@@ -302,6 +348,14 @@ public class CopyFileOperation : IFileOperation, IPausableOperation
 
                 try
                 {
+                    if (_mergedDestinations.Contains(copiedPath))
+                    {
+                        // Zusammengeführter Ordner: nur das entfernen, was die Kopie hinzugefügt hat.
+                        UndoMergedCopy(copiedPath, errors);
+                        result.AffectedPaths.Add(copiedPath);
+                        continue;
+                    }
+
                     if (FileSystemRouter.IsRemotePath(copiedPath))
                     {
                         // Remote undo: delete via provider
@@ -351,6 +405,173 @@ public class CopyFileOperation : IFileOperation, IPausableOperation
         _applyToAll = applyToAll;
     }
 
+    // ── Shell-Kopier-Engine (lokal → lokal) ──
+
+    /// <summary>
+    /// Lokale Quellen für die Shell-Engine vorbereiten und dabei die Konfliktauflösung anwenden:
+    /// Überspringen → nicht aufnehmen, Beide behalten → eindeutiger Name (auch gegen Namen, die dieselbe Operation
+    /// schon vergibt), Ersetzen → Datei überschreiben bzw. Ordner zusammenführen. Elemente in <paramref name="handled"/>
+    /// überspringt die klassische Schleife.
+    /// </summary>
+    private List<ShellPlanEntry> PlanShellBatch(List<string> errors, HashSet<int> handled)
+    {
+        var plan = new List<ShellPlanEntry>();
+        var plannedDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var effective = _applyToAll ? _conflictResolution : ConflictResolution.KeepBoth;
+        if (effective == ConflictResolution.Prompt) effective = ConflictResolution.KeepBoth;
+
+        for (int i = 0; i < _sourcePaths.Count; i++)
+        {
+            var sourcePath = _sourcePaths[i];
+            if (FileSystemRouter.IsRemotePath(sourcePath)) continue;
+            handled.Add(i);
+
+            bool isDir = Directory.Exists(sourcePath);
+            if (!isDir && !File.Exists(sourcePath))
+            {
+                errors.Add(string.Format(L("Op_PathNotFound"), sourcePath));
+                continue;
+            }
+
+            var destPath = Path.Combine(_destinationDirectory, FileOperationHelpers.GetFileName(sourcePath));
+            bool destExists = File.Exists(destPath) || Directory.Exists(destPath);
+            // Kopie in denselben Ordner (Duplizieren): immer unter neuem Namen, wie im Explorer.
+            bool sameItem = destExists && string.Equals(Path.GetFullPath(sourcePath), Path.GetFullPath(destPath), StringComparison.OrdinalIgnoreCase);
+            var resolution = sameItem ? ConflictResolution.KeepBoth : effective;
+
+            if (destExists && resolution == ConflictResolution.Skip) continue;
+
+            string? newName = null;
+            bool merge = false;
+            if ((destExists && resolution == ConflictResolution.KeepBoth) || plannedDestinations.Contains(destPath))
+            {
+                destPath = FileOperationHelpers.GetUniqueFileName(destPath, plannedDestinations);
+                newName = Path.GetFileName(destPath);
+            }
+            else if (destExists && resolution == ConflictResolution.Replace && isDir && Directory.Exists(destPath))
+            {
+                merge = true;
+                RememberPreExisting(destPath);
+            }
+
+            plannedDestinations.Add(destPath);
+            plan.Add(new ShellPlanEntry(i, sourcePath, destPath, newName, merge));
+        }
+
+        return plan;
+    }
+
+    private async Task<ShellRun> RunShellCopyAsync(
+        List<ShellPlanEntry> plan, OperationResult result, List<string> errors,
+        IProgress<FileOperationProgress>? progress, long totalBytes, DateTime startTime,
+        CancellationToken cancellationToken)
+    {
+        var items = plan.Select(p => new ShellTransferWithProgress.Item(p.SourcePath, p.NewName)).ToList();
+        int count = _sourcePaths.Count;
+
+        var outcome = await Task.Run(() => ShellTransferWithProgress.Execute(
+            ShellTransferWithProgress.Kind.Copy, items, _destinationDirectory,
+            p => FileOperationHelpers.ReportProgress(progress, p.CurrentName, Math.Min(p.CompletedItems, count - 1), count,
+                (long)(totalBytes * (p.Percent / 100.0)), totalBytes, startTime),
+            _pauseEvent, cancellationToken), cancellationToken);
+
+        if (outcome.EngineUnavailable)
+        {
+            s_shellEngineUnavailable = true;
+            Span.Helpers.DebugLogger.Log($"[CopyFileOperation] Shell copy engine unavailable ({outcome.Error}) — using managed copy");
+            return ShellRun.Unavailable;
+        }
+
+        var bySource = new Dictionary<string, ShellPlanEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in plan) bySource.TryAdd(entry.SourcePath, entry);
+
+        foreach (var item in outcome.Items)
+        {
+            if (!bySource.TryGetValue(item.SourcePath, out var entry)) continue;
+            if (item.Succeeded)
+            {
+                var dest = item.DestinationPath ?? entry.DestinationPath;
+                _copiedPaths.Add(dest);
+                result.AffectedPaths.Add(dest);
+            }
+            else if (!outcome.Cancelled)
+            {
+                errors.Add(string.Format(L("Op_FailedTo_Copy"), FileOperationHelpers.GetFileName(entry.SourcePath),
+                    ShellTransferWithProgress.DescribeHResult(item.HResult)));
+            }
+        }
+
+        foreach (var (path, hr) in outcome.NestedFailures)
+            errors.Add(string.Format(L("Op_FailedTo_Copy"), FileOperationHelpers.GetFileName(path), ShellTransferWithProgress.DescribeHResult(hr)));
+
+        _nestedCreatedPaths.AddRange(outcome.CreatedPaths);
+        if (outcome.Error != null && !outcome.Cancelled)
+            errors.Add(outcome.Error);
+
+        return outcome.Cancelled ? ShellRun.Cancelled : ShellRun.Completed;
+    }
+
+    /// <summary>
+    /// Vor dem Zusammenführen festhalten, was im Zielordner schon lag: Undo lässt diese Elemente stehen (eine
+    /// überschriebene Datei bleibt in der neuen Fassung, das Original liegt im Papierkorb). Riesige Zielordner werden
+    /// nicht erfasst — dort wird der Ordner beim Undo lieber gar nicht angefasst.
+    /// </summary>
+    private void RememberPreExisting(string destDir)
+    {
+        _mergedDestinations.Add(destDir);
+        try
+        {
+            int count = 0;
+            var options = new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                IgnoreInaccessible = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+            };
+            foreach (var entry in Directory.EnumerateFileSystemEntries(destDir, "*", options))
+            {
+                if (++count > MergeSnapshotLimit) { _mergeUndoUnsafe.Add(destDir); break; }
+                _preExistingUnderMerged.Add(entry);
+            }
+        }
+        catch
+        {
+            _mergeUndoUnsafe.Add(destDir);
+        }
+    }
+
+    private void UndoMergedCopy(string destDir, List<string> errors)
+    {
+        if (_mergeUndoUnsafe.Contains(destDir))
+        {
+            errors.Add(string.Format(L("Op_FailedTo_Delete"), FileOperationHelpers.GetFileName(destDir), "merged folder too large to undo safely"));
+            return;
+        }
+
+        var prefix = destDir.TrimEnd('\\') + "\\";
+        var created = _nestedCreatedPaths
+            .Where(p => p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(p => p.Length) // Dateien vor ihren Ordnern, tiefere Ordner vor flacheren
+            .ToList();
+
+        foreach (var path in created)
+        {
+            if (_preExistingUnderMerged.Contains(path)) continue;
+            try
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+                else if (Directory.Exists(path) && !Directory.EnumerateFileSystemEntries(path).Any())
+                    Directory.Delete(path);
+            }
+            catch (Exception ex)
+            {
+                errors.Add(string.Format(L("Op_FailedTo_Delete"), FileOperationHelpers.GetFileName(path), ex.Message));
+            }
+        }
+    }
+
     // ── Remote stream-based copy ──
 
     private async Task CopyFileViaStreamAsync(
@@ -370,37 +591,15 @@ public class CopyFileOperation : IFileOperation, IPausableOperation
 
             if (destIsRemote)
             {
-                // Remote→Remote: 진행률은 업로드 단계에서만 보고
-                sourceStream = new MemoryStream();
-                if (provider is FtpProvider ftpDl)
-                    await ftpDl.DownloadWithProgressAsync(remotePath, sourceStream, null, ct);
-                else if (provider is SftpProvider sftpDl)
-                    await sftpDl.DownloadWithProgressAsync(remotePath, sourceStream, null, ct);
-                else
-                    sourceStream = await provider.OpenReadAsync(remotePath, ct);
-                if (sourceStream is MemoryStream ms) ms.Position = 0;
+                // Remote→Remote: über eine temporäre Datei statt durch den Arbeitsspeicher (MemoryStream ist auf
+                // 2 GB begrenzt und kostete die volle Dateigröße an RAM). 진행률은 업로드 단계에서만 보고.
+                sourceStream = await SpoolRemoteToTempFileAsync(provider, remotePath, ct);
             }
             else
             {
-                // Remote→Local: 다운로드에서 진행률 보고
-                sourceStream = new MemoryStream();
-                if (provider is FtpProvider ftpDl)
-                {
-                    await ftpDl.DownloadWithProgressAsync(remotePath, sourceStream,
-                        new Progress<long>(bytes => progress?.Report(bytes)), ct);
-                    sourceUsedProgress = true;
-                }
-                else if (provider is SftpProvider sftpDl)
-                {
-                    await sftpDl.DownloadWithProgressAsync(remotePath, sourceStream,
-                        new Progress<long>(bytes => progress?.Report(bytes)), ct);
-                    sourceUsedProgress = true;
-                }
-                else
-                {
-                    sourceStream = await provider.OpenReadAsync(remotePath, ct);
-                }
-                if (sourceStream is MemoryStream ms2) ms2.Position = 0;
+                // Remote→Local: direkt in die Zieldatei streamen (vorher komplett in einen MemoryStream).
+                await DownloadRemoteToLocalAsync(provider, remotePath, destPath, progress, ct);
+                return;
             }
         }
         else
@@ -497,6 +696,69 @@ public class CopyFileOperation : IFileOperation, IPausableOperation
         }
     }
 
+    /// <summary>Remote-Datei zunächst separat herunterladen; das lokale Ziel erst nach vollständigem Erfolg ersetzen.</summary>
+    internal static async Task DownloadRemoteToLocalAsync(
+        IFileSystemProvider provider, string remotePath, string destPath, IProgress<long>? progress, CancellationToken ct)
+    {
+        var destDir = Path.GetDirectoryName(destPath);
+        if (!string.IsNullOrEmpty(destDir))
+            Directory.CreateDirectory(destDir);
+
+        var stagingPath = Path.Combine(destDir ?? ".", ".span-download-" + Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            using (var destStream = new FileStream(stagingPath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                FileOperationHelpers.DefaultBufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan))
+            {
+                if (provider is FtpProvider ftp)
+                    await ftp.DownloadWithProgressAsync(remotePath, destStream, new Progress<long>(bytes => progress?.Report(bytes)), ct);
+                else if (provider is SftpProvider sftp)
+                    await sftp.DownloadWithProgressAsync(remotePath, destStream, new Progress<long>(bytes => progress?.Report(bytes)), ct);
+                else
+                {
+                    using var remoteStream = await provider.OpenReadAsync(remotePath, ct);
+                    await remoteStream.CopyToAsync(destStream, FileOperationHelpers.DefaultBufferSize, ct);
+                }
+
+                progress?.Report(destStream.Length);
+            }
+            ct.ThrowIfCancellationRequested();
+            File.Move(stagingPath, destPath, overwrite: true);
+        }
+        catch
+        {
+            try { File.Delete(stagingPath); } catch { }
+            throw;
+        }
+    }
+
+    /// <summary>Remote-Datei in eine temporäre Datei (DeleteOnClose) laden — Zwischenspeicher für Remote→Remote.</summary>
+    internal static async Task<Stream> SpoolRemoteToTempFileAsync(IFileSystemProvider provider, string remotePath, CancellationToken ct)
+    {
+        var spoolPath = Path.Combine(Path.GetTempPath(), "span_xfer_" + Guid.NewGuid().ToString("N") + ".tmp");
+        var spool = new FileStream(spoolPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None,
+            FileOperationHelpers.DefaultBufferSize, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+        try
+        {
+            if (provider is FtpProvider ftp)
+                await ftp.DownloadWithProgressAsync(remotePath, spool, null, ct);
+            else if (provider is SftpProvider sftp)
+                await sftp.DownloadWithProgressAsync(remotePath, spool, null, ct);
+            else
+            {
+                using var remoteStream = await provider.OpenReadAsync(remotePath, ct);
+                await remoteStream.CopyToAsync(spool, FileOperationHelpers.DefaultBufferSize, ct);
+            }
+            spool.Position = 0;
+            return spool;
+        }
+        catch
+        {
+            spool.Dispose();
+            throw;
+        }
+    }
+
     private async Task CopyDirectoryViaStreamAsync(
         string sourcePath, string destPath,
         bool srcIsRemote, bool destIsRemote,
@@ -553,7 +815,7 @@ public class CopyFileOperation : IFileOperation, IPausableOperation
         foreach (var item in items)
         {
             WaitIfPaused(ct);
-            if (ct.IsCancellationRequested) return;
+            ct.ThrowIfCancellationRequested();
 
             string childSrcPath;
             if (srcIsRemote)
@@ -639,7 +901,7 @@ public class CopyFileOperation : IFileOperation, IPausableOperation
             {
                 return await Task.Run(() =>
                     new DirectoryInfo(path)
-                        .EnumerateFiles("*", SearchOption.AllDirectories)
+                        .EnumerateFiles("*", SizeWalkOptions)
                         .Sum(f => f.Length), ct);
             }
             catch { return 0; }
@@ -647,6 +909,17 @@ public class CopyFileOperation : IFileOperation, IPausableOperation
 
         return 0;
     }
+
+    /// <summary>
+    /// Größenberechnung: Junctions/Symlinks nicht verfolgen (eine Junction auf einen Vorfahren lief sonst bis
+    /// PathTooLong im Kreis) und unzugängliche Unterordner überspringen statt die ganze Summe auf 0 fallen zu lassen.
+    /// </summary>
+    internal static readonly EnumerationOptions SizeWalkOptions = new()
+    {
+        RecurseSubdirectories = true,
+        IgnoreInaccessible = true,
+        AttributesToSkip = FileAttributes.ReparsePoint,
+    };
 
 }
 

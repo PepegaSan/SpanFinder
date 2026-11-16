@@ -164,6 +164,26 @@ namespace Span.Models
         public const string SettingsOpenShortcuts = "span.settings.open.shortcuts";
         public const string SettingsOpenAdvanced = "span.settings.open.advanced";
 
+        // ── Textfeld-Fokus ──────────────────────────────────────
+
+        /// <summary>
+        /// Befehle, die laufen dürfen, während ein Textfeld (Adressleiste, Suche, Filter, Befehlspalette) den
+        /// Fokus hat: Navigation, Ansicht, Tabs, Fenster. Alles, was Dateien oder die Auswahl anfasst
+        /// (Edit/Selection/Pane/Shelf/Workspace, Undo/Redo), bleibt dem Textfeld überlassen — Ctrl+Z hat sonst
+        /// die letzte Dateioperation rückgängig gemacht, während der Benutzer nur seine Eingabe korrigieren wollte.
+        /// </summary>
+        private static readonly HashSet<string> _safeWhileTyping = new(StringComparer.Ordinal)
+        {
+            AddressBarFocus, Search, FilterBar,
+            ViewMiller, ViewDetails, ViewList, ViewIcon, ToggleSplitView, TogglePreview,
+            Refresh, ToggleHidden, ToggleExtensions, Fullscreen, SwitchPane,
+            NewTab, CloseTab, NextTab, PrevTab,
+            NewWindow, OpenSettings, ShowHelp, OpenHelp, OpenCommandPalette, ShelfToggle,
+        };
+
+        /// <summary>Darf <paramref name="commandId"/> ausgeführt werden, während ein Textfeld den Fokus hat?</summary>
+        public static bool IsSafeWhileTyping(string commandId) => _safeWhileTyping.Contains(commandId);
+
         // ── 내부 레지스트리 ─────────────────────────────────────
 
         private static readonly Dictionary<string, string> _categories = new()

@@ -141,6 +141,18 @@ public class DeleteFileOperation : IFileOperation
                         result.AffectedPaths.Add(deletedPath);
                         if (!_permanent) _recycledPaths[deletedPath] = deletedPath;
                     }
+                    else if (!shellResult.Cancelled)
+                    {
+                        // Element ist noch da (gesperrt, schreibgeschützt, kein Zugriff). Vorher blieb die
+                        // Fehlerliste leer und die Operation meldete "Abgeschlossen", obwohl nichts gelöscht war.
+                        var failure = shellResult.FailedItems.FirstOrDefault(f =>
+                            string.Equals(f.Path, deletedPath, StringComparison.OrdinalIgnoreCase)
+                            || f.Path.StartsWith(deletedPath.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase));
+                        var reason = failure.Path != null
+                            ? ShellTransferWithProgress.DescribeHResult(failure.HResult)
+                            : "item could not be deleted";
+                        errors.Add(string.Format(L("Op_FailedTo_Delete"), FileOperationHelpers.GetFileName(deletedPath), reason));
+                    }
                 }
 
                 if (shellResult.Cancelled)
@@ -288,6 +300,17 @@ public class DeleteFileOperation : IFileOperation
                                 {
                                     // 같은 경로가 여러 번 삭제된 경우 나중 항목(더 최근)이 우선
                                     recycleIndex[itemOriginalDir + "|" + itemName] = item;
+
+                                    // Zweiter Schlüssel mit der echten Endung aus dem physischen $R-Pfad: Mit dem
+                                    // Windows-Standard "Erweiterungen bei bekannten Dateitypen ausblenden" liefert
+                                    // Name "Bericht" statt "Bericht.docx", und das Undo fand den Eintrag nie.
+                                    string? physicalPath = item.Path?.ToString();
+                                    var physicalExt = physicalPath != null ? Path.GetExtension(physicalPath) : string.Empty;
+                                    if (!string.IsNullOrEmpty(physicalExt)
+                                        && !itemName.EndsWith(physicalExt, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        recycleIndex.TryAdd(itemOriginalDir + "|" + itemName + physicalExt, item);
+                                    }
                                 }
                             }
                             catch (Exception ex)
@@ -314,6 +337,13 @@ public class DeleteFileOperation : IFileOperation
                                     {
                                         // 0x0014 = FOF_NOCONFIRMATION (0x10) | FOF_SILENT (0x04)
                                         targetFolder.MoveHere(match, 0x0014);
+                                        // MoveHere kehrt zurück, bevor die Shell fertig ist: kurz warten, bis das
+                                        // Element wieder da ist, damit die anschließende Spaltenaktualisierung es sieht.
+                                        for (int wait = 0; wait < 40; wait++)
+                                        {
+                                            if (File.Exists(originalPath) || Directory.Exists(originalPath)) break;
+                                            Thread.Sleep(50);
+                                        }
                                         restored.Add(originalPath);
                                         found = true;
                                         Marshal.ReleaseComObject(targetFolder);

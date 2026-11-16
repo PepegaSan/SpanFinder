@@ -1582,12 +1582,16 @@ namespace Span.Services
             /// <summary>
             /// Invoke a shell extension command by its command ID.
             /// Call this when the user clicks a shell extension menu item.
+            ///
+            /// Läuft auf dem STA-Thread der Sitzung; der Aufrufer wartet asynchron. Vorher blockierte der UI-Thread
+            /// bis zu 5 Minuten in einem Wait(), solange eine Shell-Erweiterung einen modalen Dialog zeigte
+            /// (Eigenschaften, "Senden an", TortoiseGit, 7-Zip) — Span stand als "Reagiert nicht" da.
             /// </summary>
-            public bool InvokeCommand(int commandId)
+            public Task<bool> InvokeCommandAsync(int commandId)
             {
                 lock (_lock)
                 {
-                    if (_disposed) return false;
+                    if (_disposed) return Task.FromResult(false);
                 }
 
                 try { SentrySdk.AddBreadcrumb($"InvokeCommand id={commandId}", "shell.menu"); } catch { }
@@ -1595,19 +1599,24 @@ namespace Span.Services
                 // STA 스레드가 있으면 원래 아파트먼트에서 실행 (RCW 분리 방지)
                 if (_staWorkQueue != null)
                 {
-                    bool success = false;
-                    using var done = new ManualResetEventSlim(false);
-                    _staWorkQueue.Add(() =>
+                    var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    try
                     {
-                        try { success = InvokeCommandCore(commandId); }
-                        finally { done.Set(); }
-                    });
-                    // 셸 명령은 다이얼로그를 띄울 수 있으므로 충분한 타임아웃
-                    done.Wait(TimeSpan.FromMinutes(5));
-                    return success;
+                        _staWorkQueue.Add(() =>
+                        {
+                            try { tcs.TrySetResult(InvokeCommandCore(commandId)); }
+                            catch (Exception ex) { tcs.TrySetException(ex); }
+                        });
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Warteschlange bereits geschlossen (Sitzung entsorgt)
+                        return Task.FromResult(false);
+                    }
+                    return tcs.Task;
                 }
 
-                return InvokeCommandCore(commandId);
+                return Task.FromResult(InvokeCommandCore(commandId));
             }
 
             private bool InvokeCommandCore(int commandId)
@@ -1671,27 +1680,22 @@ namespace Span.Services
 
                 if (_staWorkQueue != null)
                 {
-                    // STA 스레드에서 COM 정리 후 스레드 종료
-                    using var done = new ManualResetEventSlim(false);
-                    bool dispatched = false;
+                    // STA 스레드에서 COM 정리 후 스레드 종료 — ohne auf dem UI-Thread zu warten: Die Aufräumarbeit steht
+                    // hinter einem eventuell noch laufenden Shell-Befehl in der Warteschlange, und das frühere
+                    // Wait(3000) blockierte den UI-Thread genau so lange.
                     try
                     {
                         _staWorkQueue.Add(() =>
                         {
                             try { DisposeCore(); }
-                            finally { done.Set(); }
+                            catch (Exception ex) { Helpers.DebugLogger.Log($"[ShellContextMenu.Session] DisposeCore error: {ex.Message}"); }
+                            finally { try { _staWorkQueue.CompleteAdding(); } catch { } }
                         });
-                        dispatched = true;
-                        done.Wait(3000);
                     }
                     catch (InvalidOperationException)
                     {
-                        // queue already completed (타임아웃 경로) — 직접 정리
-                        if (!dispatched) DisposeCore();
-                    }
-                    finally
-                    {
-                        try { _staWorkQueue.CompleteAdding(); } catch { }
+                        // queue already completed — 직접 정리
+                        DisposeCore();
                     }
                 }
                 else

@@ -374,7 +374,7 @@ namespace Span
 
             try
             {
-                var paths = await ExtractDropPaths(e);
+                var paths = await ExtractDropPathsWithDeferralAsync(e);
                 if (paths.Count == 0) return;
 
                 foreach (var raw in paths)
@@ -786,6 +786,25 @@ namespace Span
         #region Drag & Drop: Shared helpers
 
         /// <summary>
+        /// Pfade aus dem Drop lesen, solange der OLE-Drop noch offen ist. Ein async-void-Handler gibt beim ersten
+        /// await an die Quelle zurück; danach garantiert WinUI die DataView nicht mehr. Das Deferral hält den Drop nur
+        /// für das Lesen offen (Millisekunden) und wird VOR dem Dialog/der Dateioperation abgeschlossen — sonst stünde
+        /// der Explorer als Quelle bis zum Ende der Kopie still.
+        /// </summary>
+        internal async Task<List<string>> ExtractDropPathsWithDeferralAsync(DragEventArgs e)
+        {
+            var deferral = e.GetDeferral();
+            try
+            {
+                return await ExtractDropPaths(e);
+            }
+            finally
+            {
+                try { deferral.Complete(); } catch { }
+            }
+        }
+
+        /// <summary>
         /// 드롭 이벤트에서 파일 경로 목록을 추출한다.
         /// 내부 Span 드래그(SourcePaths)와 외부 앱 StorageItems를 모두 지원한다.
         /// </summary>
@@ -794,18 +813,31 @@ namespace Span
             if (Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out var srcPaths))
                 return srcPaths;
 
-            if (e.DataView.Contains(StandardDataFormats.Text))
-            {
-                var text = await e.DataView.GetTextAsync();
-                if (!string.IsNullOrEmpty(text))
-                    return text.Split('\n', StringSplitOptions.RemoveEmptyEntries).ToList();
-            }
-
-            // 외부 앱(Windows 탐색기 등)에서 드래그된 StorageItems 처리
+            // 외부 앱(Windows 탐색기 등)에서 드래그된 StorageItems 처리 — VOR dem Text: viele Quellen liefern beides,
+            // und der Textinhalt ist dann nicht die Pfadliste.
             if (e.DataView.Contains(StandardDataFormats.StorageItems))
             {
                 var items = await e.DataView.GetStorageItemsAsync();
                 return items.Select(i => i.Path).Where(p => !string.IsNullOrEmpty(p)).ToList();
+            }
+
+            // Nur-Text (Terminal, Editor, Browser): als Pfadliste nur, wenn JEDE Zeile ein absoluter, existierender
+            // Pfad ist. Vorher galt beliebiger Text zeilenweise als Pfad — ein Textschnipsel, der zufällig einen
+            // Dateipfad enthielt, wurde auf dem Papierkorb-Ziel zum Löschauftrag; \r aus CRLF blieb am Pfad hängen.
+            if (e.DataView.Contains(StandardDataFormats.Text))
+            {
+                var text = await e.DataView.GetTextAsync();
+                if (!string.IsNullOrEmpty(text))
+                {
+                    var lines = text
+                        .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Where(l => l.Length > 0)
+                        .ToList();
+                    if (lines.Count > 0 && lines.All(l =>
+                            System.IO.Path.IsPathRooted(l)
+                            && (System.IO.File.Exists(l) || System.IO.Directory.Exists(l))))
+                        return lines;
+                }
             }
 
             return new List<string>();
@@ -831,13 +863,7 @@ namespace Span
             var ctrl = (Helpers.NativeMethods.GetAsyncKeyState(Helpers.NativeMethods.VK_CONTROL) & 0x8000) != 0;
             var alt = (Helpers.NativeMethods.GetAsyncKeyState(Helpers.NativeMethods.VK_MENU) & 0x8000) != 0;
 
-            // Explicit modifier keys override default behavior
-            if (alt || (ctrl && shift)) return DragDropMode.Link;   // Alt / Ctrl+Shift = create shortcut
-            if (shift) return DragDropMode.Move;   // Shift = force Move
-            if (ctrl) return DragDropMode.Copy;    // Ctrl = force Copy
-
-            // Default: same drive root = Move, different drive = Copy
-            // 외부(탐색기)에서 온 드래그는 여기서 제외한다. 판정 근거가 되는 경로가
+            // 외부(탐색기)에서 온 드래그는 Move에서 제외한다. 판정 근거가 되는 경로가
             // StorageItems를 비동기로 읽어 뒤늦게 채워지고, 드래그 세션 구분도
             // "마지막 DragOver로부터 1500ms"라는 시계 추정뿐이라 같은 드롭이 타이밍에 따라
             // Copy가 되기도 Move가 되기도 한다. Move는 원본을 지우는 동작이라
@@ -845,7 +871,17 @@ namespace Span
             IReadOnlyList<string>? sources = null;
             if (Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out var srcPaths) && srcPaths.Count > 0)
                 sources = srcPaths;
+            bool isInternalDrag = sources != null;
 
+            // Explicit modifier keys override default behavior
+            if (alt || (ctrl && shift)) return DragDropMode.Link;   // Alt / Ctrl+Shift = create shortcut
+            // Shift = Move — nur für interne Drags. Bei externen (Explorer → Span) meldete Span DROPEFFECT_MOVE,
+            // bevor es selbst verschoben hatte; der Explorer löscht als Quelle daraufhin die Originale, während
+            // Span noch kopiert (Wettlauf, Datenverlust). Fremdquellen bleiben wie dokumentiert immer Copy.
+            if (shift) return isInternalDrag ? DragDropMode.Move : DragDropMode.Copy;
+            if (ctrl) return DragDropMode.Copy;    // Ctrl = force Copy
+
+            // Default: same drive root = Move, different drive = Copy
             if (sources != null)
             {
                 var srcRoot = System.IO.Path.GetPathRoot(sources[0]);
@@ -856,6 +892,20 @@ namespace Span
             }
 
             return DragDropMode.Copy; // fallback: Copy
+        }
+
+        /// <summary>True when the drag carries real file items (internal SourcePaths or StorageItems) — no text fallback.</summary>
+        private static bool HasFileData(DragEventArgs e)
+        {
+            try
+            {
+                return Helpers.OutboundFileDragHelper.TryGetSourcePaths(e.DataView, out _)
+                    || e.DataView.Contains(StandardDataFormats.StorageItems);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>True when the drag carries files (internal SourcePaths, StorageItems or text paths).</summary>
@@ -998,7 +1048,7 @@ namespace Span
 
             try
             {
-                var paths = await ExtractDropPaths(e);
+                var paths = await ExtractDropPathsWithDeferralAsync(e);
                 if (paths.Count == 0) return;
 
                 if (rightDrag)
@@ -1311,14 +1361,19 @@ namespace Span
         {
             _lastModifierSnapshot = GetModifierSnapshot();
             if (_modifierPollTimer != null) return;
-            _modifierPollTimer = new System.Threading.Timer(
-                OnModifierPollTick, null, 50, 50);
+            // Der Timer wird vom UI-Thread erzeugt, aber aus seinem eigenen Pool-Thread-Callback gestoppt. Mit einem
+            // einfachen Feld konnte ein neuer Timer zwischen Dispose() und "= null" entstehen und dann verwaist alle
+            // 50 ms weiterlaufen. Nur der Gewinner des CompareExchange behält seinen Timer.
+            var timer = new System.Threading.Timer(OnModifierPollTick, null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+            if (System.Threading.Interlocked.CompareExchange(ref _modifierPollTimer, timer, null) == null)
+                timer.Change(50, 50);
+            else
+                timer.Dispose();
         }
 
         private void StopModifierPollTimer()
         {
-            _modifierPollTimer?.Dispose();
-            _modifierPollTimer = null;
+            System.Threading.Interlocked.Exchange(ref _modifierPollTimer, null)?.Dispose();
         }
 
         private void OnModifierPollTick(object? state)
@@ -1846,6 +1901,9 @@ namespace Span
         private void OnRecycleBinDragOver(object sender, DragEventArgs e)
         {
             TrackDragOver(e);
+            // Nur echte Dateielemente (interne SourcePaths, StorageItems). Vorher nahm der Papierkorb jede Drag-Quelle
+            // an — auch reinen Text, dessen Zeilen dann als Löschpfade interpretiert wurden.
+            if (!HasFileData(e)) return;
             e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move;
             e.DragUIOverride.Caption = _loc.Get("DragDrop_MoveToRecycleBin");
             e.DragUIOverride.IsGlyphVisible = true;
@@ -1974,7 +2032,7 @@ namespace Span
         {
             try
             {
-                var paths = await ExtractDropPaths(e);
+                var paths = await ExtractDropPathsWithDeferralAsync(e);
                 if (paths.Count == 0) return;
 
                 var router = App.Current.Services.GetRequiredService<Services.FileSystemRouter>();

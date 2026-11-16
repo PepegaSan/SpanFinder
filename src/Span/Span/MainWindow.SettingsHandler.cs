@@ -871,7 +871,7 @@ namespace Span
                     break;
 
                 case "IconFontScale":
-                    Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, () => ApplyIconFontScale(value as string ?? "0"));
+                    Helpers.DispatcherHelper.SafeEnqueue(DispatcherQueue, () => ApplyIconFontScale(value as string ?? "0", resetSidebarWidth: true));
                     break;
 
                 case "ShowHiddenFiles":
@@ -1108,7 +1108,7 @@ namespace Span
         /// 대부분의 UI(ListView items / Sidebar / Miller / AddressBar)는 XAML {Binding} 으로 자동 반영.
         /// Global UI(toolbar/tab bar/status bar), HomeView, SettingsView 만 여기서 tree walker 로 처리.
         /// </summary>
-        private void ApplyIconFontScale(string scale)
+        private void ApplyIconFontScale(string scale, bool resetSidebarWidth = false)
         {
             if (_isClosed) return;
 
@@ -1118,11 +1118,22 @@ namespace Span
             svc.Level = newLevel; // → PropertyChanged → XAML bindings 자동 갱신
 
             // Sidebar 컬럼 폭 (GridLength 는 직접 바인딩 어려우므로 여기서 설정)
-            double sidebarWidth = 200 + newLevel * 6;
-            if (!_sidebarHiddenForSpecialMode)
-                SidebarCol.Width = new GridLength(sidebarWidth);
-            else
-                _savedSidebarWidth = sidebarWidth; // Settings 모드 해제 시 복원될 값 갱신
+            // Nur wenn der Benutzer die Stufe ändert, wird auf die Standardbreite zurückgesetzt. Beim Start (Konstruktor
+            // und Loaded) löschte dieser Aufruf bisher jedes Mal die gespeicherte Breite und überschrieb sie — die
+            // selbst gezogene Seitenleistenbreite überlebte so keinen Neustart.
+            if (resetSidebarWidth)
+            {
+                try { Windows.Storage.ApplicationData.Current.LocalSettings.Values.Remove("CustomSidebarWidth"); }
+                catch { }
+            }
+            if (resetSidebarWidth || !HasSavedSidebarWidth())
+            {
+                double sidebarWidth = 200 + newLevel * 6;
+                if (!_sidebarHiddenForSpecialMode)
+                    SidebarCol.Width = new GridLength(sidebarWidth);
+                else
+                    _savedSidebarWidth = sidebarWidth; // Settings 모드 해제 시 복원될 값 갱신
+            }
 
             // Global UI (toolbar, tab bar, status bar) — 여전히 tree walker
             ApplyIconFontScaleToGlobalUI(newLevel);
@@ -1134,14 +1145,16 @@ namespace Span
             // Home page — 동일하게 Visible일 때만 적용
             if (HomeView.Visibility == Visibility.Visible)
                 HomeView.ApplyIconFontScale(newLevel);
+        }
 
-            // Sidebar width: reset custom width on scale change
+        private static bool HasSavedSidebarWidth()
+        {
             try
             {
-                var appSettings = Windows.Storage.ApplicationData.Current.LocalSettings;
-                appSettings.Values.Remove("CustomSidebarWidth");
+                return Windows.Storage.ApplicationData.Current.LocalSettings.Values.TryGetValue("CustomSidebarWidth", out var saved)
+                    && saved is double;
             }
-            catch { }
+            catch { return false; }
         }
 
         /// <summary>

@@ -46,11 +46,27 @@ internal static class FileOperationHelpers
         return Path.GetFileName(path);
     }
 
+    internal static bool IsSameRemotePath(string source, string destination)
+        => string.Equals(FileSystemRouter.GetUriPrefix(source), FileSystemRouter.GetUriPrefix(destination), StringComparison.Ordinal)
+        && string.Equals(FileSystemRouter.ExtractRemotePath(source).TrimEnd('/'),
+            FileSystemRouter.ExtractRemotePath(destination).TrimEnd('/'), StringComparison.Ordinal);
+
+    internal static bool IsRemoteDescendantPath(string source, string destination)
+        => string.Equals(FileSystemRouter.GetUriPrefix(source), FileSystemRouter.GetUriPrefix(destination), StringComparison.Ordinal)
+        && FileSystemRouter.ExtractRemotePath(destination).StartsWith(
+            FileSystemRouter.ExtractRemotePath(source).TrimEnd('/') + "/", StringComparison.Ordinal);
+
     /// <summary>
     /// Generates a unique file name by appending " (1)", " (2)", etc. until no conflict exists.
     /// Used by Copy and Move for KeepBoth conflict resolution.
     /// </summary>
-    internal static string GetUniqueFileName(string path)
+    internal static string GetUniqueFileName(string path) => GetUniqueFileName(path, null);
+
+    /// <summary>
+    /// Wie <see cref="GetUniqueFileName(string)"/>, meidet zusätzlich bereits für dieselbe Operation vergebene Namen
+    /// (zwei Quellen gleichen Namens aus verschiedenen Ordnern in ein Ziel).
+    /// </summary>
+    internal static string GetUniqueFileName(string path, ISet<string>? reserved)
     {
         var directory = Path.GetDirectoryName(path) ?? "";
         var fileName = Path.GetFileNameWithoutExtension(path);
@@ -62,7 +78,7 @@ internal static class FileOperationHelpers
         {
             newPath = Path.Combine(directory, $"{fileName} ({counter}){extension}");
             counter++;
-        } while (File.Exists(newPath) || Directory.Exists(newPath));
+        } while (File.Exists(newPath) || Directory.Exists(newPath) || (reserved != null && reserved.Contains(newPath)));
 
         return newPath;
     }
@@ -152,35 +168,49 @@ internal static class FileOperationHelpers
         IProgress<long>? progress,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         long copiedBytes = 0;
+        var stagingPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(destination))!,
+            ".span-copy-" + Guid.NewGuid().ToString("N") + ".tmp");
 
-        using (var sourceStream = new FileStream(
-            source, FileMode.Open, FileAccess.Read, FileShare.Read,
-            bufferSize, FileOptions.SequentialScan))
-        using (var destStream = new FileStream(
-            destination, FileMode.Create, FileAccess.Write, FileShare.None,
-            bufferSize, FileOptions.SequentialScan))
+        try
         {
-            var buffer = new byte[bufferSize];
-            int bytesRead;
-            long lastReportTime = Environment.TickCount64;
-
-            while ((bytesRead = await sourceStream.ReadAsync(buffer, cancellationToken)) > 0)
+            using (var sourceStream = new FileStream(
+                source, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize, FileOptions.SequentialScan))
+            using (var destStream = new FileStream(
+                stagingPath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                bufferSize, FileOptions.SequentialScan))
             {
-                WaitIfPaused(pauseEvent, cancellationToken);
-                await destStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
-                copiedBytes += bytesRead;
+                var buffer = new byte[bufferSize];
+                int bytesRead;
+                long lastReportTime = Environment.TickCount64;
 
-                if (progress != null)
+                while ((bytesRead = await sourceStream.ReadAsync(buffer, cancellationToken)) > 0)
                 {
-                    long now = Environment.TickCount64;
-                    if (now - lastReportTime >= ProgressReportIntervalMs)
+                    WaitIfPaused(pauseEvent, cancellationToken);
+                    await destStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+                    copiedBytes += bytesRead;
+
+                    if (progress != null)
                     {
-                        progress.Report(copiedBytes);
-                        lastReportTime = now;
+                        long now = Environment.TickCount64;
+                        if (now - lastReportTime >= ProgressReportIntervalMs)
+                        {
+                            progress.Report(copiedBytes);
+                            lastReportTime = now;
+                        }
                     }
                 }
             }
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(stagingPath, destination, overwrite: true);
+        }
+        catch
+        {
+            // Failed replacements must preserve the existing destination, including on cancellation.
+            try { File.Delete(stagingPath); } catch { }
+            throw;
         }
 
         // A stream copy carries no metadata. Keep "Date modified" like Explorer / File.Copy do
@@ -213,23 +243,34 @@ internal static class FileOperationHelpers
             selfCopySkipDir = destination;
 
         long bytesCopied = 0;
+        long lastReportTick = Environment.TickCount64;
 
         async Task CopyDirRecursive(string src, string dest)
         {
-            if (cancellationToken.IsCancellationRequested) return;
+            cancellationToken.ThrowIfCancellationRequested();
             Directory.CreateDirectory(dest);
 
             foreach (var file in Directory.EnumerateFiles(src))
             {
                 WaitIfPaused(pauseEvent, cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return;
+                cancellationToken.ThrowIfCancellationRequested();
 
                 var destFile = Path.Combine(dest, Path.GetFileName(file));
                 var fileSize = new FileInfo(file).Length;
 
                 if (fileSize <= bufferSize)
                 {
-                    File.Copy(file, destFile, overwrite: true);
+                    var stagingFile = Path.Combine(dest, ".span-copy-" + Guid.NewGuid().ToString("N") + ".tmp");
+                    try
+                    {
+                        File.Copy(file, stagingFile);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        File.Move(stagingFile, destFile, overwrite: true);
+                    }
+                    finally
+                    {
+                        try { File.Delete(stagingFile); } catch { }
+                    }
                 }
                 else
                 {
@@ -240,13 +281,20 @@ internal static class FileOperationHelpers
                 }
 
                 bytesCopied += fileSize;
-                overallProgress?.Report(bytesCopied);
+                // Zeitlich gedrosselt wie in CopyFileWithProgressAsync — eine Meldung pro Datei flutete bei vielen
+                // kleinen Dateien den UI-Thread (eine Dispatcher-Nachricht je Datei).
+                long now = Environment.TickCount64;
+                if (now - lastReportTick >= ProgressReportIntervalMs)
+                {
+                    overallProgress?.Report(bytesCopied);
+                    lastReportTick = now;
+                }
             }
 
             foreach (var dir in Directory.EnumerateDirectories(src))
             {
                 WaitIfPaused(pauseEvent, cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return;
+                cancellationToken.ThrowIfCancellationRequested();
 
                 if (selfCopySkipDir != null && string.Equals(dir, selfCopySkipDir, StringComparison.OrdinalIgnoreCase))
                     continue;
@@ -257,6 +305,7 @@ internal static class FileOperationHelpers
         }
 
         await CopyDirRecursive(source, destination);
+        overallProgress?.Report(bytesCopied);
     }
 
     /// <summary>

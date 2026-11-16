@@ -57,6 +57,46 @@ public class ShortcutCommandsTests
         }
     }
 
+    // ── Textfeld-Fokus ───────────────────────────────
+
+    [TestMethod]
+    public void IsSafeWhileTyping_BlocksFileAndSelectionCommands()
+    {
+        // Alles, was Dateien oder die Auswahl anfasst, darf aus einem Textfeld heraus nicht laufen
+        // (Ctrl+Z in der Adressleiste machte die letzte Dateioperation rückgängig).
+        string[] blocked =
+        {
+            ShortcutCommands.Undo, ShortcutCommands.Redo, ShortcutCommands.Delete, ShortcutCommands.PermanentDelete,
+            ShortcutCommands.Cut, ShortcutCommands.Copy, ShortcutCommands.Paste, ShortcutCommands.Rename,
+            ShortcutCommands.Duplicate, ShortcutCommands.NewFolder, ShortcutCommands.SelectAll,
+            ShortcutCommands.InvertSelection, ShortcutCommands.MoveToOtherPane, ShortcutCommands.ShelfMoveHere,
+            ShortcutCommands.QuickLook, ShortcutCommands.OpenTerminal,
+        };
+        foreach (var id in blocked)
+            Assert.IsFalse(ShortcutCommands.IsSafeWhileTyping(id), $"{id} darf im Textfeld nicht ausgeführt werden");
+    }
+
+    [TestMethod]
+    public void IsSafeWhileTyping_AllowsNavigationViewAndTabCommands()
+    {
+        string[] allowed =
+        {
+            ShortcutCommands.AddressBarFocus, ShortcutCommands.Search, ShortcutCommands.FilterBar,
+            ShortcutCommands.ViewDetails, ShortcutCommands.ToggleSplitView, ShortcutCommands.Fullscreen,
+            ShortcutCommands.NewTab, ShortcutCommands.CloseTab, ShortcutCommands.NextTab,
+            ShortcutCommands.OpenCommandPalette, ShortcutCommands.ShowHelp,
+        };
+        foreach (var id in allowed)
+            Assert.IsTrue(ShortcutCommands.IsSafeWhileTyping(id), $"{id} muss im Textfeld erlaubt sein");
+    }
+
+    [TestMethod]
+    public void IsSafeWhileTyping_UnknownCommand_IsBlocked()
+    {
+        // Default deny: neue Befehle müssen ausdrücklich freigegeben werden.
+        Assert.IsFalse(ShortcutCommands.IsSafeWhileTyping("span.future.anything"));
+    }
+
     // ── _categories 레지스트리와의 일관성 ───────────
 
     [TestMethod]

@@ -189,6 +189,10 @@ internal static class ClipThumbnailExtractor
             {
                 DataSource = tmp,
                 Mode = SqliteOpenMode.ReadOnly,
+                // Kein Connection-Pooling: sonst bleibt das sqlite3-Handle nach dem Dispose im Pool offen, das
+                // File.Delete im finally scheitert still, und je .clip-Thumbnail lag eine span_clip_*.db (MB bis
+                // hunderte MB) dauerhaft in %TEMP%.
+                Pooling = false,
             };
             using var conn = new SqliteConnection(csb.ToString());
             conn.Open();

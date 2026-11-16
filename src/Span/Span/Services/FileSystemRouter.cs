@@ -70,6 +70,7 @@ namespace Span.Services
             foreach (var kvp in _activeConnections)
             {
                 if (fullPath.StartsWith(kvp.Key, StringComparison.OrdinalIgnoreCase)
+                    && (fullPath.Length == kvp.Key.Length || fullPath[kvp.Key.Length] == '/')
                     && kvp.Key.Length > bestLength)
                 {
                     bestMatch = kvp.Value;
